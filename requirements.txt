@@ -1,3 +1,4 @@
 plotly
 pillow
 openpyxl
+pyzbar
