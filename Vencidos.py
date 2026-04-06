@@ -234,16 +234,16 @@ with tab2:
         else:
             st.error("❌ El ID escaneado no existe en el sistema.")
             
-st.divider()
-        st.markdown("### 📥 Respaldo de Base de Datos")
-        st.info("Streamlit Cloud es un entorno temporal. No olvides descargar tu archivo Excel actualizado al terminar tus mediciones.")
+    st.divider()
+    st.markdown("### 📥 Respaldo de Base de Datos")
+    st.info("Streamlit Cloud es un entorno temporal. No olvides descargar tu archivo Excel actualizado al terminar tus mediciones.")
         
-        # Leemos el archivo físico que ha sido modificado en el contenedor
-        if os.path.exists(RUTA_EXCEL):
-            with open(RUTA_EXCEL, "rb") as file:
-                btn = st.download_button(
-                    label="Descargar Excel Actualizado",
-                    data=file,
-                    file_name=f"BCS_ESD_Actualizado_{datetime.today().strftime('%Y-%m-%d')}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
+    # Leemos el archivo físico que ha sido modificado en el contenedor
+    if os.path.exists(RUTA_EXCEL):
+        with open(RUTA_EXCEL, "rb") as file:
+            btn = st.download_button(
+                label="Descargar Excel Actualizado",
+                data=file,
+                file_name=f"BCS_ESD_Actualizado_{datetime.today().strftime('%Y-%m-%d')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
