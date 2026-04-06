@@ -36,7 +36,6 @@ if uploaded_file is not None:
             if 'Estatus operativo' in df_total.columns:
                 df_total['Estatus operativo'] = df_total['Estatus operativo'].astype(str).str.strip().str.upper()
             else:
-                # Si no existe la columna, creamos una vacía para que no falle el filtro
                 df_total['Estatus operativo'] = 'OPERATIVO'
 
             # FILTRO: Vencidos Y que NO sean "No Operativo"
@@ -48,62 +47,68 @@ if uploaded_file is not None:
             if not vencidos.empty:
                 st.error(f"🚨 Se encontraron {len(vencidos)} equipos VENCIDOS en operación.")
                 
-                # Agrupar por línea para contar cuántos vencidos hay en cada una
-                conteo_lineas = vencidos.groupby('Línea').size().reset_index(name='Cantidad Vencidos')
+                # --- LÓGICA DE AGRUPACIÓN (DESGLOSE PISO/MOBILIARIO) ---
+                conteo_tipos = vencidos.groupby(['Línea', 'Hoja Origen']).size().unstack(fill_value=0).reset_index()
+                
+                if 'PISO' not in conteo_tipos.columns: conteo_tipos['PISO'] = 0
+                if 'MOBILIARIO' not in conteo_tipos.columns: conteo_tipos['MOBILIARIO'] = 0
+                
+                conteo_tipos.rename(columns={'PISO': 'Equipos (Piso)', 'MOBILIARIO': 'Mobiliario'}, inplace=True)
+                conteo_tipos['Total Vencidos'] = conteo_tipos['Equipos (Piso)'] + conteo_tipos['Mobiliario']
+                
+                # --- NUEVO FORMATO DE TEXTO (MULTILÍNEA) ---
+                # Usamos <br> para forzar el salto de línea entre P y M
+                conteo_tipos['Etiqueta'] = "P: " + conteo_tipos['Equipos (Piso)'].astype(str) + "<br>M: " + conteo_tipos['Mobiliario'].astype(str)
                 
                 # --- GENERACIÓN DEL MAPA ---
                 st.markdown("### Mapa de Ubicaciones")
                 
                 if os.path.exists(RUTA_MAPA) and os.path.exists(RUTA_COORDENADAS):
-                    # Cargar imagen y coordenadas
                     img = Image.open(RUTA_MAPA)
                     width, height = img.size
                     df_coords = pd.read_csv(RUTA_COORDENADAS)
                     
-                    # Unir el conteo de vencidos con sus coordenadas (X, Y)
-                    mapa_data = pd.merge(conteo_lineas, df_coords, on='Línea', how='inner')
+                    mapa_data = pd.merge(conteo_tipos, df_coords, on='Línea', how='inner')
                     
                     if not mapa_data.empty:
-                        # Crear gráfico sobre la imagen
                         fig = px.scatter(
                             mapa_data, 
                             x="X", y="Y", 
-                            size="Cantidad Vencidos", 
-                            color="Cantidad Vencidos",
+                            color="Total Vencidos",
+                            text="Etiqueta",
                             hover_name="Línea",
-                            text="Cantidad Vencidos",
+                            hover_data={
+                                "X": False, 
+                                "Y": False, 
+                                "Etiqueta": False, 
+                                "Total Vencidos": True,
+                                "Equipos (Piso)": True,
+                                "Mobiliario": True
+                            },
                             color_continuous_scale="Reds"
                         )
                         
-                        # Estilizar los círculos (texto al centro, tamaño, etc.)
+                        # --- NUEVO FORMATO DE MARCADOR (CUADRADO) ---
                         fig.update_traces(
                             textposition='middle center', 
-                            textfont=dict(color='white', size=14, weight='bold'),
-                            marker=dict(opacity=0.85, line=dict(width=2, color='DarkSlateGrey'))
+                            textfont=dict(color='white', size=9, weight='bold'),
+                            marker=dict(
+                                symbol='square', # Esto cambia la forma a un cuadrado
+                                size=40,         # Tamaño del cuadrado
+                                opacity=0.9, 
+                                line=dict(width=2, color='DarkSlateGrey')
+                            )
                         )
                         
-                        # Colocar la imagen de fondo y ajustar ejes
                         fig.update_layout(
                             images=[dict(
-                                source=img,
-                                xref="x", yref="y",
-                                x=0, y=0,
-                                sizex=width, sizey=height,
-                                sizing="stretch", # Se mantiene stretch, pero los ejes ya están bloqueados
-                                opacity=1,
-                                layer="below"
+                                source=img, xref="x", yref="y", x=0, y=0,
+                                sizex=width, sizey=height, sizing="stretch", opacity=1, layer="below"
                             )],
-                            # Configuración del eje X
-                            xaxis=dict(
-                                showgrid=False, zeroline=False, 
-                                range=[0, width], visible=False
-                            ),
-                            # Configuración del eje Y (Aquí está la magia para la proporción real)
+                            xaxis=dict(showgrid=False, zeroline=False, range=[0, width], visible=False),
                             yaxis=dict(
-                                showgrid=False, zeroline=False, 
-                                range=[height, 0], visible=False,
-                                scaleanchor="x", # Ancla la escala al eje X
-                                scaleratio=1     # Fuerza la proporción 1:1
+                                showgrid=False, zeroline=False, range=[height, 0], visible=False,
+                                scaleanchor="x", scaleratio=1
                             ),
                             margin=dict(l=0, r=0, t=0, b=0),
                             coloraxis_showscale=False
