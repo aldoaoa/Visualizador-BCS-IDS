@@ -232,7 +232,9 @@ with tab2:
                         st.error(f"❌ Ocurrió un error al guardar: {e}")
 
         else:
-        st.divider()
+            st.error("❌ El ID escaneado no existe en el sistema.")
+            
+st.divider()
         st.markdown("### 📥 Respaldo de Base de Datos")
         st.info("Streamlit Cloud es un entorno temporal. No olvides descargar tu archivo Excel actualizado al terminar tus mediciones.")
         
@@ -245,4 +247,3 @@ with tab2:
                     file_name=f"BCS_ESD_Actualizado_{datetime.today().strftime('%Y-%m-%d')}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
-            st.error("❌ El ID escaneado no existe en el sistema.")
