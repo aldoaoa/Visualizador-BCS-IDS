@@ -207,26 +207,28 @@ with tab2:
                         frecuencia = str(equipo.get('Frecuencia de verificación', 'Anual'))
                         proxima_fecha = calcular_proxima_fecha(nueva_fecha, frecuencia)
                         
-                        # 2. PARA PRESERVAR LOS ENCABEZADOS ORIGINALES (Filas 0 a 3):
-                        # Descargamos la hoja completa (Raw) sin headers y modificamos sólo la fila necesaria
+                        # 2. MÉTODO ROBUSTO POR COORDENADAS (Evita errores de texto/espacios)
+                        # Descargamos la hoja completa sin headers
                         df_raw = conn.read(worksheet=hoja_activa, header=None)
                         
-                        # Obtener los índices de columnas basados en la fila 5 (índice 4 de pandas)
-                        nombres_columnas = df_raw.iloc[4].fillna("").astype(str).str.strip()
-                        id_col = nombres_columnas[nombres_columnas == 'Id de producto'].index[0]
-                        val_col = nombres_columnas[nombres_columnas == 'Valor de verificación'].index[0]
-                        fecha_col = nombres_columnas[nombres_columnas == 'Fecha de verificación'].index[0]
-                        prox_fecha_col = nombres_columnas[nombres_columnas == 'Fecha de próxima verificación'].index[0]
-                        status_col = nombres_columnas[nombres_columnas == 'Estatus de verificación'].index[0]
+                        # Obtenemos la posición numérica exacta de las columnas desde el df_actual que sí cargó bien
+                        id_col_idx = df_actual.columns.get_loc('Id de producto')
+                        val_col_idx = df_actual.columns.get_loc('Valor de verificación')
+                        fecha_col_idx = df_actual.columns.get_loc('Fecha de verificación')
+                        prox_fecha_col_idx = df_actual.columns.get_loc('Fecha de próxima verificación')
+                        status_col_idx = df_actual.columns.get_loc('Estatus de verificación')
                         
-                        # Encontrar la fila exacta en el archivo Raw
-                        row_raw_idx = df_raw[df_raw[id_col] == id_escaneado].index[0]
+                        # Extraemos toda la columna de IDs del archivo crudo usando su número de columna
+                        columna_ids = df_raw.iloc[:, id_col_idx].fillna("").astype(str).str.strip()
                         
-                        # Actualizar los valores en el Dataframe Raw
-                        df_raw.at[row_raw_idx, val_col] = nuevo_valor
-                        df_raw.at[row_raw_idx, fecha_col] = nueva_fecha.strftime("%Y-%m-%d")
-                        df_raw.at[row_raw_idx, prox_fecha_col] = proxima_fecha.strftime("%Y-%m-%d")
-                        df_raw.at[row_raw_idx, status_col] = 'VIGENTE'
+                        # Encontramos la fila exacta donde está el ID escaneado
+                        row_raw_idx = columna_ids[columna_ids == str(id_escaneado).strip()].index[0]
+                        
+                        # Actualizamos inyectando en las coordenadas exactas (.iat[fila, columna])
+                        df_raw.iat[row_raw_idx, val_col_idx] = nuevo_valor
+                        df_raw.iat[row_raw_idx, fecha_col_idx] = nueva_fecha.strftime("%Y-%m-%d")
+                        df_raw.iat[row_raw_idx, prox_fecha_col_idx] = proxima_fecha.strftime("%Y-%m-%d")
+                        df_raw.iat[row_raw_idx, status_col_idx] = 'VIGENTE'
                         
                         # 3. Empujar el archivo completo de regreso a Google Sheets
                         conn.update(worksheet=hoja_activa, data=df_raw, header=False)
@@ -234,7 +236,7 @@ with tab2:
                     st.success("💾 ¡Datos guardados exitosamente en Google Sheets para todos los usuarios!")
                     st.cache_data.clear()
                     
-                    # Limpiamos la URL para permitir un nuevo escaneo inmediatamente
+                    # Limpiamos la URL para permitir un nuevo escaneo
                     st.query_params.clear()
                     st.rerun()
 
