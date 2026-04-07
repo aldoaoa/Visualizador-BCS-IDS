@@ -135,28 +135,34 @@ elif st.session_state.vista_actual == "Escáner":
     if not id_escaneado_url:
         st.markdown("### 📷 Apunta al Código QR")
         
+        # --- NUEVA LÓGICA DE CÁMARA TRASERA PARA QR ---
         html_code_qr = """
         <script src="https://unpkg.com/html5-qrcode"></script>
         <div id="reader" style="width:100%; max-width:500px; margin:auto; border-radius:10px; overflow:hidden; border: 2px solid #ddd; background-color: #f9f9f9;"></div>
-        <p id="cam-status" style="text-align:center; font-family:sans-serif; color:#666; font-size: 14px;">Buscando lente macro...</p>
+        <p id="cam-status" style="text-align:center; font-family:sans-serif; color:#666; font-size: 14px;">Iniciando cámara trasera...</p>
         <script>
         Html5Qrcode.getCameras().then(devices => {
             if (devices && devices.length) {
-                let selectedCameraId = devices[0].id;
+                let selectedCameraId = devices[0].id; // Fallback extremo
                 
-                // 1. Buscar específicamente el lente Ultra Wide / Macro del iPhone
-                for (let i = 0; i < devices.length; i++) {
-                    let label = devices[i].label.toLowerCase();
-                    if (label.includes("ultra") || label.includes("gran angular") || label.includes("macro")) {
-                        selectedCameraId = devices[i].id;
-                        document.getElementById("cam-status").innerText = "Lente Macro activado.";
-                        break;
-                    } else if (label.includes("back") || label.includes("trasera")) {
-                        selectedCameraId = devices[i].id; // Fallback a la trasera normal
+                // 1. Filtrar SOLO cámaras traseras (ignorar selfie)
+                let rearCams = devices.filter(c => c.label.toLowerCase().includes('back') || c.label.toLowerCase().includes('trasera'));
+                
+                if (rearCams.length > 0) {
+                    selectedCameraId = rearCams[0].id; // Usar la primera trasera por default
+                    document.getElementById("cam-status").innerText = "Cámara trasera activada.";
+                    
+                    // 2. Buscar específicamente lente Macro/Ultra Wide
+                    for (let cam of rearCams) {
+                        if (cam.label.toLowerCase().includes('ultra') || cam.label.toLowerCase().includes('macro')) {
+                            selectedCameraId = cam.id;
+                            document.getElementById("cam-status").innerText = "Lente Macro trasero activado.";
+                            break;
+                        }
                     }
                 }
 
-                // 2. Iniciar el escáner silenciosamente con el lente seleccionado
+                // Iniciar escáner con la cámara trasera garantizada
                 const html5QrCode = new Html5Qrcode("reader");
                 html5QrCode.start(
                     selectedCameraId,
@@ -165,21 +171,17 @@ elif st.session_state.vista_actual == "Escáner":
                         html5QrCode.stop();
                         const url = new URL(window.parent.location.href);
                         url.searchParams.set("qr_id", decodedText);
-                        url.searchParams.delete("ocr_val"); // Limpiar lecturas anteriores
+                        url.searchParams.delete("ocr_val");
                         window.parent.history.replaceState({}, "", url);
                         window.parent.location.reload();
                     },
-                    (errorMessage) => { 
-                        // Ignoramos errores de cuadros vacíos mientras busca el QR
-                    }
+                    (err) => {} // Ignorar errores de "no se encuentra QR en este frame"
                 ).then(() => {
                     setTimeout(() => { document.getElementById("cam-status").style.display = 'none'; }, 1500);
-                }).catch(err => {
-                    document.getElementById("cam-status").innerText = "Error iniciando cámara: " + err;
                 });
             }
         }).catch(err => {
-            document.getElementById("cam-status").innerText = "Por favor, otorga permisos de cámara.";
+            document.getElementById("cam-status").innerText = "Otorga permisos de cámara.";
         });
         </script>
         """
@@ -209,7 +211,6 @@ elif st.session_state.vista_actual == "Escáner":
             idx = df_actual[df_actual['Id de producto'] == id_escaneado_url].index[0]
             equipo = df_actual.iloc[idx]
             
-            # --- SECCIÓN 1: MOSTRAR ESTATUS ACTUAL ANTES DE MEDIR ---
             st.markdown("### 📊 Estatus Actual del Equipo")
             c_estatus, c_fecha, c_val = st.columns(3)
             
@@ -224,16 +225,15 @@ elif st.session_state.vista_actual == "Escáner":
             
             st.divider()
 
-            # --- SECCIÓN 2: DECISIÓN DE NUEVA MEDICIÓN ---
             hacer_medicion = st.checkbox("✅ Realizar nueva medición y actualizar", value=bool(valor_ocr_detectado))
             
             if hacer_medicion:
                 st.markdown("### 📷 Captura Automática del Medidor")
                 
                 if not valor_ocr_detectado:
-                    st.write("Alinea la pantalla del medidor centrando los números de resistencia dentro del recuadro azul.")
+                    st.write("Alinea la pantalla del medidor centrando los números de resistencia dentro del recuadro verde.")
                     
-                    # HTML Y JS SIMPLIFICADO: Solo buscará Resistencia en un recuadro grande
+                    # --- NUEVA LÓGICA DE CÁMARA TRASERA PARA LCD (SÚPER-RESOLUCIÓN) ---
                     html_code_ocr = """
                     <script src="https://unpkg.com/tesseract.js@v4.0.3/dist/tesseract.min.js"></script>
                     <div id="ocr_scanner" style="width:100%; max-width:600px; margin:auto; border-radius:10px; overflow:hidden; border: 2px solid #0052cc; background-color: #111; padding: 10px; text-align: center; color: white;">
@@ -248,7 +248,7 @@ elif st.session_state.vista_actual == "Escáner":
                             </div>
                         </div>
                         
-                        <p id="ocr_status" style="margin: 15px 0; font-size: 14px; color: #aaa;">Buscando lente macro...</p>
+                        <p id="ocr_status" style="margin: 15px 0; font-size: 14px; color: #aaa;">Iniciando cámara trasera...</p>
                         
                         <button id="ocr_btn" style="width: 100%; padding: 18px; font-size: 18px; font-weight: bold; background-color: #0052cc; color: white; border: none; border-radius: 8px;">
                             📸 LEER MEDICIÓN
@@ -261,40 +261,50 @@ elif st.session_state.vista_actual == "Escáner":
                         const status = document.getElementById('ocr_status');
                         let camStream = null;
 
-                        // 1. FORZAR LENTE MACRO (IGUAL QUE EN QR)
                         async function setupCamera() {
-                            const devices = await navigator.mediaDevices.enumerateDevices();
-                            const cameras = devices.filter(d => d.kind === 'videoinput');
-                            let selectedId = cameras[0].id;
-                            
-                            for (const cam of cameras) {
-                                if (cam.label.toLowerCase().includes('ultra') || cam.label.toLowerCase().includes('macro')) {
-                                    selectedId = cam.id;
-                                    status.innerText = "Lente Macro Detectado";
-                                    break;
-                                }
-                            }
-
-                            const constraints = { 
-                                video: { 
-                                    deviceId: { exact: selectedId },
-                                    focusMode: 'continuous' 
-                                } 
-                            };
-                            
                             try {
+                                // Solicitamos cámara trasera genérica primero para que iOS nos revele las etiquetas de hardware
+                                let tempStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+                                
+                                const devices = await navigator.mediaDevices.enumerateDevices();
+                                const cameras = devices.filter(d => d.kind === 'videoinput');
+                                
+                                let selectedId = null;
+                                
+                                // Filtrar SOLO cámaras traseras
+                                const rearCams = cameras.filter(c => c.label.toLowerCase().includes('back') || c.label.toLowerCase().includes('trasera'));
+                                
+                                if (rearCams.length > 0) {
+                                    selectedId = rearCams[0].id; // Default a la primera trasera
+                                    status.innerText = "Cámara trasera lista. Alinea y lee.";
+                                    
+                                    // Buscar Macro trasero
+                                    for (const cam of rearCams) {
+                                        if (cam.label.toLowerCase().includes('ultra') || cam.label.toLowerCase().includes('macro')) {
+                                            selectedId = cam.id;
+                                            status.innerText = "Lente Macro trasero listo. Alinea y lee.";
+                                            break;
+                                        }
+                                    }
+                                }
+
+                                // Detenemos el stream temporal
+                                tempStream.getTracks().forEach(t => t.stop());
+
+                                // Iniciamos la cámara definitiva elegida
+                                const constraints = selectedId 
+                                    ? { video: { deviceId: { exact: selectedId }, focusMode: 'continuous' } }
+                                    : { video: { facingMode: 'environment', focusMode: 'continuous' } };
+                                    
                                 camStream = await navigator.mediaDevices.getUserMedia(constraints);
                                 video.srcObject = camStream;
-                                status.innerText = "Alinea la pantalla y presiona leer";
+                                
                             } catch (e) {
-                                // Fallback si falla el lente específico
-                                camStream = await navigator.mediaDevices.getUserMedia({video: {facingMode: 'environment'}});
-                                video.srcObject = camStream;
+                                status.innerText = "Error: " + e.message;
                             }
                         }
                         setupCamera();
 
-                        // 2. FUNCIÓN DE RECORTE CON SÚPER-RESOLUCIÓN (2X)
                         function getHighResCrop(boxId) {
                             const box = document.getElementById(boxId);
                             const container = document.getElementById('cam_container');
@@ -312,20 +322,17 @@ elif st.session_state.vista_actual == "Escáner":
                             const cropH = video.videoHeight * relH;
 
                             const canvas = document.createElement('canvas');
-                            // ESCALADO 2X: Hacemos la imagen el doble de grande para que el OCR vea mejor el exponente
-                            canvas.width = cropW * 2;
+                            canvas.width = cropW * 2; // Súper resolución 2X
                             canvas.height = cropH * 2;
                             const ctx = canvas.getContext('2d');
                             
-                            // Dibujamos estirando la imagen
                             ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, canvas.width, canvas.height);
                             
-                            // Pre-procesado: Blanco y Negro de alto contraste
                             const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
                             const data = imgData.data;
                             for (let i=0; i<data.length; i+=4) {
                                 const avg = (data[i] + data[i+1] + data[i+2]) / 3;
-                                const val = avg >= 130 ? 255 : 0; // Umbral de binarización
+                                const val = avg >= 130 ? 255 : 0; 
                                 data[i] = data[i+1] = data[i+2] = val;
                             }
                             ctx.putImageData(imgData, 0, 0);
@@ -347,8 +354,6 @@ elif st.session_state.vista_actual == "Escáner":
                                 const { data: { text } } = await worker.recognize(canvas);
                                 await worker.terminate();
 
-                                // LÓGICA DE EXTRACCIÓN TOLERANTE (Regex)
-                                // Busca: Número decimal ... basura ... el número 10 ... basura ... 1 o 2 dígitos
                                 let cleaned = text.replace(/\\s+/g, '');
                                 const pattern = /(\\d+\\.\\d{1,2}).*?10.*?(\\d{1,2})/;
                                 const match = cleaned.match(pattern);
