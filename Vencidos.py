@@ -213,19 +213,19 @@ elif st.session_state.vista_actual == "Escáner":
                             
                             <div id="lcd_screen" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 85%; height: 50%; border: 3px solid rgba(255,255,255,0.8); background: rgba(0,0,0,0.3); pointer-events: none; border-radius: 8px;">
                                 
-                                <div id="box-volt" style="position: absolute; top: 5%; left: 2%; width: 20%; height: 25%; border: 3px solid red; background: transparent;">
-                                    <span style="position:absolute; top:-20px; left:0; font-size:12px; color:red; background:black; padding:0 4px; font-weight:bold;">VOLTS</span>
-                                </div>
-                                
-                                <div id="box-temp" style="position: absolute; top: 5%; left: 45%; width: 22%; height: 25%; border: 3px solid #a020f0; background: transparent;">
+                                <div id="box-temp" style="position: absolute; top: 4%; left: 45%; width: 25%; height: 23%; border: 3px solid #a020f0; background: transparent;">
                                     <span style="position:absolute; top:-20px; left:0; font-size:12px; color:#a020f0; background:black; padding:0 4px; font-weight:bold;">TEMP</span>
                                 </div>
 
-                                <div id="box-hum" style="position: absolute; top: 5%; left: 70%; width: 25%; height: 25%; border: 3px solid #8b4513; background: transparent;">
+                                <div id="box-hum" style="position: absolute; top: 4%; left: 72%; width: 25%; height: 23%; border: 3px solid #8b4513; background: transparent;">
                                     <span style="position:absolute; top:-20px; left:0; font-size:12px; color:#8b4513; background:black; padding:0 4px; font-weight:bold;">HUM</span>
                                 </div>
+
+                                <div id="box-volt" style="position: absolute; top: 32%; left: 2%; width: 25%; height: 22%; border: 3px solid red; background: transparent;">
+                                    <span style="position:absolute; top:-20px; left:0; font-size:12px; color:red; background:black; padding:0 4px; font-weight:bold;">VOLTS</span>
+                                </div>
                                 
-                                <div id="box-ohms" style="position: absolute; top: 35%; left: 2%; width: 95%; height: 60%; border: 3px solid #0052cc; background: transparent;">
+                                <div id="box-ohms" style="position: absolute; top: 56%; left: 2%; width: 95%; height: 42%; border: 3px solid #0052cc; background: transparent;">
                                     <span style="position:absolute; top:-20px; left:0; font-size:12px; color:#0052cc; background:black; padding:0 4px; font-weight:bold;">RESISTENCIA</span>
                                 </div>
                             </div>
@@ -282,11 +282,11 @@ elif st.session_state.vista_actual == "Escáner":
                             const data = imgData.data;
                             let sum = 0;
                             for (let i=0; i<data.length; i+=4) sum += (data[i] + data[i+1] + data[i+2]) / 3;
-                            const threshold = (sum / (canvas.width * canvas.height)) * 0.95; // Corte alto para asegurar que solo los números queden claros
+                            const threshold = (sum / (canvas.width * canvas.height)) * 0.95; 
                             
                             for (let i=0; i<data.length; i+=4) {
                                 const avg = (data[i] + data[i+1] + data[i+2]) / 3;
-                                const val = avg >= threshold ? 0 : 255; // INVERSIÓN
+                                const val = avg >= threshold ? 0 : 255; 
                                 data[i] = data[i+1] = data[i+2] = val;
                             }
                             ctx.putImageData(imgData, 0, 0);
