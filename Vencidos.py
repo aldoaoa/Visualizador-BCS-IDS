@@ -202,38 +202,39 @@ with tab2:
                 submit = st.form_submit_button("Guardar en Google Sheets")
                 
                 if submit:
-                    with st.spinner("Sincronizando con la nube corporativa..."):
+                    with st.spinner("Actualizando celdas directamente en la nube..."):
                         # 1. Calcular próxima fecha
                         frecuencia = str(equipo.get('Frecuencia de verificación', 'Anual'))
                         proxima_fecha = calcular_proxima_fecha(nueva_fecha, frecuencia)
                         
-                        # 2. MÉTODO ROBUSTO POR COORDENADAS (Evita errores de texto/espacios)
-                        # Descargamos la hoja completa sin headers
-                        df_raw = conn.read(worksheet=hoja_activa, header=None)
+                        # 2. MÉTODO QUIRÚRGICO (Actualiza solo las celdas necesarias)
+                        url_hoja = st.secrets["connections"]["gsheets"]["spreadsheet"]
                         
-                        # Obtenemos la posición numérica exacta de las columnas desde el df_actual que sí cargó bien
+                        # Nos conectamos directamente al cliente nativo de Google Sheets
+                        doc = conn.client.open_by_url(url_hoja)
+                        ws = doc.worksheet(hoja_activa)
+                        
+                        # Obtenemos la posición numérica de las columnas (Pandas cuenta desde 0)
                         id_col_idx = df_actual.columns.get_loc('Id de producto')
                         val_col_idx = df_actual.columns.get_loc('Valor de verificación')
                         fecha_col_idx = df_actual.columns.get_loc('Fecha de verificación')
                         prox_fecha_col_idx = df_actual.columns.get_loc('Fecha de próxima verificación')
                         status_col_idx = df_actual.columns.get_loc('Estatus de verificación')
                         
-                        # Extraemos toda la columna de IDs del archivo crudo usando su número de columna
-                        columna_ids = df_raw.iloc[:, id_col_idx].fillna("").astype(str).str.strip()
+                        # Extraemos SÓLO la columna de IDs de Google Sheets (gspread cuenta desde 1, por eso sumamos +1)
+                        columna_ids = ws.col_values(id_col_idx + 1)
                         
-                        # Encontramos la fila exacta donde está el ID escaneado
-                        row_raw_idx = columna_ids[columna_ids == str(id_escaneado).strip()].index[0]
+                        # Buscamos la fila exacta del ID escaneado
+                        # Sumamos +1 porque Python cuenta desde 0 y Google Sheets desde 1
+                        row_gspread = columna_ids.index(str(id_escaneado).strip()) + 1
                         
-                        # Actualizamos inyectando en las coordenadas exactas (.iat[fila, columna])
-                        df_raw.iat[row_raw_idx, val_col_idx] = nuevo_valor
-                        df_raw.iat[row_raw_idx, fecha_col_idx] = nueva_fecha.strftime("%Y-%m-%d")
-                        df_raw.iat[row_raw_idx, prox_fecha_col_idx] = proxima_fecha.strftime("%Y-%m-%d")
-                        df_raw.iat[row_raw_idx, status_col_idx] = 'VIGENTE'
-                        
-                        # 3. Empujar el archivo completo de regreso a Google Sheets
-                        conn.update(worksheet=hoja_activa, data=df_raw, header=False)
+                        # 3. Actualizamos las 4 celdas específicas al instante (fila, columna, valor)
+                        ws.update_cell(row_gspread, val_col_idx + 1, float(nuevo_valor))
+                        ws.update_cell(row_gspread, fecha_col_idx + 1, nueva_fecha.strftime("%Y-%m-%d"))
+                        ws.update_cell(row_gspread, prox_fecha_col_idx + 1, proxima_fecha.strftime("%Y-%m-%d"))
+                        ws.update_cell(row_gspread, status_col_idx + 1, 'VIGENTE')
 
-                    st.success("💾 ¡Datos guardados exitosamente en Google Sheets para todos los usuarios!")
+                    st.success("💾 ¡Actualización exitosa! Las celdas se modificaron al instante en Google Sheets.")
                     st.cache_data.clear()
                     
                     # Limpiamos la URL para permitir un nuevo escaneo
