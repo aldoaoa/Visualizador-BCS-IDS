@@ -9,7 +9,7 @@ from dateutil.relativedelta import relativedelta
 from streamlit_gsheets import GSheetsConnection
 import streamlit.components.v1 as components
 
-# Configuración horizontal (Wide) para iPhone corporativo
+# Configuración horizontal (Wide)
 st.set_page_config(page_title="Control ESD Corporativo S20.20", layout="wide")
 
 RUTA_MAPA = "mapa.jpg" 
@@ -21,7 +21,6 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 @st.cache_data(ttl=2, max_entries=1) 
 def cargar_datos_cloud():
     try:
-        # Cargamos los datos interpretando la fila 5 (índice 4) como encabezados corporativos
         df_piso = conn.read(worksheet="PISO", header=4)
         df_mob = conn.read(worksheet="MOBILIARIO", header=4)
         return df_piso, df_mob
@@ -43,26 +42,28 @@ st.title("Sistema de Gestión ESD S20.20 - Corporativo")
 df_piso_local, df_mob_local = cargar_datos_cloud()
 
 if df_piso_local is None or df_mob_local is None:
-    st.warning("⚠️ Asegúrate de haber compartido la Google Sheet Corporativa con el correo de la cuenta de servicio de Streamlit (Editor) y que el archivo esté en formato nativo de Google Sheets.")
+    st.warning("⚠️ Asegúrate de haber compartido la Google Sheet Corporativa con el correo de la cuenta de servicio de Streamlit (Editor).")
     st.stop()
 
-# --- CONTROL DE NAVEGACIÓN CORPORATIVA TIPO MÓVIL ---
+# --- CONTROL DE NAVEGACIÓN ---
 if "vista_actual" not in st.session_state:
     st.session_state.vista_actual = "Mapa"
 
+# Captura de parámetros URL (Ahora incluyendo ambientales y voltaje)
 id_escaneado_url = st.query_params.get("qr_id", "")
 valor_ocr_detectado = st.query_params.get("ocr_val", "")
+temp_ocr_detectado = st.query_params.get("ocr_temp", "")
+hum_ocr_detectado = st.query_params.get("ocr_hum", "")
+volt_ocr_detectado = st.query_params.get("ocr_volts", "")
 
-# Si el HTML5 inyectó el QR o el valor OCR en la URL, forzamos ir a la vista del escáner
 if id_escaneado_url or valor_ocr_detectado:
     st.session_state.vista_actual = "Escáner"
 
-# Barra de navegación tipo app nativa
 col_nav1, col_nav2 = st.columns(2)
 with col_nav1:
     if st.button("🗺️ Mapa y Reportes ESD", use_container_width=True, type="primary" if st.session_state.vista_actual == "Mapa" else "secondary"):
         st.session_state.vista_actual = "Mapa"
-        st.query_params.clear() # Limpia cualquier escaneo en proceso
+        st.query_params.clear() 
         st.rerun()
 with col_nav2:
     if st.button("📱 Escáner Automático (QR/Medidor)", use_container_width=True, type="primary" if st.session_state.vista_actual == "Escáner" else "secondary"):
@@ -151,7 +152,6 @@ elif st.session_state.vista_actual == "Escáner":
         st.markdown("### 📷 Apunta al Código QR Corporativo")
         st.write("Concede permiso a la cámara en tu iPhone. El escaneo es automático y cargará los detalles.")
         
-        # Componente HTML5 nativo optimizado para iPhone corporativo para leer QR
         html_code_qr = """
         <script src="https://unpkg.com/html5-qrcode"></script>
         <div id="reader" style="width:100%; max-width:500px; margin:auto; border-radius:10px; overflow:hidden; border: 2px solid #ddd; background-color: #f9f9f9;"></div>
@@ -160,8 +160,11 @@ elif st.session_state.vista_actual == "Escáner":
             html5QrcodeScanner.clear(); 
             const url = new URL(window.parent.location.href);
             url.searchParams.set("qr_id", decodedText);
-            // Limpiamos cualquier OCR previo
+            // Limpiamos OCRs previos
             url.searchParams.delete("ocr_val");
+            url.searchParams.delete("ocr_temp");
+            url.searchParams.delete("ocr_hum");
+            url.searchParams.delete("ocr_volts");
             window.parent.history.replaceState({}, "", url);
             window.parent.location.reload();
         }
@@ -182,7 +185,6 @@ elif st.session_state.vista_actual == "Escáner":
             st.query_params["qr_id"] = id_manual
             st.rerun()
 
-    # Si hay un QR ID detectado, procedemos a mostrar detalles y permitir actualización
     if id_escaneado_url:
         colA, colB = st.columns([0.8, 0.2])
         with colA:
@@ -192,7 +194,6 @@ elif st.session_state.vista_actual == "Escáner":
                 st.query_params.clear()
                 st.rerun()
 
-        # Buscar en qué hoja corporativa está el equipo
         encontrado_piso = id_escaneado_url in df_piso_local['Id de producto'].values
         encontrado_mob = id_escaneado_url in df_mob_local['Id de producto'].values
 
@@ -205,29 +206,25 @@ elif st.session_state.vista_actual == "Escáner":
             
             st.divider()
             
-            # --- SECCIÓN NUEVA: ESCÁNER DE PANTALLA DEL MEDIDOR (OCR) ---
-            st.markdown("### 📷 Actualización por Imagen Corporativa (OCR)")
+            # --- SECCIÓN: ESCÁNER DE PANTALLA DEL MEDIDOR MULTIPARÁMETRO (OCR) ---
+            st.markdown("### 📷 Captura Automática del Medidor (OCR)")
             
-            # Solo mostramos el escáner si no hemos capturado un valor OCR previamente en esta sesión de actualización
             if not valor_ocr_detectado:
-                st.write("Concede permiso y **toma una foto nítida de la pantalla del medidor**. El iPhone procesará la imagen localmente buscando el formato $A \\times 10^B$ (ej. 3.20x10^8).")
+                st.write("Toma una foto de la pantalla del medidor. Se intentará leer Resistencia, Temp, HR y Voltaje.")
                 
-                # Componente HTML5/JavaScript avanzado que corre 100% en el iPhone
-                # Toma una foto, usa CamanJS para pre-procesar (blanco y negro/contraste) y Tesseract.js para OCR.
-                # Al final, calcula el valor Ohms e inyecta en la URL para actualizar Streamlit.
                 html_code_ocr = """
                 <script src="https://unpkg.com/tesseract.js@v4.0.3/dist/tesseract.min.js"></script>
-                <div id="ocr_scanner" style="width:100%; max-width:500px; margin:auto; border-radius:10px; overflow:hidden; border: 3px solid # primary; background-color: white; padding: 10px; text-align: center;">
+                <div id="ocr_scanner" style="width:100%; max-width:500px; margin:auto; border-radius:10px; overflow:hidden; border: 3px solid #primary; background-color: white; padding: 10px; text-align: center;">
                     
                     <div id="cam_container" style="position: relative; width: 100%; padding-bottom: 75%; overflow: hidden; border-radius: 8px;">
                         <video id="ocr_video" autoplay playsinline style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover;"></video>
-                        <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 70%; height: 30%; border: 4px solid #primary; border-radius: 5px; box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.4); pointer-events: none;"></div>
+                        <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 75%; height: 40%; border: 4px solid #primary; border-radius: 5px; box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.4); pointer-events: none;"></div>
                     </div>
                     
-                    <p id="ocr_status" style="margin: 10px 0; font-weight: bold; color: #555;">Listo para escanear medidor...</p>
+                    <p id="ocr_status" style="margin: 10px 0; font-weight: bold; color: #555;">Enfoca todos los valores en el recuadro...</p>
                     
                     <button id="ocr_btn" style="width: 100%; padding: 15px; font-size: 18px; font-weight: bold; background-color: #primary; color: white; border: none; border-radius: 8px; cursor: pointer; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
-                        📸 TOMAR FOTO DE PANTALLA
+                        📸 LEER PANTALLA
                     </button>
                     
                     <canvas id="ocr_canvas" style="display: none;"></canvas>
@@ -239,224 +236,208 @@ elif st.session_state.vista_actual == "Escáner":
                     const status = document.getElementById('ocr_status');
                     let camStream = null;
 
-                    // 1. Setup Cámara Nítida para iPhone Corporativo
                     async function setupCamera() {
-                        status.innerText = "Accediendo a cámara nítida...";
+                        status.innerText = "Accediendo a cámara...";
                         try {
                             const constraints = {
-                                video: {
-                                    facingMode: 'environment', // Usar cámara trasera
-                                    focusMode: 'continuous', // Asegurar enfoque nítido de la pantalla
-                                    whiteBalanceMode: 'continuous',
-                                    exposureMode: 'continuous',
-                                    frameRate: { max: 30 }
-                                },
+                                video: { facingMode: 'environment', focusMode: 'continuous', frameRate: { max: 30 } },
                                 audio: false
                             };
                             camStream = await navigator.mediaDevices.getUserMedia(constraints);
                             video.srcObject = camStream;
                         } catch (err) {
-                            status.innerText = "Error accediendo a cámara. Verifica permisos.";
+                            status.innerText = "Error de cámara.";
                             status.style.color = "red";
-                            console.error("Camera access error:", err);
                         }
                     }
 
                     setupCamera();
 
-                    // 2. Función de Análisis Heurístico para formato ANSI/ESD de la muestra
-                    function parseResistanceMeter(text) {
-                        // Limpieza corporativa: quitar espacios, cambiar comas por puntos (errores comunes de OCR)
-                        let cleaned = text.replace(/\s+/g, '').replace(/,/g, '.');
-                        status.innerText = "Procesando heurística de medidor... Texto crudo: " + text.substring(0, 30);
-                        
-                        // Heurística de la muestra: Digitos . Digitos X (o x) 10 ^ (opcional) Digitos
-                        const pattern = /(\d+\.?\d*)\s*[xX]\s*10\s*[\^\s]*(\d+)/;
-                        const match = cleaned.match(pattern);
-                        
-                        if (match) {
-                            const base = parseFloat(match[1]);
-                            const exp = parseInt(match[2]);
-                            
-                            // Validaciones corporativas de seguridad (ej. exp < 20 para evitar números imposibles)
-                            if (!isNaN(base) && !isNaN(exp) && exp < 20) {
-                                return base * Math.pow(10, exp);
-                            }
-                        }
-                        
-                        // Plan B: Buscar solo notación científica estándar (ej. 3.20E8) por si el medidor cambió
-                        const patternSci = /(\d+\.?\d*)\s*[eE]\s*(\d+)/;
-                        const matchSci = cleaned.match(patternSci);
-                        if(matchSci) {
-                            const baseSci = parseFloat(matchSci[1]);
-                            const expSci = parseInt(matchSci[2]);
-                            return baseSci * Math.pow(10, expSci);
+                    // Heurística ampliada para S20.20
+                    function parseMeterData(text) {
+                        let cleaned = text.replace(/,/g, '.');
+                        let data = { ohms: null, temp: null, hum: null, volts: null };
+
+                        // Buscar Ohms (Formato A x 10^B)
+                        const matchOhms = cleaned.replace(/\s+/g, '').match(/(\d+\.?\d*)[xX\*]10[\^\s]*(\d+)/);
+                        if (matchOhms) {
+                            const exp = parseInt(matchOhms[2]);
+                            if (exp < 20) data.ohms = parseFloat(matchOhms[1]) * Math.pow(10, exp);
+                        } else {
+                            // Científica estándar
+                            const sci = cleaned.replace(/\s+/g, '').match(/(\d+\.?\d*)[eE](\d+)/);
+                            if(sci && parseInt(sci[2]) < 20) data.ohms = parseFloat(sci[1]) * Math.pow(10, parseInt(sci[2]));
                         }
 
-                        return null;
+                        // Buscar Temperatura (ej. 23.5 C)
+                        const matchTemp = cleaned.match(/(\d+\.?\d*)\s*[°]?[C|c]/);
+                        if(matchTemp) data.temp = parseFloat(matchTemp[1]);
+
+                        // Buscar Humedad (ej. 45 %)
+                        const matchHum = cleaned.match(/(\d+\.?\d*)\s*[%]/);
+                        if(matchHum) data.hum = parseFloat(matchHum[1]);
+
+                        // Buscar Voltaje (10V o 100V)
+                        const matchVolts = cleaned.match(/(10|100)\s*[V|v]/);
+                        if(matchVolts) data.volts = parseInt(matchVolts[1]);
+                        
+                        return data;
                     }
 
-                    // 3. Lógica de Captura y Procesamiento OCR (Corre 100% en el iPhone)
                     btn.addEventListener('click', async () => {
-                        if (!camStream) {
-                            setupCamera();
-                            return;
-                        }
+                        if (!camStream) { setupCamera(); return; }
                         btn.disabled = true;
-                        btn.innerText = "⏳ PROCESANDO IMAGEN EN IPHONE...";
-                        status.innerText = "Capturando imagen nítida de pantalla...";
-                        status.style.color = "# primary";
+                        btn.innerText = "⏳ PROCESANDO...";
+                        status.innerText = "Procesando...";
 
-                        // Dibujar frame en canvas con alta resolución (usando tamaño real de video)
                         canvas.width = video.videoWidth;
                         canvas.height = video.videoHeight;
                         const ctx = canvas.getContext('2d');
                         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-                        // APICAR PRE-PROCESADO EN CLIENTE (iPhone)
-                        // Para Tesseract, el OCR funciona mejor en Blanco y Negro puro (Threshold)
+                        // Binarización para mejorar OCR
                         const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
                         const data = imgData.data;
-                        // Brillo/Contraste heurístico para pantallas corporativas
-                        const threshold = 128; // Punto de corte (50%)
+                        const threshold = 128;
                         for (let i = 0; i < data.length; i += 4) {
-                            const avg = (data[i] + data[i + 1] + data[i + 2]) / 3;
-                            // Blanco y negro puro (Binarización)
+                            const avg = (data[i] + data[i+1] + data[i+2]) / 3;
                             const val = avg >= threshold ? 255 : 0;
-                            data[i] = val; // red
-                            data[i+1] = val; // green
-                            data[i+2] = val; // blue
+                            data[i] = data[i+1] = data[i+2] = val;
                         }
                         ctx.putImageData(imgData, 0, 0);
-                        status.innerText = "Aplicando Blanco y Negro corporativo...";
                         
-                        // EJECUTAR OCR CON TESSERACT.JS (100% en iPhone)
-                        status.innerText = "Analizando texto en iPhone (Visión Artificial)...";
                         try {
+                            // Expandimos el diccionario para incluir C, V y %
                             const worker = await Tesseract.createWorker({
-                                // Solo necesitamos español y números para medidores corporativos
-                                logger: m => {
-                                    if(m.status == 'recognizing text') {
-                                        status.innerText = "Analizando caracteres corporativos... " + (Math.round(m.progress * 100)) + "%";
-                                    }
-                                }
+                                logger: m => { if(m.status == 'recognizing text') status.innerText = "Leyendo caracteres... " + (Math.round(m.progress * 100)) + "%"; }
                             });
-                            await worker.loadLanguage('eng'); // Inglés por defecto para números
+                            await worker.loadLanguage('eng');
                             await worker.initialize('eng');
-                            // Parámetros de configuración corporativa de Tesseract: whitelist numérica
-                            await worker.setParameters({
-                                tessedit_char_whitelist: '0123456789.x10^EXoΩ',
-                            });
+                            // Letras adicionales necesarias para ambientales
+                            await worker.setParameters({ tessedit_char_whitelist: '0123456789.xX10^EeCcVv%° ' });
                             
-                            // Ejecutar reconocimiento corporativo en el canvas Blanco y Negro
                             const { data: { text } } = await worker.recognize(canvas);
                             await worker.terminate();
 
-                            // 4. Analizar Resultado
-                            const valOhms = parseResistanceMeter(text);
+                            const meterData = parseMeterData(text);
                             
-                            if (valOhms) {
-                                status.innerText = "¡VALOR CORPORATIVO DETECTADO! Ohms: " + valOhms.toLocaleString();
+                            if (meterData.ohms) {
+                                status.innerText = "¡VALORES DETECTADOS!";
                                 status.style.color = "green";
-                                // Detener cámara nítida
                                 camStream.getTracks().forEach(track => track.stop());
                                 
-                                // ENVIAR DE REGRESO A STREAMLIT INYECTANDO EN URL
                                 const url = new URL(window.parent.location.href);
-                                url.searchParams.set("ocr_val", valOhms.toString());
+                                url.searchParams.set("ocr_val", meterData.ohms);
+                                if(meterData.temp) url.searchParams.set("ocr_temp", meterData.temp);
+                                if(meterData.hum) url.searchParams.set("ocr_hum", meterData.hum);
+                                if(meterData.volts) url.searchParams.set("ocr_volts", meterData.volts);
+                                
                                 window.parent.history.replaceState({}, "", url);
-                                // Forzamos recarga nítida
                                 window.parent.location.reload();
                                 
                             } else {
-                                status.innerText = "❌ No se reconoció el formato corporativo ANSI/ESD (A x 10^B). Asegúrate de encuadrar nítidamente y que la pantalla esté estabilizada. Texto detectado crudo: " + text.substring(0, 30);
+                                status.innerText = "❌ No se detectó Resistencia. Texto crudo: " + text.substring(0, 30);
                                 status.style.color = "red";
                                 btn.disabled = false;
-                                btn.innerText = "🔄 REINTENTAR FOTO NÍTIDA";
+                                btn.innerText = "🔄 REINTENTAR";
                             }
-                        } catch (ocrErr) {
-                            status.innerText = "Error crítico de OCR Corporativo: " + ocrErr.message;
+                        } catch (err) {
+                            status.innerText = "Error OCR: " + err.message;
                             status.style.color = "red";
-                            console.error("OCR Corporativo Error:", ocrErr);
                             btn.disabled = false;
-                            btn.innerText = "📸 REINTENTAR FOTO NÍTIDA";
+                            btn.innerText = "📸 REINTENTAR";
                         }
                     });
                 </script>
                 """
-                # Inyección del componente nítido HTML/JS en el iPhone
                 components.html(html_code_ocr, height=650)
                 
             else:
-                st.success(f"💾 **Valor corporativo detectado por Visión Artificial (OCR):** **{float(valor_ocr_detectado):,.0f} Ohms**")
-                if st.button("🔄 Borrar Escáner de Medidor y Reintentar foto corporativa"):
-                    del st.query_params["ocr_val"]
+                st.success("✅ **Valores detectados por OCR:**")
+                c1, c2, c3, c4 = st.columns(4)
+                c1.metric("Resistencia", f"{float(valor_ocr_detectado):,.0f} Ω")
+                if temp_ocr_detectado: c2.metric("Temp", f"{temp_ocr_detectado} °C")
+                if hum_ocr_detectado: c3.metric("Humedad", f"{hum_ocr_detectado} %")
+                if volt_ocr_detectado: c4.metric("Voltaje", f"{volt_ocr_detectado} V")
+                
+                if st.button("🔄 Descartar y reintentar foto"):
+                    # Limpiamos todos los valores OCR de la URL
+                    for key in ["ocr_val", "ocr_temp", "ocr_hum", "ocr_volts"]:
+                        if key in st.query_params: del st.query_params[key]
                     st.rerun()
 
             st.divider()
 
-            # --- FORMULARIO DE ACTUALIZACIÓN NATIVA CORPORATIVA ---
-            st.markdown("#### Validar Datos ESD Corporativos y Guardar")
+            # --- FORMULARIO DE ACTUALIZACIÓN CON VARIABLES AMBIENTALES ---
+            st.markdown("#### Validar Datos ESD y Sincronizar")
             with st.form("form_actualizacion"):
                 
-                # El valor por defecto se carga del OCR si existe, si no, del Sheets corporativo
-                default_value = float(valor_ocr_detectado) if valor_ocr_detectado else (float(equipo.get('Valor de verificación', 0)) if pd.notna(equipo.get('Valor de verificación')) else 0.0)
+                col_ohm, col_volt = st.columns(2)
+                # Resistencia
+                default_ohm = float(valor_ocr_detectado) if valor_ocr_detectado else (float(equipo.get('Valor de verificación', 0)) if pd.notna(equipo.get('Valor de verificación')) else 0.0)
+                nuevo_valor_final = col_ohm.number_input("Resistencia (Ohms)", value=default_ohm, format="%f")
                 
-                nuevo_valor_final = st.number_input(
-                    "Nuevo valor corporativo ESD (Ohms)", 
-                    value=default_value,
-                    format="%f",
-                    help="Este valor es capturado nítidamente por el iPhone. Valida que coincida con el medidor."
-                )
+                # Voltaje
+                idx_volt = 1 if volt_ocr_detectado == "100" else 0
+                nuevo_voltaje = col_volt.selectbox("Voltaje de prueba (V)", options=[10, 100], index=idx_volt)
                 
-                fecha_hoy_corporativa = datetime.today().date()
-                nueva_fecha_valida = st.date_input("Fecha de validación corporativa", fecha_hoy_corporativa)
+                col_temp, col_hum = st.columns(2)
+                # Temperatura
+                default_temp = float(temp_ocr_detectado) if temp_ocr_detectado else 23.0
+                nueva_temp = col_temp.number_input("Temperatura (°C)", value=default_temp, step=0.1)
                 
-                submit_corporativo = st.form_submit_button("Sincronizar mediciones corporativas con Google Sheets")
+                # Humedad
+                default_hum = float(hum_ocr_detectado) if hum_ocr_detectado else 50.0
+                nueva_hum = col_hum.number_input("Humedad relativa (%)", value=default_hum, step=0.1)
+                
+                fecha_hoy = datetime.today().date()
+                nueva_fecha_valida = st.date_input("Fecha de validación", fecha_hoy)
+                
+                submit_corporativo = st.form_submit_button("Sincronizar mediciones y variables con Google Sheets")
                 
                 if submit_corporativo:
-                    with st.spinner("Actualizando celdas quirúrgicas en la nube corporativa..."):
-                        # 1. Calcular próxima fecha nítida
+                    with st.spinner("Guardando registro completo S20.20 en la nube..."):
                         frecuencia_corp = str(equipo.get('Frecuencia de verificación', 'Anual'))
                         proxima_fecha_val = calcular_proxima_fecha(nueva_fecha_valida, frecuencia_corp)
                         
-                        # 2. MÉTODO QUIRÚRGICO DE SEGURIDAD CORPORATIVA (Usando gspread nativo)
-                        # Este método evita OOM y protege fórmulas corporativas en filas 1-4
                         import gspread
                         secretos_dict_corp = dict(st.secrets["connections"]["gsheets"])
                         url_hoja_corp = secretos_dict_corp["spreadsheet"]
                         
-                        # Autenticación corporativa nativa
                         gc_gspread_corp = gspread.service_account_from_dict(secretos_dict_corp)
                         doc_corp = gc_gspread_corp.open_by_url(url_hoja_corp)
                         ws_corp = doc_corp.worksheet(hoja_activa)
                         
-                        # Coordenadas nítidas de columnas
-                        id_col_idx_c = df_actual.columns.get_loc('Id de producto')
-                        val_col_idx_c = df_actual.columns.get_loc('Valor de verificación')
-                        fecha_col_idx_c = df_actual.columns.get_loc('Fecha de verificación')
-                        prox_fecha_col_idx_c = df_actual.columns.get_loc('Fecha de próxima verificación')
-                        status_col_idx_c = df_actual.columns.get_loc('Estatus de verificación')
+                        # Coordenadas numéricas de las columnas (Validando que existan)
+                        try:
+                            id_col_idx = df_actual.columns.get_loc('Id de producto')
+                            val_col_idx = df_actual.columns.get_loc('Valor de verificación')
+                            temp_col_idx = df_actual.columns.get_loc('Temperatura (°C)')
+                            hum_col_idx = df_actual.columns.get_loc('Humedad relativa (%)')
+                            volt_col_idx = df_actual.columns.get_loc('Voltaje de prueba (V)')
+                            fecha_col_idx = df_actual.columns.get_loc('Fecha de verificación')
+                            prox_fecha_col_idx = df_actual.columns.get_loc('Fecha de próxima verificación')
+                            status_col_idx = df_actual.columns.get_loc('Estatus de verificación')
+                        except KeyError as e:
+                            st.error(f"❌ Error crítico: Falta la columna {e} en la hoja {hoja_activa}. Revisa que los nombres coincidan exactamente con las instrucciones.")
+                            st.stop()
                         
-                        # Extraemos columna de IDs corporativa (gspread cuenta desde 1)
-                        columna_ids_corp = ws_corp.col_values(id_col_idx_c + 1)
-                        # Limpieza corporativa de espacios invisibles
+                        columna_ids_corp = ws_corp.col_values(id_col_idx + 1)
                         columna_ids_corp_limpia = [str(val).strip() for val in columna_ids_corp]
-                        # Fila nítida en Google Sheets corporativo (sumamos 1 por gspread)
-                        row_gspread_corp = columna_ids_corp_limpia.index(str(id_escaneado_url).strip()) + 1
+                        row_gspread = columna_ids_corp_limpia.index(str(id_escaneado_url).strip()) + 1
                         
-                        # 3. ACTUALIZACIONES QUIRÚRGICAS NÍTIDAS EN TIEMPO REAL
-                        ws_corp.update_cell(row_gspread_corp, val_col_idx_c + 1, float(nuevo_valor_final))
-                        ws_corp.update_cell(row_gspread_corp, fecha_col_idx_c + 1, nueva_fecha_valida.strftime("%Y-%m-%d"))
-                        ws_corp.update_cell(row_gspread_corp, prox_fecha_col_idx_c + 1, proxima_fecha_val.strftime("%Y-%m-%d"))
-                        # Marcamos como VIGENTE corporativo nítido
-                        ws_corp.update_cell(row_gspread_corp, status_col_idx_c + 1, 'VIGENTE')
+                        # Inyectamos TODOS los datos recolectados
+                        ws_corp.update_cell(row_gspread, val_col_idx + 1, float(nuevo_valor_final))
+                        ws_corp.update_cell(row_gspread, temp_col_idx + 1, float(nueva_temp))
+                        ws_corp.update_cell(row_gspread, hum_col_idx + 1, float(nueva_hum))
+                        ws_corp.update_cell(row_gspread, volt_col_idx + 1, int(nuevo_voltaje))
+                        ws_corp.update_cell(row_gspread, fecha_col_idx + 1, nueva_fecha_valida.strftime("%Y-%m-%d"))
+                        ws_corp.update_cell(row_gspread, prox_fecha_col_idx + 1, proxima_fecha_val.strftime("%Y-%m-%d"))
+                        ws_corp.update_cell(row_gspread, status_col_idx + 1, 'VIGENTE')
 
-                    st.success("💾 ¡Actualización ESD corporativa nítida sincronizada al instante en Google Sheets!")
-                    # Limpiamos caché corporativa de 2s
+                    st.success("💾 ¡Registro S20.20 exitoso! Medición y condiciones ambientales guardadas.")
                     st.cache_data.clear()
                     
-                    # Limpiamos URL para permitir nuevo escaneo corporativo nítido
                     st.query_params.clear()
                     st.rerun()
 
