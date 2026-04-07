@@ -207,28 +207,35 @@ with tab2:
                         frecuencia = str(equipo.get('Frecuencia de verificación', 'Anual'))
                         proxima_fecha = calcular_proxima_fecha(nueva_fecha, frecuencia)
                         
-                        # 2. MÉTODO QUIRÚRGICO (Actualiza solo las celdas necesarias)
-                        url_hoja = st.secrets["connections"]["gsheets"]["spreadsheet"]
+                        # 2. MÉTODO QUIRÚRGICO (Usando gspread nativo)
+                        import gspread
                         
-                        # Nos conectamos directamente al cliente nativo de Google Sheets
-                        doc = conn.client.open_by_url(url_hoja)
+                        # Convertimos los secretos de Streamlit a un diccionario estándar
+                        secretos_dict = dict(st.secrets["connections"]["gsheets"])
+                        url_hoja = secretos_dict["spreadsheet"]
+                        
+                        # Nos conectamos a Google Sheets SIN el intermediario de Streamlit
+                        gc_gspread = gspread.service_account_from_dict(secretos_dict)
+                        doc = gc_gspread.open_by_url(url_hoja)
                         ws = doc.worksheet(hoja_activa)
                         
-                        # Obtenemos la posición numérica de las columnas (Pandas cuenta desde 0)
+                        # Obtenemos la posición numérica de las columnas
                         id_col_idx = df_actual.columns.get_loc('Id de producto')
                         val_col_idx = df_actual.columns.get_loc('Valor de verificación')
                         fecha_col_idx = df_actual.columns.get_loc('Fecha de verificación')
                         prox_fecha_col_idx = df_actual.columns.get_loc('Fecha de próxima verificación')
                         status_col_idx = df_actual.columns.get_loc('Estatus de verificación')
                         
-                        # Extraemos SÓLO la columna de IDs de Google Sheets (gspread cuenta desde 1, por eso sumamos +1)
+                        # Extraemos SÓLO la columna de IDs de Google Sheets (gspread cuenta desde 1)
                         columna_ids = ws.col_values(id_col_idx + 1)
                         
-                        # Buscamos la fila exacta del ID escaneado
-                        # Sumamos +1 porque Python cuenta desde 0 y Google Sheets desde 1
-                        row_gspread = columna_ids.index(str(id_escaneado).strip()) + 1
+                        # Limpiamos los espacios en blanco invisibles para asegurar que siempre lo encuentre
+                        columna_ids_limpia = [str(val).strip() for val in columna_ids]
                         
-                        # 3. Actualizamos las 4 celdas específicas al instante (fila, columna, valor)
+                        # Buscamos la fila exacta del ID escaneado
+                        row_gspread = columna_ids_limpia.index(str(id_escaneado).strip()) + 1
+                        
+                        # 3. Actualizamos las 4 celdas específicas (fila, columna, valor)
                         ws.update_cell(row_gspread, val_col_idx + 1, float(nuevo_valor))
                         ws.update_cell(row_gspread, fecha_col_idx + 1, nueva_fecha.strftime("%Y-%m-%d"))
                         ws.update_cell(row_gspread, prox_fecha_col_idx + 1, proxima_fecha.strftime("%Y-%m-%d"))
