@@ -214,138 +214,167 @@ elif st.session_state.vista_actual == "Escáner":
                 
                 html_code_ocr = """
                 <script src="https://unpkg.com/tesseract.js@v4.0.3/dist/tesseract.min.js"></script>
-                <div id="ocr_scanner" style="width:100%; max-width:500px; margin:auto; border-radius:10px; overflow:hidden; border: 3px solid #primary; background-color: white; padding: 10px; text-align: center;">
+                <div id="ocr_scanner" style="width:100%; max-width:500px; margin:auto; border-radius:10px; overflow:hidden; border: 3px solid #0052cc; background-color: #222; padding: 10px; text-align: center; color: white;">
                     
-                    <div id="cam_container" style="position: relative; width: 100%; padding-bottom: 75%; overflow: hidden; border-radius: 8px;">
+                    <div id="cam_container" style="position: relative; width: 100%; padding-bottom: 75%; overflow: hidden; border-radius: 8px; background: #000;">
                         <video id="ocr_video" autoplay playsinline style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover;"></video>
-                        <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 75%; height: 40%; border: 4px solid #primary; border-radius: 5px; box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.4); pointer-events: none;"></div>
+                        
+                        <div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); pointer-events: none;">
+                            <div id="box-ohms" style="position: absolute; top: 15%; left: 10%; width: 80%; height: 35%; border: 3px solid #00ff00; background: transparent; box-shadow: 0 0 0 9999px rgba(0,0,0,0.5);">
+                                <span style="position:absolute; top:-20px; left:0; font-size:12px; color:#00ff00; background:black; padding:2px 5px;">RESISTENCIA (A x 10^B)</span>
+                            </div>
+                            
+                            <div id="box-temp" style="position: absolute; top: 60%; left: 10%; width: 25%; height: 25%; border: 2px dashed #00ffff; background: transparent;">
+                                <span style="position:absolute; bottom:-20px; left:0; font-size:10px; color:#00ffff; background:black;">TEMP</span>
+                            </div>
+                            <div id="box-hum" style="position: absolute; top: 60%; left: 37.5%; width: 25%; height: 25%; border: 2px dashed #ff00ff; background: transparent;">
+                                <span style="position:absolute; bottom:-20px; left:0; font-size:10px; color:#ff00ff; background:black;">HUM</span>
+                            </div>
+                            <div id="box-volt" style="position: absolute; top: 60%; left: 65%; width: 25%; height: 25%; border: 2px dashed #ffff00; background: transparent;">
+                                <span style="position:absolute; bottom:-20px; left:0; font-size:10px; color:#ffff00; background:black;">VOLTS</span>
+                            </div>
+                        </div>
                     </div>
                     
-                    <p id="ocr_status" style="margin: 10px 0; font-weight: bold; color: #555;">Enfoca todos los valores en el recuadro...</p>
+                    <p id="ocr_status" style="margin: 15px 0; font-weight: bold; font-size: 14px;">Alinea los números en sus cajas y presiona leer...</p>
                     
-                    <button id="ocr_btn" style="width: 100%; padding: 15px; font-size: 18px; font-weight: bold; background-color: #primary; color: white; border: none; border-radius: 8px; cursor: pointer; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
-                        📸 LEER PANTALLA
+                    <button id="ocr_btn" style="width: 100%; padding: 15px; font-size: 18px; font-weight: bold; background-color: #0052cc; color: white; border: none; border-radius: 8px; cursor: pointer;">
+                        📸 LEER CON PLANTILLA
                     </button>
-                    
-                    <canvas id="ocr_canvas" style="display: none;"></canvas>
                 </div>
                 <script>
                     const video = document.getElementById('ocr_video');
-                    const canvas = document.getElementById('ocr_canvas');
                     const btn = document.getElementById('ocr_btn');
                     const status = document.getElementById('ocr_status');
                     let camStream = null;
 
                     async function setupCamera() {
-                        status.innerText = "Accediendo a cámara...";
                         try {
-                            const constraints = {
-                                video: { facingMode: 'environment', focusMode: 'continuous', frameRate: { max: 30 } },
-                                audio: false
-                            };
+                            const constraints = { video: { facingMode: 'environment', focusMode: 'continuous' } };
                             camStream = await navigator.mediaDevices.getUserMedia(constraints);
                             video.srcObject = camStream;
                         } catch (err) {
-                            status.innerText = "Error de cámara.";
-                            status.style.color = "red";
+                            status.innerText = "Error accediendo a la cámara.";
                         }
                     }
-
                     setupCamera();
 
-                    // Heurística ampliada para S20.20
-                    function parseMeterData(text) {
-                        let cleaned = text.replace(/,/g, '.');
-                        let data = { ohms: null, temp: null, hum: null, volts: null };
-
-                        // Buscar Ohms (Formato A x 10^B)
-                        const matchOhms = cleaned.replace(/\s+/g, '').match(/(\d+\.?\d*)[xX\*]10[\^\s]*(\d+)/);
-                        if (matchOhms) {
-                            const exp = parseInt(matchOhms[2]);
-                            if (exp < 20) data.ohms = parseFloat(matchOhms[1]) * Math.pow(10, exp);
-                        } else {
-                            // Científica estándar
-                            const sci = cleaned.replace(/\s+/g, '').match(/(\d+\.?\d*)[eE](\d+)/);
-                            if(sci && parseInt(sci[2]) < 20) data.ohms = parseFloat(sci[1]) * Math.pow(10, parseInt(sci[2]));
-                        }
-
-                        // Buscar Temperatura (ej. 23.5 C)
-                        const matchTemp = cleaned.match(/(\d+\.?\d*)\s*[°]?[C|c]/);
-                        if(matchTemp) data.temp = parseFloat(matchTemp[1]);
-
-                        // Buscar Humedad (ej. 45 %)
-                        const matchHum = cleaned.match(/(\d+\.?\d*)\s*[%]/);
-                        if(matchHum) data.hum = parseFloat(matchHum[1]);
-
-                        // Buscar Voltaje (10V o 100V)
-                        const matchVolts = cleaned.match(/(10|100)\s*[V|v]/);
-                        if(matchVolts) data.volts = parseInt(matchVolts[1]);
+                    // Función para extraer y procesar un recorte (ROI) del video
+                    function getCroppedCanvas(boxId) {
+                        const box = document.getElementById(boxId);
+                        const container = document.getElementById('cam_container');
                         
-                        return data;
+                        // Calcular proporciones relativas
+                        const rectBox = box.getBoundingClientRect();
+                        const rectCont = container.getBoundingClientRect();
+                        
+                        const relX = (rectBox.left - rectCont.left) / rectCont.width;
+                        const relY = (rectBox.top - rectCont.top) / rectCont.height;
+                        const relW = rectBox.width / rectCont.width;
+                        const relH = rectBox.height / rectCont.height;
+                        
+                        // Pixeles reales en el video
+                        const cropX = video.videoWidth * relX;
+                        const cropY = video.videoHeight * relY;
+                        const cropW = video.videoWidth * relW;
+                        const cropH = video.videoHeight * relH;
+
+                        const canvas = document.createElement('canvas');
+                        canvas.width = cropW;
+                        canvas.height = cropH;
+                        const ctx = canvas.getContext('2d');
+                        
+                        // Recortar la región exacta
+                        ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+                        
+                        // Filtro de binarización extremo (Ideal para LCDs de 7 segmentos)
+                        const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                        const data = imgData.data;
+                        let sum = 0;
+                        for (let i=0; i<data.length; i+=4) sum += (data[i] + data[i+1] + data[i+2]) / 3;
+                        const threshold = (sum / (canvas.width * canvas.height)) * 0.90; // Contraste agresivo
+                        
+                        for (let i=0; i<data.length; i+=4) {
+                            const avg = (data[i] + data[i+1] + data[i+2]) / 3;
+                            // Invertimos los colores (LCDs oscuros sobre fondo claro se leen mejor como texto blanco sobre negro en Tesseract)
+                            const val = avg >= threshold ? 0 : 255; 
+                            data[i] = data[i+1] = data[i+2] = val;
+                        }
+                        ctx.putImageData(imgData, 0, 0);
+                        return canvas;
                     }
 
                     btn.addEventListener('click', async () => {
                         if (!camStream) { setupCamera(); return; }
                         btn.disabled = true;
-                        btn.innerText = "⏳ PROCESANDO...";
-                        status.innerText = "Procesando...";
-
-                        canvas.width = video.videoWidth;
-                        canvas.height = video.videoHeight;
-                        const ctx = canvas.getContext('2d');
-                        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-                        // Binarización para mejorar OCR
-                        const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-                        const data = imgData.data;
-                        const threshold = 128;
-                        for (let i = 0; i < data.length; i += 4) {
-                            const avg = (data[i] + data[i+1] + data[i+2]) / 3;
-                            const val = avg >= threshold ? 255 : 0;
-                            data[i] = data[i+1] = data[i+2] = val;
-                        }
-                        ctx.putImageData(imgData, 0, 0);
+                        
+                        // 1. Extraemos los 4 recortes inmediatamente para que no haya movimiento de la mano
+                        status.innerText = "📸 Capturando ROIs...";
+                        const canvasOhms = getCroppedCanvas('box-ohms');
+                        const canvasTemp = getCroppedCanvas('box-temp');
+                        const canvasHum  = getCroppedCanvas('box-hum');
+                        const canvasVolt = getCroppedCanvas('box-volt');
                         
                         try {
-                            // Expandimos el diccionario para incluir C, V y %
                             const worker = await Tesseract.createWorker({
-                                logger: m => { if(m.status == 'recognizing text') status.innerText = "Leyendo caracteres... " + (Math.round(m.progress * 100)) + "%"; }
+                                logger: m => { if(m.status === 'recognizing text') status.innerText = `Analizando... ${Math.round(m.progress * 100)}%`; }
                             });
                             await worker.loadLanguage('eng');
                             await worker.initialize('eng');
-                            // Letras adicionales necesarias para ambientales
-                            await worker.setParameters({ tessedit_char_whitelist: '0123456789.xX10^EeCcVv%° ' });
-                            
-                            const { data: { text } } = await worker.recognize(canvas);
-                            await worker.terminate();
 
-                            const meterData = parseMeterData(text);
+                            // --- LECTURA 1: RESISTENCIA ---
+                            // Permitimos la "x" y la "e"
+                            await worker.setParameters({ tessedit_char_whitelist: '0123456789.xX*Ee^ ' });
+                            let { data: { text: textOhms } } = await worker.recognize(canvasOhms);
+                            textOhms = textOhms.replace(/\\s+/g, ''); // Limpiar espacios
                             
-                            if (meterData.ohms) {
-                                status.innerText = "¡VALORES DETECTADOS!";
-                                status.style.color = "green";
-                                camStream.getTracks().forEach(track => track.stop());
+                            // Extraer resistencia
+                            let valOhms = null;
+                            const matchSci = textOhms.match(/(\\d+\\.?\\d*)[xX*eE]1?0?\\^?(\\d+)/);
+                            if (matchSci) {
+                                let base = parseFloat(matchSci[1]);
+                                let exp = parseInt(matchSci[2]);
+                                if (exp < 20) valOhms = base * Math.pow(10, exp);
+                            }
+
+                            // --- LECTURA 2: TEMPERATURA ---
+                            // Estricto: Solo números y el punto. Eliminamos la "C" del diccionario para evitar que se confunda con el "0"
+                            await worker.setParameters({ tessedit_char_whitelist: '0123456789.' });
+                            let { data: { text: textTemp } } = await worker.recognize(canvasTemp);
+                            let valTemp = parseFloat(textTemp.replace(/[^0-9.]/g, ''));
+
+                            // --- LECTURA 3: HUMEDAD ---
+                            let { data: { text: textHum } } = await worker.recognize(canvasHum);
+                            let valHum = parseFloat(textHum.replace(/[^0-9.]/g, ''));
+
+                            // --- LECTURA 4: VOLTAJE ---
+                            let { data: { text: textVolt } } = await worker.recognize(canvasVolt);
+                            let valVolt = parseInt(textVolt.replace(/[^0-9]/g, ''));
+
+                            await worker.terminate();
+                            camStream.getTracks().forEach(track => track.stop());
+
+                            if (valOhms) {
+                                status.innerText = "✅ Valores extraídos con éxito";
+                                status.style.color = "#00ff00";
                                 
                                 const url = new URL(window.parent.location.href);
-                                url.searchParams.set("ocr_val", meterData.ohms);
-                                if(meterData.temp) url.searchParams.set("ocr_temp", meterData.temp);
-                                if(meterData.hum) url.searchParams.set("ocr_hum", meterData.hum);
-                                if(meterData.volts) url.searchParams.set("ocr_volts", meterData.volts);
+                                url.searchParams.set("ocr_val", valOhms);
+                                if (!isNaN(valTemp)) url.searchParams.set("ocr_temp", valTemp);
+                                if (!isNaN(valHum)) url.searchParams.set("ocr_hum", valHum);
+                                if (!isNaN(valVolt) && (valVolt === 10 || valVolt === 100)) url.searchParams.set("ocr_volts", valVolt);
                                 
                                 window.parent.history.replaceState({}, "", url);
                                 window.parent.location.reload();
-                                
                             } else {
-                                status.innerText = "❌ No se detectó Resistencia. Texto crudo: " + text.substring(0, 30);
-                                status.style.color = "red";
+                                status.innerText = `❌ No se detectó Resistencia. Leído: [${textOhms}]`;
+                                status.style.color = "#ff3333";
                                 btn.disabled = false;
                                 btn.innerText = "🔄 REINTENTAR";
                             }
                         } catch (err) {
-                            status.innerText = "Error OCR: " + err.message;
-                            status.style.color = "red";
+                            status.innerText = "Error: " + err.message;
                             btn.disabled = false;
-                            btn.innerText = "📸 REINTENTAR";
                         }
                     });
                 </script>
