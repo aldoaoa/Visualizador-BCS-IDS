@@ -1,5 +1,4 @@
 plotly
 pillow
 openpyxl
-pyzbar
 st-gsheets-connection
