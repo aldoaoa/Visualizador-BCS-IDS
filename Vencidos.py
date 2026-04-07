@@ -46,13 +46,34 @@ if df_piso_local is None or df_mob_local is None:
     st.warning("⚠️ Asegúrate de haber compartido el Google Sheet con el correo de tu cuenta de servicio con permisos de Editor.")
     st.stop()
 
-# --- PESTAÑAS ---
-tab1, tab2 = st.tabs(["🗺️ Mapa y Reportes", "📱 Escáner Automático"])
+# --- CONTROL DE NAVEGACIÓN ---
+if "vista_actual" not in st.session_state:
+    st.session_state.vista_actual = "Mapa"
+
+id_escaneado = st.query_params.get("qr_id", "")
+
+# Si el HTML5 inyectó el QR en la URL, forzamos ir a la vista del escáner
+if id_escaneado:
+    st.session_state.vista_actual = "Escáner"
+
+# --- BARRA DE NAVEGACIÓN TIPO MÓVIL ---
+col_nav1, col_nav2 = st.columns(2)
+with col_nav1:
+    if st.button("🗺️ Mapa y Reportes", use_container_width=True, type="primary" if st.session_state.vista_actual == "Mapa" else "secondary"):
+        st.session_state.vista_actual = "Mapa"
+        st.query_params.clear() # Limpia cualquier escaneo a medias si cambia de pestaña
+        st.rerun()
+with col_nav2:
+    if st.button("📱 Escáner Automático", use_container_width=True, type="primary" if st.session_state.vista_actual == "Escáner" else "secondary"):
+        st.session_state.vista_actual = "Escáner"
+        st.rerun()
+
+st.divider()
 
 # ==========================================
-# PESTAÑA 1: MAPA Y REPORTES
+# VISTA 1: MAPA Y REPORTES
 # ==========================================
-with tab1:
+if st.session_state.vista_actual == "Mapa":
     st.info("☁️ Los datos mostrados están sincronizados en tiempo real con Google Sheets.")
     
     df_piso_mapa = df_piso_local.copy()
@@ -68,7 +89,6 @@ with tab1:
     else:
         df_total['Estatus operativo'] = 'OPERATIVO'
 
-    # Filtrar equipos vencidos que estén operativos
     vencidos = df_total[(df_total['Estatus de verificación'] == 'VENCIDO') & (df_total['Estatus operativo'] != 'NO OPERATIVO')]
     
     if not vencidos.empty:
@@ -98,7 +118,6 @@ with tab1:
                     textposition='middle center', textfont=dict(color='white', size=12, weight='bold'),
                     marker=dict(symbol='square', size=50, opacity=0.9, line=dict(width=2, color='DarkSlateGrey'))
                 )
-                # Mantener proporción real 1:1 de la imagen
                 fig.update_layout(
                     images=[dict(source=img, xref="x", yref="y", x=0, y=0, sizex=width, sizey=height, sizing="stretch", opacity=1, layer="below")],
                     xaxis=dict(showgrid=False, zeroline=False, range=[0, width], visible=False),
@@ -123,24 +142,20 @@ with tab1:
     gc.collect()
 
 # ==========================================
-# PESTAÑA 2: ESCÁNER Y ACTUALIZACIÓN EN NUBE
+# VISTA 2: ESCÁNER Y ACTUALIZACIÓN EN NUBE
 # ==========================================
-with tab2:
-    # Verificamos si hay un ID escaneado en los parámetros de la URL
-    id_escaneado = st.query_params.get("qr_id", "")
+elif st.session_state.vista_actual == "Escáner":
     
     if not id_escaneado:
         st.markdown("### 📷 Apunta al Código QR")
         st.write("Concede permiso a la cámara. El escaneo es automático y actualizará la base corporativa.")
         
-        # Componente HTML5 nativo para leer QR usando la cámara del celular sin saturar el servidor
         html_code = """
         <script src="https://unpkg.com/html5-qrcode"></script>
         <div id="reader" style="width:100%; max-width:500px; margin:auto; border-radius:10px; overflow:hidden; border: 2px solid #ddd;"></div>
         <script>
         function onScanSuccess(decodedText, decodedResult) {
-            html5QrcodeScanner.clear(); // Detiene la cámara
-            // Inyecta el ID en la URL de Streamlit y recarga la vista
+            html5QrcodeScanner.clear(); 
             const url = new URL(window.parent.location.href);
             url.searchParams.set("qr_id", decodedText);
             window.parent.history.replaceState({}, "", url);
@@ -172,7 +187,6 @@ with tab2:
                 st.query_params.clear()
                 st.rerun()
 
-        # Buscar en qué hoja está el equipo
         encontrado_piso = id_escaneado in df_piso_local['Id de producto'].values
         encontrado_mob = id_escaneado in df_mob_local['Id de producto'].values
 
@@ -203,50 +217,36 @@ with tab2:
                 
                 if submit:
                     with st.spinner("Actualizando celdas directamente en la nube..."):
-                        # 1. Calcular próxima fecha
                         frecuencia = str(equipo.get('Frecuencia de verificación', 'Anual'))
                         proxima_fecha = calcular_proxima_fecha(nueva_fecha, frecuencia)
                         
-                        # 2. MÉTODO QUIRÚRGICO (Usando gspread nativo)
                         import gspread
-                        
-                        # Convertimos los secretos de Streamlit a un diccionario estándar
                         secretos_dict = dict(st.secrets["connections"]["gsheets"])
                         url_hoja = secretos_dict["spreadsheet"]
                         
-                        # Nos conectamos a Google Sheets SIN el intermediario de Streamlit
                         gc_gspread = gspread.service_account_from_dict(secretos_dict)
                         doc = gc_gspread.open_by_url(url_hoja)
                         ws = doc.worksheet(hoja_activa)
                         
-                        # Obtenemos la posición numérica de las columnas
                         id_col_idx = df_actual.columns.get_loc('Id de producto')
                         val_col_idx = df_actual.columns.get_loc('Valor de verificación')
                         fecha_col_idx = df_actual.columns.get_loc('Fecha de verificación')
                         prox_fecha_col_idx = df_actual.columns.get_loc('Fecha de próxima verificación')
                         status_col_idx = df_actual.columns.get_loc('Estatus de verificación')
                         
-                        # Extraemos SÓLO la columna de IDs de Google Sheets (gspread cuenta desde 1)
                         columna_ids = ws.col_values(id_col_idx + 1)
-                        
-                        # Limpiamos los espacios en blanco invisibles para asegurar que siempre lo encuentre
                         columna_ids_limpia = [str(val).strip() for val in columna_ids]
-                        
-                        # Buscamos la fila exacta del ID escaneado
                         row_gspread = columna_ids_limpia.index(str(id_escaneado).strip()) + 1
                         
-                        # 3. Actualizamos las 4 celdas específicas (fila, columna, valor)
                         ws.update_cell(row_gspread, val_col_idx + 1, float(nuevo_valor))
                         ws.update_cell(row_gspread, fecha_col_idx + 1, nueva_fecha.strftime("%Y-%m-%d"))
                         ws.update_cell(row_gspread, prox_fecha_col_idx + 1, proxima_fecha.strftime("%Y-%m-%d"))
                         ws.update_cell(row_gspread, status_col_idx + 1, 'VIGENTE')
 
-                    st.success("💾 ¡Actualización exitosa! Las celdas se modificaron al instante en Google Sheets.")
+                    st.success("💾 ¡Actualización exitosa!")
                     st.cache_data.clear()
                     
-                    # Limpiamos la URL para permitir un nuevo escaneo
                     st.query_params.clear()
                     st.rerun()
-
         else:
             st.error("❌ El ID escaneado no existe en el sistema.")
