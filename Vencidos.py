@@ -3,9 +3,10 @@ import pandas as pd
 import plotly.express as px
 from PIL import Image
 import os
+import gc # RECOLECTOR DE BASURA (Manejo de memoria)
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
-from pyzbar.pyzbar import decode  # Nueva librería para leer QR
+from pyzbar.pyzbar import decode
 
 st.set_page_config(page_title="Control de Cumplimiento ESD", layout="wide")
 
@@ -13,10 +14,13 @@ RUTA_MAPA = "mapa.jpg"
 RUTA_COORDENADAS = "coordenadas.csv"
 RUTA_EXCEL = "E_310_4_110_QRO_SP_Rev.A_BCS ESD IDS.xlsx"
 
-@st.cache_data(ttl=5)
+# OPTIMIZACIÓN 1: Limitar la caché a una sola entrada para no saturar la RAM
+@st.cache_data(ttl=5, max_entries=1)
 def cargar_datos(ruta):
     if not os.path.exists(ruta):
         return None, None
+    # Solo cargamos las columnas estrictamente necesarias si quisieramos más memoria, 
+    # pero aquí cargamos todo para mantener el proceso simple.
     df_piso = pd.read_excel(ruta, sheet_name="PISO", header=4)
     df_mob = pd.read_excel(ruta, sheet_name="MOBILIARIO", header=4)
     return df_piso, df_mob
@@ -40,7 +44,7 @@ if df_piso_local is None or df_mob_local is None:
 tab1, tab2 = st.tabs(["🗺️ Mapa y Reportes", "📱 Escáner Móvil y Actualización"])
 
 # ==========================================
-# PESTAÑA 1: MAPA Y REPORTES (Sin cambios)
+# PESTAÑA 1: MAPA Y REPORTES
 # ==========================================
 with tab1:
     st.markdown("Visualización en tiempo real basada en el archivo local.")
@@ -94,6 +98,10 @@ with tab1:
                 st.plotly_chart(fig, use_container_width=True)
             else:
                 st.warning("No hay coincidencias con el archivo de coordenadas.")
+            
+            # Liberar memoria de la imagen del mapa y los dfs temporales
+            del img, df_coords, mapa_data, fig
+            gc.collect()
         else:
             st.info(f"📌 Falta '{RUTA_MAPA}' o '{RUTA_COORDENADAS}'.")
             
@@ -102,6 +110,10 @@ with tab1:
         st.dataframe(vencidos[[col for col in columnas_mostrar if col in vencidos.columns]], use_container_width=True, hide_index=True)
     else:
         st.success("✅ ¡Felicidades! No hay equipos operativos con estatus 'VENCIDO'.")
+    
+    # Limpiar DataFrames grandes de la pestaña 1
+    del df_piso_mapa, df_mob_mapa, df_total, vencidos
+    gc.collect()
 
 # ==========================================
 # PESTAÑA 2: ESCÁNER Y ACTUALIZACIÓN
@@ -111,22 +123,27 @@ with tab2:
     
     id_escaneado = ""
     
-    # --- SISTEMA DE CÁMARA NATIVO ---
     foto_qr = st.camera_input("📷 Toma una foto del Código QR")
     
     if foto_qr is not None:
-        # Procesar la imagen tomada
-        imagen = Image.open(foto_qr)
-        codigos_detectados = decode(imagen)
-        
-        if codigos_detectados:
-            # Extraer el texto del primer código detectado
-            id_escaneado = codigos_detectados[0].data.decode('utf-8')
-            st.success(f"**QR Detectado exitosamente:** {id_escaneado}")
-        else:
-            st.error("No se pudo leer el QR. Asegúrate de que la imagen esté enfocada y bien iluminada.")
+        try:
+            imagen = Image.open(foto_qr)
+            # OPTIMIZACIÓN 2: Reducir drásticamente el tamaño de la imagen para pyzbar
+            imagen.thumbnail((600, 600)) 
+            codigos_detectados = decode(imagen)
+            
+            if codigos_detectados:
+                id_escaneado = codigos_detectados[0].data.decode('utf-8')
+                st.success(f"**QR Detectado exitosamente:** {id_escaneado}")
+            else:
+                st.error("No se pudo leer el QR. Intenta acercarte un poco más.")
+            
+            # Limpiar memoria de la imagen procesada
+            del imagen, codigos_detectados
+            gc.collect()
+        except Exception as e:
+            st.error("Ocurrió un error procesando la imagen.")
 
-    # Opción de respaldo manual por si la etiqueta está borrosa o dañada
     st.markdown("O ingresa el ID manualmente:")
     id_manual = st.text_input("Ingresar ID manual:")
     
@@ -147,12 +164,8 @@ with tab2:
                 st.error(f"Error al leer el archivo base: {e}")
                 st.stop()
 
-            if encontrado_piso:
-                hoja_activa = "PISO"
-                df_activo = hojas_completas["PISO"]
-            else:
-                hoja_activa = "MOBILIARIO"
-                df_activo = hojas_completas["MOBILIARIO"]
+            hoja_activa = "PISO" if encontrado_piso else "MOBILIARIO"
+            df_activo = hojas_completas[hoja_activa]
 
             idx = df_activo[df_activo['Id de producto'] == id_escaneado].index[0]
             equipo = df_activo.iloc[idx]
@@ -165,7 +178,6 @@ with tab2:
             
             st.divider()
 
-            st.markdown("#### Registrar Nueva Medición")
             with st.form("form_actualizacion"):
                 nuevo_valor = st.number_input(
                     "Nuevo valor de medición", 
@@ -188,6 +200,7 @@ with tab2:
                     df_activo.at[idx, 'Estatus de verificación'] = 'VIGENTE'
                     
                     try:
+                        # Guardar el archivo
                         with pd.ExcelWriter(RUTA_EXCEL, engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
                             if hoja_activa == "PISO":
                                 header_piso_raw.to_excel(writer, sheet_name="PISO", index=False, header=False)
@@ -202,13 +215,17 @@ with tab2:
                         
                     except Exception as e:
                         st.error(f"❌ Ocurrió un error al guardar: {e}")
+            
+            # OPTIMIZACIÓN 3: Eliminar objetos inmensos de Excel después de procesar
+            del hojas_completas, header_piso_raw, header_mob_raw, df_activo
+            gc.collect()
+
         else:
             st.error("❌ El ID escaneado no existe en el sistema.")
 
-    # --- BOTÓN DE DESCARGA OBLIGATORIO ---
     st.divider()
     st.markdown("### 📥 Respaldo de Base de Datos")
-    st.info("Streamlit Cloud reinicia los servidores periódicamente. No olvides descargar tu archivo actualizado al finalizar.")
+    st.info("No olvides descargar tu archivo actualizado al finalizar.")
     
     if os.path.exists(RUTA_EXCEL):
         with open(RUTA_EXCEL, "rb") as file:
