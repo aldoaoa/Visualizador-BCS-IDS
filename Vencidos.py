@@ -138,17 +138,49 @@ elif st.session_state.vista_actual == "Escáner":
         html_code_qr = """
         <script src="https://unpkg.com/html5-qrcode"></script>
         <div id="reader" style="width:100%; max-width:500px; margin:auto; border-radius:10px; overflow:hidden; border: 2px solid #ddd; background-color: #f9f9f9;"></div>
+        <p id="cam-status" style="text-align:center; font-family:sans-serif; color:#666; font-size: 14px;">Buscando lente macro...</p>
         <script>
-        function onScanSuccess(decodedText, decodedResult) {
-            html5QrcodeScanner.clear(); 
-            const url = new URL(window.parent.location.href);
-            url.searchParams.set("qr_id", decodedText);
-            url.searchParams.delete("ocr_val");
-            window.parent.history.replaceState({}, "", url);
-            window.parent.location.reload();
-        }
-        let html5QrcodeScanner = new Html5QrcodeScanner("reader", { fps: 15, qrbox: {width: 250, height: 250}, aspectRatio: 1.0 }, false);
-        html5QrcodeScanner.render(onScanSuccess);
+        Html5Qrcode.getCameras().then(devices => {
+            if (devices && devices.length) {
+                let selectedCameraId = devices[0].id;
+                
+                // 1. Buscar específicamente el lente Ultra Wide / Macro del iPhone
+                for (let i = 0; i < devices.length; i++) {
+                    let label = devices[i].label.toLowerCase();
+                    if (label.includes("ultra") || label.includes("gran angular") || label.includes("macro")) {
+                        selectedCameraId = devices[i].id;
+                        document.getElementById("cam-status").innerText = "Lente Macro activado.";
+                        break;
+                    } else if (label.includes("back") || label.includes("trasera")) {
+                        selectedCameraId = devices[i].id; // Fallback a la trasera normal
+                    }
+                }
+
+                // 2. Iniciar el escáner silenciosamente con el lente seleccionado
+                const html5QrCode = new Html5Qrcode("reader");
+                html5QrCode.start(
+                    selectedCameraId,
+                    { fps: 15, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 },
+                    (decodedText) => {
+                        html5QrCode.stop();
+                        const url = new URL(window.parent.location.href);
+                        url.searchParams.set("qr_id", decodedText);
+                        url.searchParams.delete("ocr_val"); // Limpiar lecturas anteriores
+                        window.parent.history.replaceState({}, "", url);
+                        window.parent.location.reload();
+                    },
+                    (errorMessage) => { 
+                        // Ignoramos errores de cuadros vacíos mientras busca el QR
+                    }
+                ).then(() => {
+                    setTimeout(() => { document.getElementById("cam-status").style.display = 'none'; }, 1500);
+                }).catch(err => {
+                    document.getElementById("cam-status").innerText = "Error iniciando cámara: " + err;
+                });
+            }
+        }).catch(err => {
+            document.getElementById("cam-status").innerText = "Por favor, otorga permisos de cámara.";
+        });
         </script>
         """
         components.html(html_code_qr, height=450)
