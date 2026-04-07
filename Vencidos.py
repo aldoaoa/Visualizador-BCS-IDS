@@ -239,7 +239,7 @@ elif st.session_state.vista_actual == "Escáner":
                     <div id="ocr_scanner" style="width:100%; max-width:600px; margin:auto; border-radius:10px; overflow:hidden; border: 2px solid #555; background-color: #222; padding: 10px; text-align: center; color: white;">
                         
                         <div id="cam_container" style="position: relative; width: 100%; padding-bottom: 75%; overflow: hidden; border-radius: 8px; background: #000;">
-                            <video id="ocr_video" autoplay playsinline style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover;"></video>
+                            <video id="ocr_video" autoplay playsinline muted style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover;"></video>
                             
                             <div id="lcd_screen" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 85%; height: 40%; border: 3px solid rgba(255,255,255,0.8); background: rgba(0,0,0,0.3); pointer-events: none; border-radius: 8px;">
                                 
@@ -296,7 +296,7 @@ elif st.session_state.vista_actual == "Escáner":
                             
                             ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
                             
-                            // Inversión de color estricta para LCD (Gris/Blanco a Negro Puro)
+                            // Inversión de color estricta para LCD
                             const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
                             const data = imgData.data;
                             let sum = 0;
@@ -315,7 +315,7 @@ elif st.session_state.vista_actual == "Escáner":
                         btn.addEventListener('click', async () => {
                             if (!camStream) { setupCamera(); return; }
                             btn.disabled = true;
-                            status.innerText = "📸 Capturando Resistencia...";
+                            status.innerText = "📸 Procesando Resistencia...";
                             
                             const canvasOhms = getCroppedCanvas('box-ohms');
                             
@@ -326,7 +326,6 @@ elif st.session_state.vista_actual == "Escáner":
                                 await worker.loadLanguage('eng');
                                 await worker.initialize('eng');
 
-                                // Solo buscamos datos alfanuméricos para Resistencia Científica
                                 await worker.setParameters({ tessedit_char_whitelist: '0123456789.xX*Ee^ ' });
                                 let { data: { text: textOhms } } = await worker.recognize(canvasOhms);
                                 textOhms = textOhms.replace(/\\s+/g, '');
@@ -340,9 +339,11 @@ elif st.session_state.vista_actual == "Escáner":
                                 }
 
                                 await worker.terminate();
-                                camStream.getTracks().forEach(track => track.stop());
 
                                 if (valOhms) {
+                                    // CORRECCIÓN: Apagamos la cámara SOLO si tuvo éxito
+                                    camStream.getTracks().forEach(track => track.stop());
+                                    
                                     status.innerText = "✅ Valor extraído con éxito";
                                     status.style.color = "#28a745";
                                     
@@ -352,10 +353,11 @@ elif st.session_state.vista_actual == "Escáner":
                                     window.parent.history.replaceState({}, "", url);
                                     window.parent.location.reload();
                                 } else {
-                                    status.innerText = `❌ No se detectó Resistencia. Leído: [${textOhms}]`;
+                                    // Si falla, no apagamos la cámara, solo reactivamos el botón
+                                    status.innerText = `❌ No se detectó. Leído: [${textOhms}]`;
                                     status.style.color = "#dc3545";
                                     btn.disabled = false;
-                                    btn.innerText = "🔄 REINTENTAR";
+                                    btn.innerText = "🔄 REINTENTAR (Acomoda y presiona)";
                                 }
                             } catch (err) {
                                 status.innerText = "Error: " + err.message;
