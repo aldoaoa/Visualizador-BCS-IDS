@@ -236,44 +236,66 @@ elif st.session_state.vista_actual == "Escáner":
                     # HTML Y JS SIMPLIFICADO: Solo buscará Resistencia en un recuadro grande
                     html_code_ocr = """
                     <script src="https://unpkg.com/tesseract.js@v4.0.3/dist/tesseract.min.js"></script>
-                    <div id="ocr_scanner" style="width:100%; max-width:600px; margin:auto; border-radius:10px; overflow:hidden; border: 2px solid #555; background-color: #222; padding: 10px; text-align: center; color: white;">
+                    <div id="ocr_scanner" style="width:100%; max-width:600px; margin:auto; border-radius:10px; overflow:hidden; border: 2px solid #0052cc; background-color: #111; padding: 10px; text-align: center; color: white;">
                         
                         <div id="cam_container" style="position: relative; width: 100%; padding-bottom: 75%; overflow: hidden; border-radius: 8px; background: #000;">
                             <video id="ocr_video" autoplay playsinline muted style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover;"></video>
                             
-                            <div id="lcd_screen" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 85%; height: 40%; border: 3px solid rgba(255,255,255,0.8); background: rgba(0,0,0,0.3); pointer-events: none; border-radius: 8px;">
-                                
-                                <div id="box-ohms" style="position: absolute; top: 10%; left: 5%; width: 90%; height: 80%; border: 3px solid #0052cc; background: transparent;">
-                                    <span style="position:absolute; top:-20px; left:0; font-size:12px; color:#0052cc; background:black; padding:0 4px; font-weight:bold;">ENCUADRAR RESISTENCIA</span>
+                            <div id="lcd_screen" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 90%; height: 45%; border: 2px solid rgba(0,255,0,0.5); pointer-events: none;">
+                                <div id="box-ohms" style="position: absolute; top: 10%; left: 5%; width: 90%; height: 80%; border: 3px solid #00ff00;">
+                                    <span style="position:absolute; top:-22px; left:0; font-size:12px; color:#00ff00; font-weight:bold;">ENFOQUE RESISTENCIA Y EXPONENTE</span>
                                 </div>
-                                
                             </div>
                         </div>
                         
-                        <p id="ocr_status" style="margin: 15px 0; font-weight: bold; font-size: 14px;">Alinea los números en el recuadro y presiona Leer...</p>
+                        <p id="ocr_status" style="margin: 15px 0; font-size: 14px; color: #aaa;">Buscando lente macro...</p>
                         
-                        <button id="ocr_btn" style="width: 100%; padding: 15px; font-size: 18px; font-weight: bold; background-color: #28a745; color: white; border: none; border-radius: 8px; cursor: pointer;">
-                            📸 LEER PANTALLA LCD
+                        <button id="ocr_btn" style="width: 100%; padding: 18px; font-size: 18px; font-weight: bold; background-color: #0052cc; color: white; border: none; border-radius: 8px;">
+                            📸 LEER MEDICIÓN
                         </button>
                     </div>
+
                     <script>
                         const video = document.getElementById('ocr_video');
                         const btn = document.getElementById('ocr_btn');
                         const status = document.getElementById('ocr_status');
                         let camStream = null;
 
+                        // 1. FORZAR LENTE MACRO (IGUAL QUE EN QR)
                         async function setupCamera() {
+                            const devices = await navigator.mediaDevices.enumerateDevices();
+                            const cameras = devices.filter(d => d.kind === 'videoinput');
+                            let selectedId = cameras[0].id;
+                            
+                            for (const cam of cameras) {
+                                if (cam.label.toLowerCase().includes('ultra') || cam.label.toLowerCase().includes('macro')) {
+                                    selectedId = cam.id;
+                                    status.innerText = "Lente Macro Detectado";
+                                    break;
+                                }
+                            }
+
+                            const constraints = { 
+                                video: { 
+                                    deviceId: { exact: selectedId },
+                                    focusMode: 'continuous' 
+                                } 
+                            };
+                            
                             try {
-                                const constraints = { video: { facingMode: 'environment', focusMode: 'continuous' } };
                                 camStream = await navigator.mediaDevices.getUserMedia(constraints);
                                 video.srcObject = camStream;
-                            } catch (err) {
-                                status.innerText = "Error accediendo a la cámara.";
+                                status.innerText = "Alinea la pantalla y presiona leer";
+                            } catch (e) {
+                                // Fallback si falla el lente específico
+                                camStream = await navigator.mediaDevices.getUserMedia({video: {facingMode: 'environment'}});
+                                video.srcObject = camStream;
                             }
                         }
                         setupCamera();
 
-                        function getCroppedCanvas(boxId) {
+                        // 2. FUNCIÓN DE RECORTE CON SÚPER-RESOLUCIÓN (2X)
+                        function getHighResCrop(boxId) {
                             const box = document.getElementById(boxId);
                             const container = document.getElementById('cam_container');
                             const rectBox = box.getBoundingClientRect();
@@ -290,22 +312,20 @@ elif st.session_state.vista_actual == "Escáner":
                             const cropH = video.videoHeight * relH;
 
                             const canvas = document.createElement('canvas');
-                            canvas.width = cropW;
-                            canvas.height = cropH;
+                            // ESCALADO 2X: Hacemos la imagen el doble de grande para que el OCR vea mejor el exponente
+                            canvas.width = cropW * 2;
+                            canvas.height = cropH * 2;
                             const ctx = canvas.getContext('2d');
                             
-                            ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+                            // Dibujamos estirando la imagen
+                            ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, canvas.width, canvas.height);
                             
-                            // Inversión de color estricta para LCD
+                            // Pre-procesado: Blanco y Negro de alto contraste
                             const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
                             const data = imgData.data;
-                            let sum = 0;
-                            for (let i=0; i<data.length; i+=4) sum += (data[i] + data[i+1] + data[i+2]) / 3;
-                            const threshold = (sum / (canvas.width * canvas.height)) * 0.95; 
-                            
                             for (let i=0; i<data.length; i+=4) {
                                 const avg = (data[i] + data[i+1] + data[i+2]) / 3;
-                                const val = avg >= threshold ? 0 : 255; 
+                                const val = avg >= 130 ? 255 : 0; // Umbral de binarización
                                 data[i] = data[i+1] = data[i+2] = val;
                             }
                             ctx.putImageData(imgData, 0, 0);
@@ -313,51 +333,40 @@ elif st.session_state.vista_actual == "Escáner":
                         }
 
                         btn.addEventListener('click', async () => {
-                            if (!camStream) { setupCamera(); return; }
                             btn.disabled = true;
-                            status.innerText = "📸 Procesando Resistencia...";
+                            status.innerText = "⏳ ANALIZANDO EXPONENTE...";
                             
-                            const canvasOhms = getCroppedCanvas('box-ohms');
+                            const canvas = getHighResCrop('box-ohms');
                             
                             try {
-                                const worker = await Tesseract.createWorker({
-                                    logger: m => { if(m.status === 'recognizing text') status.innerText = `Analizando LCD... ${Math.round(m.progress * 100)}%`; }
-                                });
+                                const worker = await Tesseract.createWorker();
                                 await worker.loadLanguage('eng');
                                 await worker.initialize('eng');
-
                                 await worker.setParameters({ tessedit_char_whitelist: '0123456789.xX*Ee^ ' });
-                                let { data: { text: textOhms } } = await worker.recognize(canvasOhms);
-                                textOhms = textOhms.replace(/\\s+/g, '');
                                 
-                                let valOhms = null;
-                                const matchSci = textOhms.match(/(\\d+\\.?\\d*)[xX*eE]1?0?\\^?(\\d+)/);
-                                if (matchSci) {
-                                    let base = parseFloat(matchSci[1]);
-                                    let exp = parseInt(matchSci[2]);
-                                    if (exp < 20) valOhms = base * Math.pow(10, exp);
-                                }
-
+                                const { data: { text } } = await worker.recognize(canvas);
                                 await worker.terminate();
 
-                                if (valOhms) {
-                                    // CORRECCIÓN: Apagamos la cámara SOLO si tuvo éxito
-                                    camStream.getTracks().forEach(track => track.stop());
+                                // LÓGICA DE EXTRACCIÓN TOLERANTE (Regex)
+                                // Busca: Número decimal ... basura ... el número 10 ... basura ... 1 o 2 dígitos
+                                let cleaned = text.replace(/\\s+/g, '');
+                                const pattern = /(\\d+\\.\\d{1,2}).*?10.*?(\\d{1,2})/;
+                                const match = cleaned.match(pattern);
+
+                                if (match) {
+                                    const base = parseFloat(match[1]);
+                                    const exp = parseInt(match[2]);
+                                    const finalValue = base * Math.pow(10, exp);
                                     
-                                    status.innerText = "✅ Valor extraído con éxito";
-                                    status.style.color = "#28a745";
-                                    
+                                    camStream.getTracks().forEach(t => t.stop());
                                     const url = new URL(window.parent.location.href);
-                                    url.searchParams.set("ocr_val", valOhms);
-                                    
+                                    url.searchParams.set("ocr_val", finalValue);
                                     window.parent.history.replaceState({}, "", url);
                                     window.parent.location.reload();
                                 } else {
-                                    // Si falla, no apagamos la cámara, solo reactivamos el botón
-                                    status.innerText = `❌ No se detectó. Leído: [${textOhms}]`;
-                                    status.style.color = "#dc3545";
+                                    status.innerText = "❌ Exponente no claro. Intenta acercarte más.";
+                                    status.style.color = "#ff4b4b";
                                     btn.disabled = false;
-                                    btn.innerText = "🔄 REINTENTAR (Acomoda y presiona)";
                                 }
                             } catch (err) {
                                 status.innerText = "Error: " + err.message;
