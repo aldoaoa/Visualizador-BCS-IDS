@@ -135,7 +135,6 @@ elif st.session_state.vista_actual == "Escáner":
     if not id_escaneado_url:
         st.markdown("### 📷 Apunta al Código QR")
         
-        # --- NUEVA LÓGICA DE CÁMARA TRASERA PARA QR ---
         html_code_qr = """
         <script src="https://unpkg.com/html5-qrcode"></script>
         <div id="reader" style="width:100%; max-width:500px; margin:auto; border-radius:10px; overflow:hidden; border: 2px solid #ddd; background-color: #f9f9f9;"></div>
@@ -143,16 +142,14 @@ elif st.session_state.vista_actual == "Escáner":
         <script>
         Html5Qrcode.getCameras().then(devices => {
             if (devices && devices.length) {
-                let selectedCameraId = devices[0].id; // Fallback extremo
+                let selectedCameraId = devices[0].id; 
                 
-                // 1. Filtrar SOLO cámaras traseras (ignorar selfie)
                 let rearCams = devices.filter(c => c.label.toLowerCase().includes('back') || c.label.toLowerCase().includes('trasera'));
                 
                 if (rearCams.length > 0) {
-                    selectedCameraId = rearCams[0].id; // Usar la primera trasera por default
+                    selectedCameraId = rearCams[0].id; 
                     document.getElementById("cam-status").innerText = "Cámara trasera activada.";
                     
-                    // 2. Buscar específicamente lente Macro/Ultra Wide
                     for (let cam of rearCams) {
                         if (cam.label.toLowerCase().includes('ultra') || cam.label.toLowerCase().includes('macro')) {
                             selectedCameraId = cam.id;
@@ -162,7 +159,6 @@ elif st.session_state.vista_actual == "Escáner":
                     }
                 }
 
-                // Iniciar escáner con la cámara trasera garantizada
                 const html5QrCode = new Html5Qrcode("reader");
                 html5QrCode.start(
                     selectedCameraId,
@@ -175,7 +171,7 @@ elif st.session_state.vista_actual == "Escáner":
                         window.parent.history.replaceState({}, "", url);
                         window.parent.location.reload();
                     },
-                    (err) => {} // Ignorar errores de "no se encuentra QR en este frame"
+                    (err) => {} 
                 ).then(() => {
                     setTimeout(() => { document.getElementById("cam-status").style.display = 'none'; }, 1500);
                 });
@@ -211,17 +207,26 @@ elif st.session_state.vista_actual == "Escáner":
             idx = df_actual[df_actual['Id de producto'] == id_escaneado_url].index[0]
             equipo = df_actual.iloc[idx]
             
-            st.markdown("### 📊 Estatus Actual del Equipo")
-            c_estatus, c_fecha, c_val = st.columns(3)
+            # --- SECCIÓN 1: MOSTRAR DETALLES Y ESTATUS ACTUAL ---
+            st.markdown("### 📊 Detalles y Estatus del Equipo")
+            # Ampliamos a 4 columnas para incluir la Línea
+            c_linea, c_estatus, c_fecha, c_val = st.columns(4)
+            
+            c_linea.metric("Ubicación (Línea)", str(equipo.get('Línea', 'N/A')))
             
             estatus_actual = str(equipo.get('Estatus de verificación', 'N/A')).strip().upper()
             color_estatus = "🟢" if estatus_actual == "VIGENTE" else "🔴"
-            
             c_estatus.metric("Estatus", f"{color_estatus} {estatus_actual}")
+            
             c_fecha.metric("Última Verificación", str(equipo.get('Fecha de verificación', 'N/A'))[:10])
             
             val_previo = equipo.get('Valor de verificación', 0)
-            c_val.metric("Última Resistencia", f"{float(val_previo):,.0f} Ω" if pd.notna(val_previo) else "N/A")
+            # Aplicamos formato exponencial (ej. 3.20E+08) a la última medición
+            if pd.notna(val_previo) and val_previo != 0:
+                texto_resistencia = f"{float(val_previo):.2E} Ω"
+            else:
+                texto_resistencia = "N/A"
+            c_val.metric("Última Resistencia", texto_resistencia)
             
             st.divider()
 
@@ -233,7 +238,6 @@ elif st.session_state.vista_actual == "Escáner":
                 if not valor_ocr_detectado:
                     st.write("Alinea la pantalla del medidor centrando los números de resistencia dentro del recuadro verde.")
                     
-                    # --- NUEVA LÓGICA DE CÁMARA TRASERA PARA LCD (SÚPER-RESOLUCIÓN) ---
                     html_code_ocr = """
                     <script src="https://unpkg.com/tesseract.js@v4.0.3/dist/tesseract.min.js"></script>
                     <div id="ocr_scanner" style="width:100%; max-width:600px; margin:auto; border-radius:10px; overflow:hidden; border: 2px solid #0052cc; background-color: #111; padding: 10px; text-align: center; color: white;">
@@ -263,7 +267,6 @@ elif st.session_state.vista_actual == "Escáner":
 
                         async function setupCamera() {
                             try {
-                                // Solicitamos cámara trasera genérica primero para que iOS nos revele las etiquetas de hardware
                                 let tempStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
                                 
                                 const devices = await navigator.mediaDevices.enumerateDevices();
@@ -271,14 +274,12 @@ elif st.session_state.vista_actual == "Escáner":
                                 
                                 let selectedId = null;
                                 
-                                // Filtrar SOLO cámaras traseras
                                 const rearCams = cameras.filter(c => c.label.toLowerCase().includes('back') || c.label.toLowerCase().includes('trasera'));
                                 
                                 if (rearCams.length > 0) {
-                                    selectedId = rearCams[0].id; // Default a la primera trasera
+                                    selectedId = rearCams[0].id; 
                                     status.innerText = "Cámara trasera lista. Alinea y lee.";
                                     
-                                    // Buscar Macro trasero
                                     for (const cam of rearCams) {
                                         if (cam.label.toLowerCase().includes('ultra') || cam.label.toLowerCase().includes('macro')) {
                                             selectedId = cam.id;
@@ -288,10 +289,8 @@ elif st.session_state.vista_actual == "Escáner":
                                     }
                                 }
 
-                                // Detenemos el stream temporal
                                 tempStream.getTracks().forEach(t => t.stop());
 
-                                // Iniciamos la cámara definitiva elegida
                                 const constraints = selectedId 
                                     ? { video: { deviceId: { exact: selectedId }, focusMode: 'continuous' } }
                                     : { video: { facingMode: 'environment', focusMode: 'continuous' } };
@@ -322,7 +321,7 @@ elif st.session_state.vista_actual == "Escáner":
                             const cropH = video.videoHeight * relH;
 
                             const canvas = document.createElement('canvas');
-                            canvas.width = cropW * 2; // Súper resolución 2X
+                            canvas.width = cropW * 2; 
                             canvas.height = cropH * 2;
                             const ctx = canvas.getContext('2d');
                             
@@ -384,7 +383,8 @@ elif st.session_state.vista_actual == "Escáner":
                     
                 else:
                     st.success("✅ **Resistencia capturada:**")
-                    st.metric("Nuevo Valor", f"{float(valor_ocr_detectado):,.0f} Ω")
+                    # Formato exponencial (ej. 3.20E+08) en la captura
+                    st.metric("Nuevo Valor", f"{float(valor_ocr_detectado):.2E} Ω")
                     
                     if st.button("🔄 Descartar y reintentar captura"):
                         if "ocr_val" in st.query_params: 
@@ -395,7 +395,8 @@ elif st.session_state.vista_actual == "Escáner":
                 with st.form("form_actualizacion"):
                     
                     default_ohm = float(valor_ocr_detectado) if valor_ocr_detectado else float(equipo.get('Valor de verificación', 0) or 0.0)
-                    nuevo_valor_final = st.number_input("Resistencia (Ohms)", value=default_ohm, format="%f")
+                    # Forzamos el input numérico a notación científica
+                    nuevo_valor_final = st.number_input("Resistencia (Ohms)", value=default_ohm, format="%.2e")
                     
                     fecha_hoy = datetime.today().date()
                     nueva_fecha_valida = st.date_input("Fecha de medición", fecha_hoy)
