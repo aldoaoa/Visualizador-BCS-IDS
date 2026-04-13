@@ -9,13 +9,54 @@ from dateutil.relativedelta import relativedelta
 from streamlit_gsheets import GSheetsConnection
 import streamlit.components.v1 as components
 
-# Configuración horizontal (Wide)
-st.set_page_config(page_title="Control ESD Corporativo S20.20", layout="wide")
+# Configuración horizontal
+st.set_page_config(page_title="Control ESD Corporativo", layout="wide")
 
+# ==========================================
+# CAPA DE SEGURIDAD Y LOGIN
+# ==========================================
+if "usuario_nombre" not in st.session_state:
+    st.session_state.usuario_nombre = None
+
+if st.session_state.usuario_nombre is None:
+    st.markdown("<h2 style='text-align: center;'>🔒 Acceso al Sistema ESD S20.20</h2>", unsafe_allow_html=True)
+    
+    col1, col2, col3 = st.columns([1, 1, 1])
+    with col2:
+        with st.form("login_form"):
+            user_input = st.text_input("Usuario (ID)")
+            pwd_input = st.text_input("Contraseña", type="password")
+            submit_login = st.form_submit_button("Ingresar", use_container_width=True)
+            
+            if submit_login:
+                try:
+                    usuarios_db = st.secrets["usuarios"]
+                    if user_input in usuarios_db:
+                        if usuarios_db[user_input]["password"] == pwd_input:
+                            # Inicio de sesión exitoso
+                            st.session_state.usuario_nombre = usuarios_db[user_input]["nombre"]
+                            st.rerun()
+                        else:
+                            st.error("❌ Contraseña incorrecta")
+                    else:
+                        st.error("❌ Usuario no encontrado")
+                except KeyError:
+                    st.error("⚠️ No se ha configurado la sección [usuarios] en los Secretos de Streamlit.")
+    st.stop() # Detiene la ejecución del resto del código si no hay login
+
+# ==========================================
+# APLICACIÓN PRINCIPAL (Solo visible si hay login)
+# ==========================================
 RUTA_MAPA = "mapa.jpg" 
 RUTA_COORDENADAS = "coordenadas.csv"
 
-# --- CONEXIÓN A GOOGLE SHEETS EN TIEMPO REAL ---
+# Barra lateral para mostrar quién está conectado y opción de salir
+with st.sidebar:
+    st.markdown(f"👤 **Auditor:** {st.session_state.usuario_nombre}")
+    if st.button("Cerrar Sesión", use_container_width=True):
+        st.session_state.usuario_nombre = None
+        st.rerun()
+
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 @st.cache_data(ttl=2, max_entries=1) 
@@ -25,7 +66,7 @@ def cargar_datos_cloud():
         df_mob = conn.read(worksheet="MOBILIARIO", header=4)
         return df_piso, df_mob
     except Exception as e:
-        st.error(f"Error de conexión con la nube de Google Sheets: {e}")
+        st.error(f"Error de conexión con la nube: {e}")
         return None, None
 
 def calcular_proxima_fecha(fecha_actual, frecuencia):
@@ -36,20 +77,17 @@ def calcular_proxima_fecha(fecha_actual, frecuencia):
     elif 'mensual' in frecuencia: return fecha_actual + relativedelta(months=1)
     else: return fecha_actual + relativedelta(years=1)
 
-# --- INICIO DE LA APLICACIÓN CORPORATIVA ---
 st.title("Sistema de Gestión ESD S20.20 - Corporativo")
 
 df_piso_local, df_mob_local = cargar_datos_cloud()
 
 if df_piso_local is None or df_mob_local is None:
-    st.warning("⚠️ Asegúrate de haber compartido la Google Sheet Corporativa con el correo de la cuenta de servicio de Streamlit (Editor).")
+    st.warning("⚠️ Asegúrate de haber compartido la Google Sheet Corporativa.")
     st.stop()
 
-# --- CONTROL DE NAVEGACIÓN ---
 if "vista_actual" not in st.session_state:
     st.session_state.vista_actual = "Mapa"
 
-# Solo conservamos QR y el valor OCR de resistencia
 id_escaneado_url = st.query_params.get("qr_id", "")
 valor_ocr_detectado = st.query_params.get("ocr_val", "")
 
@@ -188,7 +226,6 @@ elif st.session_state.vista_actual == "Escáner":
             st.query_params["qr_id"] = id_manual
             st.rerun()
 
-    # --- SI YA TENEMOS UN ID ESCANEADO ---
     if id_escaneado_url:
         colA, colB = st.columns([0.8, 0.2])
         with colA:
@@ -207,9 +244,7 @@ elif st.session_state.vista_actual == "Escáner":
             idx = df_actual[df_actual['Id de producto'] == id_escaneado_url].index[0]
             equipo = df_actual.iloc[idx]
             
-            # --- SECCIÓN 1: MOSTRAR DETALLES Y ESTATUS ACTUAL ---
             st.markdown("### 📊 Detalles y Estatus del Equipo")
-            # Ampliamos a 4 columnas para incluir la Línea
             c_linea, c_estatus, c_fecha, c_val = st.columns(4)
             
             c_linea.metric("Ubicación (Línea)", str(equipo.get('Línea', 'N/A')))
@@ -221,7 +256,6 @@ elif st.session_state.vista_actual == "Escáner":
             c_fecha.metric("Última Verificación", str(equipo.get('Fecha de verificación', 'N/A'))[:10])
             
             val_previo = equipo.get('Valor de verificación', 0)
-            # Aplicamos formato exponencial (ej. 3.20E+08) a la última medición
             if pd.notna(val_previo) and val_previo != 0:
                 texto_resistencia = f"{float(val_previo):.2E} Ω"
             else:
@@ -383,7 +417,6 @@ elif st.session_state.vista_actual == "Escáner":
                     
                 else:
                     st.success("✅ **Resistencia capturada:**")
-                    # Formato exponencial (ej. 3.20E+08) en la captura
                     st.metric("Nuevo Valor", f"{float(valor_ocr_detectado):.2E} Ω")
                     
                     if st.button("🔄 Descartar y reintentar captura"):
@@ -395,7 +428,6 @@ elif st.session_state.vista_actual == "Escáner":
                 with st.form("form_actualizacion"):
                     
                     default_ohm = float(valor_ocr_detectado) if valor_ocr_detectado else float(equipo.get('Valor de verificación', 0) or 0.0)
-                    # Forzamos el input numérico a notación científica
                     nuevo_valor_final = st.number_input("Resistencia (Ohms)", value=default_ohm, format="%.2e")
                     
                     fecha_hoy = datetime.today().date()
@@ -422,8 +454,9 @@ elif st.session_state.vista_actual == "Escáner":
                                 fecha_col_idx = df_actual.columns.get_loc('Fecha de verificación')
                                 prox_fecha_col_idx = df_actual.columns.get_loc('Fecha de próxima verificación')
                                 status_col_idx = df_actual.columns.get_loc('Estatus de verificación')
+                                auditor_col_idx = df_actual.columns.get_loc('Auditor') # NUEVA COLUMNA
                             except KeyError as e:
-                                st.error(f"Falta la columna {e}")
+                                st.error(f"❌ Falta la columna {e} en Google Sheets. Por favor agrégala para continuar.")
                                 st.stop()
                             
                             columna_ids_corp = ws_corp.col_values(id_col_idx + 1)
@@ -433,6 +466,9 @@ elif st.session_state.vista_actual == "Escáner":
                             ws_corp.update_cell(row_gspread, fecha_col_idx + 1, nueva_fecha_valida.strftime("%Y-%m-%d"))
                             ws_corp.update_cell(row_gspread, prox_fecha_col_idx + 1, proxima_fecha_val.strftime("%Y-%m-%d"))
                             ws_corp.update_cell(row_gspread, status_col_idx + 1, 'VIGENTE')
+                            
+                            # INYECCIÓN DEL NOMBRE DEL AUDITOR
+                            ws_corp.update_cell(row_gspread, auditor_col_idx + 1, st.session_state.usuario_nombre)
 
                         st.success("💾 ¡Registro de Resistencia guardado y equipo Vigente!")
                         st.cache_data.clear()
