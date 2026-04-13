@@ -219,7 +219,7 @@ elif st.session_state.vista_actual == "Escáner":
         });
         </script>
         """
-        components.html(html_code_qr, height=450)
+        components.html(html_code_qr, height=650)
         
         id_manual = st.text_input("O ingresa el ID manual:", key="input_manual")
         if id_manual:
