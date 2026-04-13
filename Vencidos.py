@@ -11,7 +11,7 @@ import streamlit.components.v1 as components
 from streamlit_cookies_controller import CookieController
 
 # Configuración horizontal
-st.set_page_config(page_title="Control ESD Corporativo", layout="wide")
+st.set_page_config(page_title="Control ESD | BCS Querétaro", layout="wide")
 
 # Inicializar el controlador de cookies (Debe hacerse al principio)
 controller = CookieController()
@@ -35,7 +35,7 @@ if cookie_auditor:
 # --- CONTROL DE ACCESO (Estructura IF / ELSE) ---
 if st.session_state.usuario_nombre is None and not st.session_state.modo_lectura:
     
-    st.markdown("<h2 style='text-align: center;'>🛡️ Sistema de Gestión ESD S20.20</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 style='text-align: center;'>🛡️ Sistema de Gestión ESD | BCS-AIS</h2>", unsafe_allow_html=True)
     
     col_vacia1, col_central, col_vacia2 = st.columns([1, 1.2, 1])
     
