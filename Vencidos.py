@@ -89,7 +89,13 @@ with st.sidebar:
     if st.button("Salir al Menú Principal", use_container_width=True):
         st.session_state.usuario_nombre = None
         st.session_state.modo_lectura = False
-        controller.remove('auditor_esd_sesion')
+        
+        # Intentamos borrar la cookie de sesión de forma segura
+        try:
+            controller.remove('auditor_esd_sesion')
+        except KeyError:
+            pass # Si la cookie no existe (Ej. Modo Consulta), simplemente lo ignora
+            
         st.rerun()
 
 conn = st.connection("gsheets", type=GSheetsConnection)
