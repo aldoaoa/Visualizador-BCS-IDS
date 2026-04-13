@@ -11,9 +11,9 @@ import streamlit.components.v1 as components
 from streamlit_cookies_controller import CookieController
 
 # Configuración horizontal
-st.set_page_config(page_title="Control ESD | BCS Querétaro", layout="wide")
+st.set_page_config(page_title="Control ESD Corporativo", layout="wide")
 
-# Inicializar el controlador de cookies (Debe hacerse al principio)
+# Inicializar el controlador de cookies
 controller = CookieController()
 
 # ==========================================
@@ -30,12 +30,12 @@ if "modo_lectura" not in st.session_state:
 cookie_auditor = controller.get('auditor_esd_sesion')
 if cookie_auditor:
     st.session_state.usuario_nombre = cookie_auditor
-    st.session_state.modo_lectura = False # Si hay cookie, es un auditor real
+    st.session_state.modo_lectura = False 
 
 # --- CONTROL DE ACCESO (Estructura IF / ELSE) ---
 if st.session_state.usuario_nombre is None and not st.session_state.modo_lectura:
     
-    st.markdown("<h2 style='text-align: center;'>🛡️ Sistema de Gestión ESD | BCS-AIS</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 style='text-align: center;'>🛡️ Sistema de Gestión ESD S20.20</h2>", unsafe_allow_html=True)
     
     col_vacia1, col_central, col_vacia2 = st.columns([1, 1.2, 1])
     
@@ -56,7 +56,6 @@ if st.session_state.usuario_nombre is None and not st.session_state.modo_lectura
                             st.session_state.usuario_nombre = nombre_real
                             st.session_state.modo_lectura = False
                             
-                            # Guardamos la cookie por 7 días
                             expira = datetime.now() + timedelta(days=7)
                             controller.set('auditor_esd_sesion', nombre_real, expires=expira)
                             st.rerun()
@@ -90,7 +89,6 @@ else:
             st.session_state.usuario_nombre = None
             st.session_state.modo_lectura = False
             
-            # Borrado seguro de cookie
             try:
                 controller.remove('auditor_esd_sesion')
             except KeyError:
@@ -152,7 +150,7 @@ else:
     st.divider()
 
     # ==========================================
-    # VISTA 1: MAPA Y REPORTES ESD (Oculto para el modo consulta)
+    # VISTA 1: MAPA Y REPORTES ESD
     # ==========================================
     if st.session_state.vista_actual == "Mapa" and not st.session_state.modo_lectura:
         st.info("☁️ Los datos mostrados están sincronizados en tiempo real con Google Sheets.")
@@ -261,7 +259,7 @@ else:
                 idx = df_actual[df_actual['Id de producto'] == id_escaneado_url].index[0]
                 equipo = df_actual.iloc[idx]
                 
-                # --- MOSTRAR DETALLES Y ESTATUS (Para ambos roles) ---
+                # --- MOSTRAR DETALLES Y ESTATUS ---
                 st.markdown("### 📊 Detalles del Equipo")
                 
                 c_linea, c_estatus = st.columns(2)
@@ -271,18 +269,31 @@ else:
                 c_estatus.metric("Estatus Actual", f"{color_estatus} {estatus_actual}")
                 
                 c_fecha_ult, c_fecha_prox, c_val = st.columns(3)
-                c_fecha_ult.metric("Última Medición", str(equipo.get('Fecha de verificación', 'N/A'))[:10])
-                c_fecha_prox.metric("Próxima Medición", str(equipo.get('Fecha de próxima verificación', 'N/A'))[:10])
+                
+                # FIX: Obtenemos el string completo de la fecha y eliminamos el [:10] para evitar cortes en el formato DD-MMM-YYYY
+                fecha_ult_str = str(equipo.get('Fecha de verificación', 'N/A')).strip()
+                fecha_prox_str = str(equipo.get('Fecha de próxima verificación', 'N/A')).strip()
+                
+                c_fecha_ult.metric("Última Medición", fecha_ult_str)
+                c_fecha_prox.metric("Próxima Medición", fecha_prox_str)
                 
                 val_previo = equipo.get('Valor de verificación', 0)
-                limite = equipo.get('Límite de verificación (ohmios)', 'N/A')
-                
                 if pd.notna(val_previo) and val_previo != 0:
                     c_val.metric("Resistencia Registrada", f"{float(val_previo):.2E} Ω")
                 else:
                     c_val.metric("Resistencia Registrada", "N/A")
+                
+                # FIX: Buscamos el límite en la columna 'Maximo' y aplicamos notación científica si es numérico
+                limite_raw = equipo.get('Maximo', 'N/A')
+                if pd.notna(limite_raw) and str(limite_raw).strip() != 'N/A':
+                    try:
+                        limite_str = f"{float(limite_raw):.2E} Ω"
+                    except ValueError:
+                        limite_str = str(limite_raw) # Por si la columna contiene texto como "1x10^9" en vez de un número puro
+                else:
+                    limite_str = "N/A"
                     
-                st.markdown(f"**Límite S20.20 Permitido:** {limite}")
+                st.markdown(f"**Límite S20.20 Permitido:** {limite_str}")
                 
                 st.divider()
 
