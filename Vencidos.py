@@ -4,20 +4,34 @@ import plotly.express as px
 from PIL import Image
 import os
 import gc
-from datetime import datetime
+from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
 from streamlit_gsheets import GSheetsConnection
 import streamlit.components.v1 as components
 
+# --- NUEVA LIBRERÍA PARA COOKIES ---
+from streamlit_cookies_controller import CookieController
+
 # Configuración horizontal
 st.set_page_config(page_title="Control ESD Corporativo", layout="wide")
 
+# Inicializar el controlador de cookies (Debe hacerse al principio)
+controller = CookieController()
+
 # ==========================================
-# CAPA DE SEGURIDAD Y LOGIN
+# CAPA DE SEGURIDAD PERSISTENTE (COOKIES)
 # ==========================================
-if "usuario_nombre" not in st.session_state:
+
+# 1. Intentamos leer la cookie del navegador (toma una fracción de segundo)
+cookie_auditor = controller.get('auditor_esd_sesion')
+
+# 2. Sincronizamos la cookie con el estado de la sesión
+if cookie_auditor:
+    st.session_state.usuario_nombre = cookie_auditor
+elif "usuario_nombre" not in st.session_state:
     st.session_state.usuario_nombre = None
 
+# 3. PANTALLA DE LOGIN (Si no hay cookie ni sesión activa)
 if st.session_state.usuario_nombre is None:
     st.markdown("<h2 style='text-align: center;'>🔒 Acceso al Sistema ESD S20.20</h2>", unsafe_allow_html=True)
     
@@ -33,16 +47,24 @@ if st.session_state.usuario_nombre is None:
                     usuarios_db = st.secrets["usuarios"]
                     if user_input in usuarios_db:
                         if usuarios_db[user_input]["password"] == pwd_input:
-                            # Inicio de sesión exitoso
-                            st.session_state.usuario_nombre = usuarios_db[user_input]["nombre"]
+                            nombre_real = usuarios_db[user_input]["nombre"]
+                            
+                            # A) Guardamos en la sesión actual
+                            st.session_state.usuario_nombre = nombre_real
+                            
+                            # B) Guardamos en la COOKIE del iPhone (Duración: 7 días)
+                            # Calculamos la fecha de expiración
+                            expira = datetime.now() + timedelta(days=7)
+                            controller.set('auditor_esd_sesion', nombre_real, expires=expira)
+                            
                             st.rerun()
                         else:
                             st.error("❌ Contraseña incorrecta")
                     else:
                         st.error("❌ Usuario no encontrado")
                 except KeyError:
-                    st.error("⚠️ No se ha configurado la sección [usuarios] en los Secretos de Streamlit.")
-    st.stop() # Detiene la ejecución del resto del código si no hay login
+                    st.error("⚠️ No se ha configurado la sección [usuarios] en los Secretos.")
+    st.stop() # Detiene la ejecución si no ha pasado la seguridad
 
 # ==========================================
 # APLICACIÓN PRINCIPAL (Solo visible si hay login)
@@ -54,7 +76,9 @@ RUTA_COORDENADAS = "coordenadas.csv"
 with st.sidebar:
     st.markdown(f"👤 **Auditor:** {st.session_state.usuario_nombre}")
     if st.button("Cerrar Sesión", use_container_width=True):
+        # Destruir sesión y borrar la cookie del iPhone
         st.session_state.usuario_nombre = None
+        controller.remove('auditor_esd_sesion')
         st.rerun()
 
 conn = st.connection("gsheets", type=GSheetsConnection)
@@ -454,7 +478,7 @@ elif st.session_state.vista_actual == "Escáner":
                                 fecha_col_idx = df_actual.columns.get_loc('Fecha de verificación')
                                 prox_fecha_col_idx = df_actual.columns.get_loc('Fecha de próxima verificación')
                                 status_col_idx = df_actual.columns.get_loc('Estatus de verificación')
-                                auditor_col_idx = df_actual.columns.get_loc('Auditor') # NUEVA COLUMNA
+                                auditor_col_idx = df_actual.columns.get_loc('Auditor') 
                             except KeyError as e:
                                 st.error(f"❌ Falta la columna {e} en Google Sheets. Por favor agrégala para continuar.")
                                 st.stop()
@@ -467,7 +491,6 @@ elif st.session_state.vista_actual == "Escáner":
                             ws_corp.update_cell(row_gspread, prox_fecha_col_idx + 1, proxima_fecha_val.strftime("%Y-%m-%d"))
                             ws_corp.update_cell(row_gspread, status_col_idx + 1, 'VIGENTE')
                             
-                            # INYECCIÓN DEL NOMBRE DEL AUDITOR
                             ws_corp.update_cell(row_gspread, auditor_col_idx + 1, st.session_state.usuario_nombre)
 
                         st.success("💾 ¡Registro de Resistencia guardado y equipo Vigente!")
