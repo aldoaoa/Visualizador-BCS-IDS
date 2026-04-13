@@ -182,14 +182,29 @@ else:
                 df_coords = pd.read_csv(RUTA_COORDENADAS)
                 mapa_data = pd.merge(conteo_tipos, df_coords, on='Línea', how='inner')
                 if not mapa_data.empty:
-                    fig = px.scatter(
-                        mapa_data, x="X", y="Y", color="Total Vencidos", text="Etiqueta", hover_name="Línea",
-                        hover_data={"X": False, "Y": False, "Etiqueta": False, "Total Vencidos": True},
-                        color_continuous_scale="Reds"
-                    )
-                    fig.update_traces(textposition='middle center', textfont=dict(color='white', size=12, weight='bold'), marker=dict(symbol='square', size=50, opacity=0.9))
-                    fig.update_layout(images=[dict(source=img, xref="x", yref="y", x=0, y=0, sizex=width, sizey=height, sizing="stretch", opacity=1, layer="below")], xaxis=dict(visible=False), yaxis=dict(visible=False, scaleanchor="x"), margin=dict(l=0, r=0, t=0, b=0))
-                    st.plotly_chart(fig, use_container_width=True)
+                fig = px.scatter(
+                    mapa_data, x="X", y="Y", color="Total Vencidos", text="Etiqueta", hover_name="Línea",
+                    hover_data={"X": False, "Y": False, "Etiqueta": False, "Total Vencidos": True},
+                    color_continuous_scale="Reds"
+                )
+                
+                # 1. Ajuste de tamaño: Redujimos el cuadro de 50 a 26 y el texto a 10
+                fig.update_traces(
+                    textposition='middle center', 
+                    textfont=dict(color='white', size=10, weight='bold'), 
+                    marker=dict(symbol='square', size=26, opacity=0.85, line=dict(width=1, color='black'))
+                )
+                
+                # 2. Corrección de Desfase: Forzamos el rango (range) al ancho y alto exacto de la imagen
+                fig.update_layout(
+                    images=[dict(source=img, xref="x", yref="y", x=0, y=0, sizex=width, sizey=height, sizing="stretch", opacity=1, layer="below")], 
+                    xaxis=dict(visible=False, range=[0, width]), 
+                    yaxis=dict(visible=False, range=[height, 0], scaleanchor="x"), 
+                    margin=dict(l=0, r=0, t=0, b=0),
+                    coloraxis_showscale=False
+                )
+                
+                st.plotly_chart(fig, use_container_width=True)
             st.dataframe(vencidos[['Línea', 'Id de producto', 'Clasificación', 'Estatus de verificación']], use_container_width=True, hide_index=True)
         else:
             st.success("✅ ¡Felicidades! No hay equipos operativos VENCIDOS.")
