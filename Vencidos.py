@@ -22,20 +22,25 @@ st.set_page_config(page_title="Control ESD Corporativo", layout="wide")
 if 'cookies' not in st.session_state:
     st.session_state.cookies = EncryptedCookieManager(
         prefix="bcs_esd",
-        password="esd_corporativo_secreto_123" # Contraseña interna para encriptar las cookies en el navegador
+        password="esd_corporativo_secreto_123" 
     )
 
 cookies = st.session_state.cookies
 
-# 2. EL FRENO DE MANO: Detiene el código hasta que el navegador entrega las cookies
+# 2. EL FRENO DE MANO (CORREGIDO): 
+# Dibujamos algo en pantalla para que el navegador "despierte" y mande las cookies
 if not cookies.ready():
-    st.stop()
+    with st.spinner("⏳ Validando entorno seguro..."):
+        st.stop()
 
 # Definimos los posibles roles de la sesión actual
 if "usuario_nombre" not in st.session_state:
     st.session_state.usuario_nombre = None
 if "modo_lectura" not in st.session_state:
     st.session_state.modo_lectura = False
+
+# 3. Intentar recuperar sesión persistente desde el navegador
+# ... (El resto de tu código sigue exactamente igual hacia abajo) ...
 
 # 3. Intentar recuperar sesión persistente desde el navegador
 cookie_auditor = cookies.get('auditor_esd_sesion')
