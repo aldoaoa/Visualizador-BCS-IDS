@@ -346,7 +346,7 @@ else:
                 
                 # Obtenemos el índice de la fila que hizo match
                 idx = serie_busqueda[serie_busqueda == id_limpio].index[0]
-                equipo = df_actual.iloc[idx]
+                equipo = df_actual.loc[idx]
                 
                 # --- MOSTRAR DETALLES Y ESTATUS ---
                 st.markdown("### 📊 Detalles del Equipo")
