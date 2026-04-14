@@ -11,9 +11,9 @@ import streamlit.components.v1 as components
 from streamlit_cookies_controller import CookieController
 
 # Configuración de página
-st.set_page_config(page_title="Control ESD BCS AIS QRO", layout="wide")
+st.set_page_config(page_title="Control ESD Corporativo", layout="wide")
 
-# Inicializar controlador de cookies (El correcto)
+# Inicializar controlador de cookies
 controller = CookieController()
 
 # ==========================================
@@ -30,10 +30,10 @@ if cookie_auditor:
     st.session_state.modo_lectura = False 
 
 if st.session_state.usuario_nombre is None and not st.session_state.modo_lectura:
-    st.markdown("<h2 style='text-align: center;'>🛡️ Sistema de Gestión ESD BCS-AIS</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 style='text-align: center;'>🛡️ Sistema de Gestión ESD S20.20</h2>", unsafe_allow_html=True)
     col_v1, col_c, col_v2 = st.columns([1, 1.2, 1])
     with col_c:
-        tab_login, tab_monitor = st.tabs(["🔒 Ingreso de Auditor", "👁️ Modo Consulta"])
+        tab_login, tab_monitor = st.tabs(["🔒 Ingreso de Auditores", "👁️ Modo Consulta"])
         with tab_login:
             with st.form("login_form"):
                 user_input = st.text_input("Usuario (ID)")
@@ -97,11 +97,11 @@ else:
         elif 'mensual' in frecuencia: return fecha_actual + relativedelta(months=1)
         else: return fecha_actual + relativedelta(years=1)
 
-    st.title("Sistema de Gestión ESD BCS-AIS")
+    st.title("Sistema de Gestión ESD S20.20")
     df_piso_local, df_mob_local = cargar_datos_cloud()
 
     if df_piso_local is None or df_mob_local is None:
-        st.error("Falla al conectar con el servidor.")
+        st.error("Falla al conectar con Google Sheets.")
         st.stop()
 
     if "vista_actual" not in st.session_state:
@@ -134,7 +134,6 @@ else:
     if st.session_state.vista_actual == "Alta" and not st.session_state.modo_lectura:
         st.markdown("### 🆕 Registrar Nuevo Mobiliario")
         
-        # --- ACORDEÓN DESPLEGABLE DE IDs (OPCIÓN 2) ---
         with st.expander("📋 Directorio de IDs Existentes (Click para abrir/cerrar)", expanded=False):
             st.info("💡 **Tip:** Puedes dejar este panel abierto mientras llenas el formulario abajo. Haz clic en el título de una columna para ordenar (A-Z) o usa la lupa (🔍) en la tabla para buscar un ID específico.")
             if not df_mob_local.empty and 'Id de producto' in df_mob_local.columns and 'Línea' in df_mob_local.columns:
@@ -151,73 +150,80 @@ else:
 
         with st.form("form_alta_mobiliario"):
             col1, col2 = st.columns(2)
-            nueva_linea = col1.selectbox("Línea (ubicación)", options=lineas_disponibles)
+            nueva_linea = col1.selectbox("Línea (Ubicación)", options=lineas_disponibles)
             nuevo_id = col2.text_input("ID de Producto (Ej: MOB-001)")
-            nuevo_tipo = col1.selectbox("Tipo de Mobiliario (Clasificación)", options=tipos_disponibles)
             
-            # Lógica de Fabricante
-            fabricante_opc = col2.selectbox("Fabricante", options=["BCS", "Otro", "N/A"])
+            nuevo_tipo = col1.selectbox("Tipo de Mobiliario (Clasificación)", options=tipos_disponibles)
+            valor_alta = col2.number_input("Valor de medición inicial (Opcional - Ohms)", value=0.0, format="%.2e")
+            
+            fabricante_opc = col1.selectbox("Fabricante", options=["BCS", "Otro", "N/A"])
             fabricante_final = fabricante_opc
             if fabricante_opc == "Otro":
-                fabricante_final = col2.text_input("Especifique Fabricante", help="Ingrese el nombre de la marca")
-
+                fabricante_final = col1.text_input("Especifique Fabricante", help="Ingrese el nombre de la marca")
+            
+            frecuencia_alta = col2.selectbox("Frecuencia de verificación", options=["Anual", "Semestral", "Trimestral", "Mensual"], index=0)
+            
             col3, col4 = st.columns(2)
             nuevo_minimo = col3.number_input("Mínimo", value=0.00, format="%.2e")
             limite_alta = col4.text_input("Límite S20.20 (Maximo)", value="1.00E+09")
             
-            frecuencia_alta = col3.selectbox("Frecuencia de verificación", options=["Anual", "Semestral", "Trimestral", "Mensual"])
-            valor_alta = col4.number_input("Valor de medición inicial (Opcional - Ohms)", value=0.0, format="%.2e")
-            
             comentarios = st.text_area("Comentarios (Notas opcionales)")
             
-            if st.form_submit_button("Registrar en Sistema", use_container_width=True):
+            submit_alta = st.form_submit_button("Registrar en Google Sheets", use_container_width=True)
+            
+            if submit_alta:
                 if not nuevo_id or (fabricante_opc == "Otro" and not fabricante_final):
                     st.error("Por favor complete los campos obligatorios (ID y Fabricante).")
-                elif nuevo_id in df_mob_local['Id de producto'].values:
-                    st.error(f"El ID {nuevo_id} ya existe.")
                 else:
-                    with st.spinner("Guardando registro..."):
-                        import gspread
-                        sec = dict(st.secrets["connections"]["gsheets"])
-                        gc = gspread.service_account_from_dict(sec)
-                        ws = gc.open_by_url(sec["spreadsheet"]).worksheet("MOBILIARIO")
-                        
-                        fecha_hoy = datetime.today().date()
-                        dias_map = {"Anual": 360, "Semestral": 180, "Trimestral": 90, "Mensual": 30}
-                        proxima = fecha_hoy + timedelta(days=dias_map.get(frecuencia_alta, 360))
-                        
-                        # Construcción de Fila A-R (18 columnas exactas)
-                        nueva_fila = [
-                            nueva_linea,                                     # A: Línea
-                            nuevo_id,                                        # B: Id de producto
-                            nuevo_tipo,                                      # C: Clasificación
-                            "Aprobado",                                      # D: Etiquetado
-                            fabricante_final,                                # E: Marca
-                            float(nuevo_minimo),                             # F: Minimo
-                            float(limite_alta) if "E" in limite_alta.upper() else limite_alta, # G: Maximo
-                            "Ohms",                                          # H: Unidad de aceptabilidad
-                            float(valor_alta) if valor_alta > 0 else "",      # I: Valor de verificación
-                            "Ohms",                                          # J: Unidad verificada
-                            "RTG",                                           # K: Método
-                            fecha_hoy.strftime("%d-%b-%Y") if valor_alta > 0 else "", # L: Fecha de verificación
-                            proxima.strftime("%d-%b-%Y") if valor_alta > 0 else "",   # M: Fecha de próxima
-                            frecuencia_alta,                                 # N: Frecuencia de verificación
-                            "Vigente" if valor_alta > 0 and fecha_hoy < proxima else "", # O: Estatus de verificación
-                            "Operativo",                                     # P: Estatus operativo
-                            comentarios,                                     # Q: Notas
-                            st.session_state.usuario_nombre                  # R: Auditor
-                        ]
-                        
-                        ws.append_row(nueva_fila, value_input_option="USER_ENTERED")
-                        st.success(f"✅ {nuevo_id} registrado correctamente.")
+                    id_limpio_alta = str(nuevo_id).strip().upper()
+                    ids_existentes = df_mob_local['Id de producto'].astype(str).str.strip().str.upper().values
+                    
+                    if id_limpio_alta in ids_existentes:
+                        st.error(f"El ID {nuevo_id} ya existe en el sistema.")
+                    else:
+                        with st.spinner("Creando nuevo registro corporativo..."):
+                            import gspread
+                            sec = dict(st.secrets["connections"]["gsheets"])
+                            gc_client = gspread.service_account_from_dict(sec)
+                            ws = gc_client.open_by_url(sec["spreadsheet"]).worksheet("MOBILIARIO")
+                            
+                            fecha_hoy = datetime.today().date()
+                            dias_map = {"Anual": 360, "Semestral": 180, "Trimestral": 90, "Mensual": 30}
+                            proxima = fecha_hoy + timedelta(days=dias_map.get(frecuencia_alta, 360))
+                            
+                            nueva_fila = [
+                                nueva_linea,                                     
+                                nuevo_id,                                        
+                                nuevo_tipo,                                      
+                                "Aprobado",                                      
+                                fabricante_final,                                
+                                float(nuevo_minimo),                             
+                                float(limite_alta) if "E" in limite_alta.upper() else limite_alta, 
+                                "Ohms",                                          
+                                float(valor_alta) if valor_alta > 0 else "",      
+                                "Ohms",                                          
+                                "RTG",                                           
+                                fecha_hoy.strftime("%d-%b-%Y") if valor_alta > 0 else "", 
+                                proxima.strftime("%d-%b-%Y") if valor_alta > 0 else "",   
+                                frecuencia_alta,                                 
+                                "Vigente" if valor_alta > 0 and fecha_hoy < proxima else "", 
+                                "Operativo",                                     
+                                comentarios,                                     
+                                st.session_state.usuario_nombre                  
+                            ]
+                            
+                            ws.append_row(nueva_fila, value_input_option="USER_ENTERED")
+                            
+                        st.success(f"✅ ¡Activo {nuevo_id} registrado exitosamente en la línea {nueva_linea}!")
                         st.cache_data.clear()
-                        st.rerun()
+                        st.balloons()
+
 
     # ==========================================
-    # VISTA 1: MAPA Y REPORTES
+    # VISTA 1: MAPA Y REPORTES ESD
     # ==========================================
     elif st.session_state.vista_actual == "Mapa" and not st.session_state.modo_lectura:
-        st.info("☁️ Los datos mostrados están sincronizados en tiempo real con el servidor.")
+        st.info("☁️ Los datos mostrados están sincronizados en tiempo real con Google Sheets.")
         df_piso_mapa = df_piso_local.copy()
         df_piso_mapa['Hoja Origen'] = 'PISO'
         df_mob_mapa = df_mob_local.copy()
@@ -269,63 +275,127 @@ else:
             st.success("✅ ¡Felicidades! No hay equipos operativos VENCIDOS.")
 
     # ==========================================
-    # VISTA 2: ESCÁNER
+    # VISTA 2: ESCÁNER Y DETALLES
     # ==========================================
     elif st.session_state.vista_actual == "Escáner":
+        
         if not id_escaneado_url:
             st.markdown("### 📷 Apunta al Código QR")
             html_code_qr = """
             <script src="https://unpkg.com/html5-qrcode"></script>
-            <div id="reader" style="width:100%; max-width:500px; margin:auto; border-radius:10px; overflow:hidden;"></div>
+            <div id="reader" style="width:100%; max-width:500px; margin:auto; border-radius:10px; overflow:hidden; border: 2px solid #ddd; background-color: #f9f9f9;"></div>
+            <p id="cam-status" style="text-align:center; color:#666; font-size: 14px;">Iniciando cámara trasera...</p>
             <script>
-            function onScanSuccess(decodedText) {
-                const url = new URL(window.parent.location.href);
-                url.searchParams.set("qr_id", decodedText);
-                window.parent.history.replaceState({}, "", url);
-                window.parent.location.reload();
-            }
-            let scanner = new Html5QrcodeScanner("reader", { fps: 10, qrbox: 250 });
-            scanner.render(onScanSuccess);
-            </script> """
-            components.html(html_code_qr, height=500)
+            Html5Qrcode.getCameras().then(devices => {
+                if (devices && devices.length) {
+                    let selectedCameraId = devices[0].id; 
+                    let rearCams = devices.filter(c => c.label.toLowerCase().includes('back') || c.label.toLowerCase().includes('trasera'));
+                    if (rearCams.length > 0) {
+                        selectedCameraId = rearCams[0].id; 
+                        for (let cam of rearCams) {
+                            if (cam.label.toLowerCase().includes('ultra') || cam.label.toLowerCase().includes('macro')) {
+                                selectedCameraId = cam.id; break;
+                            }
+                        }
+                    }
+                    const html5QrCode = new Html5Qrcode("reader");
+                    html5QrCode.start(
+                        selectedCameraId, { fps: 15, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 },
+                        (decodedText) => {
+                            html5QrCode.stop();
+                            const url = new URL(window.parent.location.href);
+                            url.searchParams.set("qr_id", decodedText);
+                            url.searchParams.delete("ocr_val");
+                            window.parent.history.replaceState({}, "", url);
+                            window.parent.location.reload();
+                        }, (err) => {} 
+                    ).then(() => { setTimeout(() => { document.getElementById("cam-status").style.display = 'none'; }, 1500); });
+                }
+            }).catch(err => { document.getElementById("cam-status").innerText = "Otorga permisos de cámara."; });
+            </script>
+            """
+            components.html(html_code_qr, height=650) 
             
             id_manual = st.text_input("O ingresa el ID manual:", key="input_manual")
             if id_manual:
                 st.query_params["qr_id"] = id_manual
                 st.rerun()
-        else:
-            df_a = df_piso_local if id_escaneado_url in df_piso_local['Id de producto'].values else df_mob_local
-            
+
+        if id_escaneado_url:
             colA, colB = st.columns([0.8, 0.2])
-            with colA: st.info(f"🔍 **ID Detectado:** {id_escaneado_url}")
+            with colA:
+                st.info(f"🔍 **ID Detectado:** {id_escaneado_url}")
             with colB:
-                if st.button("❌ Cerrar"): st.query_params.clear(); st.rerun()
+                if st.button("❌ Cerrar Escaneo"):
+                    st.query_params.clear()
+                    st.rerun()
+
+            # --- FILTRO LIMPIADOR PARA BÚSQUEDA ---
+            id_limpio = str(id_escaneado_url).strip().upper()
+            
+            piso_ids_limpios = df_piso_local['Id de producto'].astype(str).str.strip().str.upper()
+            mob_ids_limpios = df_mob_local['Id de producto'].astype(str).str.strip().str.upper()
+
+            es_piso = id_limpio in piso_ids_limpios.values
+            es_mob = id_limpio in mob_ids_limpios.values
+
+            if es_piso or es_mob:
+                hoja_activa = "PISO" if es_piso else "MOBILIARIO"
+                df_actual = df_piso_local if es_piso else df_mob_local
+                serie_busqueda = piso_ids_limpios if es_piso else mob_ids_limpios
                 
-            if id_escaneado_url in df_a['Id de producto'].values:
-                eq = df_a[df_a['Id de producto'] == id_escaneado_url].iloc[0]
+                # Obtenemos el índice de la fila que hizo match
+                idx = serie_busqueda[serie_busqueda == id_limpio].index[0]
+                equipo = df_actual.iloc[idx]
+                
+                # --- MOSTRAR DETALLES Y ESTATUS ---
                 st.markdown("### 📊 Detalles del Equipo")
                 
                 c_linea, c_estatus = st.columns(2)
-                c_linea.metric("Ubicación (Línea)", str(eq.get('Línea', 'N/A')))
-                est_act = str(eq.get('Estatus de verificación', 'N/A')).strip().upper()
-                c_estatus.metric("Estatus Actual", f"{'🟢' if est_act == 'VIGENTE' else '🔴'} {est_act}")
+                c_linea.metric("Ubicación (Línea)", str(equipo.get('Línea', 'N/A')))
+                estatus_actual = str(equipo.get('Estatus de verificación', 'N/A')).strip().upper()
+                color_estatus = "🟢" if estatus_actual == "VIGENTE" else "🔴"
+                c_estatus.metric("Estatus Actual", f"{color_estatus} {estatus_actual}")
                 
-                c_f1, c_f2, c_val = st.columns(3)
-                c_f1.metric("Última Medición", str(eq.get('Fecha de verificación', 'N/A')).strip())
-                c_f2.metric("Próxima Medición", str(eq.get('Fecha de próxima verificación', 'N/A')).strip())
+                c_fecha_ult, c_fecha_prox, c_val = st.columns(3)
                 
-                v_prev = eq.get('Valor de verificación', 0)
-                c_val.metric("Resistencia Registrada", f"{float(v_prev):.2E} Ω" if pd.notna(v_prev) and v_prev != 0 else "N/A")
+                fecha_ult_str = str(equipo.get('Fecha de verificación', 'N/A')).strip()
+                fecha_prox_str = str(equipo.get('Fecha de próxima verificación', 'N/A')).strip()
                 
-                lim_raw = eq.get('Maximo', 'N/A')
-                lim_str = f"{float(lim_raw):.2E} Ω" if pd.notna(lim_raw) and str(lim_raw).strip() != 'N/A' else "N/A"
-                st.markdown(f"**Límite S20.20 Permitido:** {lim_str}")
+                c_fecha_ult.metric("Última Medición", fecha_ult_str)
+                c_fecha_prox.metric("Próxima Medición", fecha_prox_str)
+                
+                val_previo = equipo.get('Valor de verificación', 0)
+                if pd.notna(val_previo) and val_previo != 0 and str(val_previo).strip() != '':
+                    try:
+                        c_val.metric("Resistencia Registrada", f"{float(val_previo):.2E} Ω")
+                    except ValueError:
+                        c_val.metric("Resistencia Registrada", str(val_previo))
+                else:
+                    c_val.metric("Resistencia Registrada", "N/A")
+                
+                limite_raw = equipo.get('Maximo', 'N/A')
+                if pd.notna(limite_raw) and str(limite_raw).strip() != 'N/A' and str(limite_raw).strip() != '':
+                    try:
+                        limite_str = f"{float(limite_raw):.2E} Ω"
+                    except ValueError:
+                        limite_str = str(limite_raw)
+                else:
+                    limite_str = "N/A"
+                    
+                st.markdown(f"**Límite S20.20 Permitido:** {limite_str}")
                 st.divider()
 
+                # --- BLOQUEO DE EDICIÓN PARA MODO CONSULTA ---
                 if st.session_state.modo_lectura:
-                    st.warning("👁️ **Modo Consulta.** No puedes editar datos.")
+                    st.warning("👁️ **Estás en Modo Consulta.** No tienes permisos para capturar pantallas de medidores ni actualizar los registros corporativos. Si deseas realizar una auditoría completa, cierra esta sesión en el menú lateral e ingresa con tus credenciales.")
                 else:
-                    if st.checkbox("✅ Realizar nueva medición y actualizar", value=bool(valor_ocr_detectado)):
+                    # --- FLUJO DE AUDITOR ---
+                    hacer_medicion = st.checkbox("✅ Realizar nueva medición y actualizar", value=bool(valor_ocr_detectado))
+                    
+                    if hacer_medicion:
+                        st.markdown("### 📷 Captura Automática del Medidor")
+                        
                         if not valor_ocr_detectado:
                             html_code_ocr = """
                             <script src="https://unpkg.com/tesseract.js@v4.0.3/dist/tesseract.min.js"></script>
@@ -445,24 +515,46 @@ else:
                             
                             if st.form_submit_button("Guardar en Google Sheets"):
                                 with st.spinner("Guardando..."):
-                                    freq = str(eq.get('Frecuencia de verificación', 'Anual'))
+                                    freq = str(equipo.get('Frecuencia de verificación', 'Anual'))
                                     proxy = calcular_proxima_fecha(nueva_fecha_valida, freq)
                                     
                                     import gspread
                                     sec = dict(st.secrets["connections"]["gsheets"])
                                     gc_gspread = gspread.service_account_from_dict(sec)
-                                    ws = gc_gspread.open_by_url(sec["spreadsheet"]).worksheet("PISO" if encontrado_piso else "MOBILIARIO")
                                     
-                                    ids = ws.col_values(df_a.columns.get_loc('Id de producto') + 1)
-                                    r_idx = [str(v).strip() for v in ids].index(str(id_escaneado_url).strip()) + 1
+                                    # CORRECCIÓN AQUÍ: Se usa 'hoja_activa' directamente
+                                    ws = gc_gspread.open_by_url(sec["spreadsheet"]).worksheet(hoja_activa)
                                     
-                                    ws.update_cell(r_idx, df_a.columns.get_loc('Valor de verificación') + 1, float(nuevo_valor_final))
-                                    ws.update_cell(r_idx, df_a.columns.get_loc('Fecha de verificación') + 1, nueva_fecha_valida.strftime("%d-%b-%Y"))
-                                    ws.update_cell(r_idx, df_a.columns.get_loc('Fecha de próxima verificación') + 1, proxy.strftime("%d-%b-%Y"))
-                                    ws.update_cell(r_idx, df_a.columns.get_loc('Estatus de verificación') + 1, 'VIGENTE')
-                                    ws.update_cell(r_idx, df_a.columns.get_loc('Auditor') + 1, st.session_state.usuario_nombre)
+                                    try:
+                                        id_idx = df_actual.columns.get_loc('Id de producto')
+                                        val_idx = df_actual.columns.get_loc('Valor de verificación')
+                                        f_idx = df_actual.columns.get_loc('Fecha de verificación')
+                                        fp_idx = df_actual.columns.get_loc('Fecha de próxima verificación')
+                                        st_idx = df_actual.columns.get_loc('Estatus de verificación')
+                                        aud_idx = df_actual.columns.get_loc('Auditor') 
+                                    except KeyError as e:
+                                        st.error(f"Falta columna {e}")
+                                        st.stop()
+                                    
+                                    # Búsqueda exacta usando la lista limpia
+                                    ids_gsheets = ws.col_values(id_idx + 1)
+                                    ids_gsheets_limpios = [str(v).strip().upper() for v in ids_gsheets]
+                                    
+                                    try:
+                                        r_idx = ids_gsheets_limpios.index(id_limpio) + 1
+                                    except ValueError:
+                                        st.error("No se pudo encontrar la fila exacta en Google Sheets para actualizar.")
+                                        st.stop()
+                                    
+                                    ws.update_cell(r_idx, val_idx + 1, float(nuevo_valor_final))
+                                    ws.update_cell(r_idx, f_idx + 1, nueva_fecha_valida.strftime("%d-%b-%Y"))
+                                    ws.update_cell(r_idx, fp_idx + 1, proxy.strftime("%d-%b-%Y"))
+                                    ws.update_cell(r_idx, st_idx + 1, 'VIGENTE')
+                                    ws.update_cell(r_idx, aud_idx + 1, st.session_state.usuario_nombre)
 
-                                st.success("💾 Guardado!")
+                                st.success("💾 ¡Guardado correctamente!")
                                 st.cache_data.clear()
                                 st.query_params.clear()
                                 st.rerun()
+            else:
+                st.error(f"❌ El ID '{id_escaneado_url}' no se encontró en la base de datos corporativa.")
