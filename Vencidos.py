@@ -8,30 +8,17 @@ from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
 from streamlit_gsheets import GSheetsConnection
 import streamlit.components.v1 as components
-
-# --- NUEVO GESTOR DE COOKIES ---
-from streamlit_cookies_manager import EncryptedCookieManager
+from streamlit_cookies_controller import CookieController
 
 # Configuración horizontal
 st.set_page_config(page_title="Control ESD Corporativo", layout="wide")
 
-# ==========================================
-# CAPA DE SEGURIDAD (COOKIES ENCRIPTADAS Y ROLES)
-# ==========================================
-# 1. Inicializamos el gestor de cookies
-if 'cookies' not in st.session_state:
-    st.session_state.cookies = EncryptedCookieManager(
-        prefix="bcs_esd",
-        password="esd_corporativo_secreto_123" 
-    )
+# Inicializar el controlador de cookies
+controller = CookieController()
 
-cookies = st.session_state.cookies
-
-# 2. EL FRENO DE MANO (CORREGIDO): 
-# Dibujamos algo en pantalla para que el navegador "despierte" y mande las cookies
-if not cookies.ready():
-    with st.spinner("⏳ Validando entorno seguro..."):
-        st.stop()
+# ==========================================
+# CAPA DE SEGURIDAD (COOKIES Y ROLES)
+# ==========================================
 
 # Definimos los posibles roles de la sesión actual
 if "usuario_nombre" not in st.session_state:
@@ -39,16 +26,13 @@ if "usuario_nombre" not in st.session_state:
 if "modo_lectura" not in st.session_state:
     st.session_state.modo_lectura = False
 
-# 3. Intentar recuperar sesión persistente desde el navegador
-# ... (El resto de tu código sigue exactamente igual hacia abajo) ...
-
-# 3. Intentar recuperar sesión persistente desde el navegador
-cookie_auditor = cookies.get('auditor_esd_sesion')
+# Intentar recuperar sesión persistente desde el navegador
+cookie_auditor = controller.get('auditor_esd_sesion')
 if cookie_auditor:
     st.session_state.usuario_nombre = cookie_auditor
     st.session_state.modo_lectura = False 
 
-# --- CONTROL DE ACCESO ---
+# --- CONTROL DE ACCESO (Estructura IF / ELSE) ---
 if st.session_state.usuario_nombre is None and not st.session_state.modo_lectura:
     
     st.markdown("<h2 style='text-align: center;'>🛡️ Sistema de Gestión ESD S20.20</h2>", unsafe_allow_html=True)
@@ -72,9 +56,8 @@ if st.session_state.usuario_nombre is None and not st.session_state.modo_lectura
                             st.session_state.usuario_nombre = nombre_real
                             st.session_state.modo_lectura = False
                             
-                            # Guardamos la cookie de forma segura
-                            cookies['auditor_esd_sesion'] = nombre_real
-                            cookies.save() # Forzamos el guardado inmediato
+                            expira = datetime.now() + timedelta(days=7)
+                            controller.set('auditor_esd_sesion', nombre_real, expires=expira)
                             st.rerun()
                         else:
                             st.error("❌ Credenciales incorrectas")
@@ -106,10 +89,10 @@ else:
             st.session_state.usuario_nombre = None
             st.session_state.modo_lectura = False
             
-            # Borrado seguro de la cookie
-            if 'auditor_esd_sesion' in cookies:
-                del cookies['auditor_esd_sesion']
-                cookies.save()
+            try:
+                controller.remove('auditor_esd_sesion')
+            except KeyError:
+                pass
                 
             st.rerun()
 
@@ -150,7 +133,6 @@ else:
     if id_escaneado_url or valor_ocr_detectado:
         st.session_state.vista_actual = "Escáner"
 
-    # --- NAVEGACIÓN PRINCIPAL ---
     if not st.session_state.modo_lectura:
         c_nav1, c_nav2, c_nav3 = st.columns(3)
         with c_nav1:
@@ -230,7 +212,6 @@ else:
                     st.success(f"✅ ¡Activo {nuevo_id} registrado exitosamente en la línea {nueva_linea}!")
                     st.cache_data.clear()
                     st.balloons()
-
 
     # ==========================================
     # VISTA 1: MAPA Y REPORTES ESD
