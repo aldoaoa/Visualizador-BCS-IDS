@@ -11,7 +11,7 @@ import streamlit.components.v1 as components
 from streamlit_cookies_controller import CookieController
 
 # Configuración de página
-st.set_page_config(page_title="Control ESD Corporativo", layout="wide")
+st.set_page_config(page_title="Control ESD BCS-AIS", layout="wide")
 
 # Inicializar controlador de cookies
 controller = CookieController()
@@ -30,10 +30,10 @@ if cookie_auditor:
     st.session_state.modo_lectura = False 
 
 if st.session_state.usuario_nombre is None and not st.session_state.modo_lectura:
-    st.markdown("<h2 style='text-align: center;'>🛡️ Sistema de Gestión ESD S20.20</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 style='text-align: center;'>🛡️ Sistema de Gestión ESD BCS-AIS</h2>", unsafe_allow_html=True)
     col_v1, col_c, col_v2 = st.columns([1, 1.2, 1])
     with col_c:
-        tab_login, tab_monitor = st.tabs(["🔒 Ingreso de Auditores", "👁️ Modo Consulta"])
+        tab_login, tab_monitor = st.tabs(["🔒 Ingreso de Auditor", "👁️ Modo Consulta"])
         with tab_login:
             with st.form("login_form"):
                 user_input = st.text_input("Usuario (ID)")
@@ -97,11 +97,11 @@ else:
         elif 'mensual' in frecuencia: return fecha_actual + relativedelta(months=1)
         else: return fecha_actual + relativedelta(years=1)
 
-    st.title("Sistema de Gestión ESD S20.20")
+    st.title("Sistema de Gestión ESD BCS-AIS Querétaro")
     df_piso_local, df_mob_local = cargar_datos_cloud()
 
     if df_piso_local is None or df_mob_local is None:
-        st.error("Falla al conectar con Google Sheets.")
+        st.error("Falla al conectar con el servidor.")
         st.stop()
 
     if "vista_actual" not in st.session_state:
@@ -169,7 +169,7 @@ else:
             
             comentarios = st.text_area("Comentarios (Notas opcionales)")
             
-            submit_alta = st.form_submit_button("Registrar en Google Sheets", use_container_width=True)
+            submit_alta = st.form_submit_button("Registrar en sistema", use_container_width=True)
             
             if submit_alta:
                 if not nuevo_id or (fabricante_opc == "Otro" and not fabricante_final):
@@ -181,7 +181,7 @@ else:
                     if id_limpio_alta in ids_existentes:
                         st.error(f"El ID {nuevo_id} ya existe en el sistema.")
                     else:
-                        with st.spinner("Creando nuevo registro corporativo..."):
+                        with st.spinner("Creando nuevo registro..."):
                             import gspread
                             sec = dict(st.secrets["connections"]["gsheets"])
                             gc_client = gspread.service_account_from_dict(sec)
@@ -223,7 +223,7 @@ else:
     # VISTA 1: MAPA Y REPORTES ESD
     # ==========================================
     elif st.session_state.vista_actual == "Mapa" and not st.session_state.modo_lectura:
-        st.info("☁️ Los datos mostrados están sincronizados en tiempo real con Google Sheets.")
+        st.info("☁️ Los datos mostrados están sincronizados en tiempo real con el servidor.")
         df_piso_mapa = df_piso_local.copy()
         df_piso_mapa['Hoja Origen'] = 'PISO'
         df_mob_mapa = df_mob_local.copy()
@@ -383,7 +383,7 @@ else:
                 else:
                     limite_str = "N/A"
                     
-                st.markdown(f"**Límite S20.20 Permitido:** {limite_str}")
+                st.markdown(f"**Límite S20.20-2021 Permitido:** {limite_str}")
                 st.divider()
 
                 # --- BLOQUEO DE EDICIÓN PARA MODO CONSULTA ---
@@ -394,7 +394,7 @@ else:
                     hacer_medicion = st.checkbox("✅ Realizar nueva medición y actualizar", value=bool(valor_ocr_detectado))
                     
                     if hacer_medicion:
-                        st.markdown("### 📷 Captura Automática del Medidor")
+                        st.markdown("### 📷 Captura Automática del Medidor (BETA)")
                         
                         if not valor_ocr_detectado:
                             html_code_ocr = """
@@ -513,7 +513,7 @@ else:
                             fecha_hoy = datetime.today().date()
                             nueva_fecha_valida = st.date_input("Fecha de medición", fecha_hoy)
                             
-                            if st.form_submit_button("Guardar en Google Sheets"):
+                            if st.form_submit_button("Guardar en servidor"):
                                 with st.spinner("Guardando..."):
                                     freq = str(equipo.get('Frecuencia de verificación', 'Anual'))
                                     proxy = calcular_proxima_fecha(nueva_fecha_valida, freq)
@@ -543,7 +543,7 @@ else:
                                     try:
                                         r_idx = ids_gsheets_limpios.index(id_limpio) + 1
                                     except ValueError:
-                                        st.error("No se pudo encontrar la fila exacta en Google Sheets para actualizar.")
+                                        st.error("No se pudo encontrar el campo en servidor para actualizar.")
                                         st.stop()
                                     
                                     ws.update_cell(r_idx, val_idx + 1, float(nuevo_valor_final))
@@ -557,4 +557,4 @@ else:
                                 st.query_params.clear()
                                 st.rerun()
             else:
-                st.error(f"❌ El ID '{id_escaneado_url}' no se encontró en la base de datos corporativa.")
+                st.error(f"❌ El ID '{id_escaneado_url}' no se encontró en la base de datos.")
