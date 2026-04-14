@@ -8,17 +8,28 @@ from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
 from streamlit_gsheets import GSheetsConnection
 import streamlit.components.v1 as components
-from streamlit_cookies_controller import CookieController
+
+# --- NUEVO GESTOR DE COOKIES ---
+from streamlit_cookies_manager import EncryptedCookieManager
 
 # Configuración horizontal
 st.set_page_config(page_title="Control ESD Corporativo", layout="wide")
 
-# Inicializar el controlador de cookies (Debe hacerse al principio)
-controller = CookieController()
+# ==========================================
+# CAPA DE SEGURIDAD (COOKIES ENCRIPTADAS Y ROLES)
+# ==========================================
+# 1. Inicializamos el gestor de cookies
+if 'cookies' not in st.session_state:
+    st.session_state.cookies = EncryptedCookieManager(
+        prefix="bcs_esd",
+        password="esd_corporativo_secreto_123" # Contraseña interna para encriptar las cookies en el navegador
+    )
 
-# ==========================================
-# CAPA DE SEGURIDAD (COOKIES Y ROLES)
-# ==========================================
+cookies = st.session_state.cookies
+
+# 2. EL FRENO DE MANO: Detiene el código hasta que el navegador entrega las cookies
+if not cookies.ready():
+    st.stop()
 
 # Definimos los posibles roles de la sesión actual
 if "usuario_nombre" not in st.session_state:
@@ -26,13 +37,13 @@ if "usuario_nombre" not in st.session_state:
 if "modo_lectura" not in st.session_state:
     st.session_state.modo_lectura = False
 
-# Intentar recuperar sesión persistente desde el navegador
-cookie_auditor = controller.get('auditor_esd_sesion')
+# 3. Intentar recuperar sesión persistente desde el navegador
+cookie_auditor = cookies.get('auditor_esd_sesion')
 if cookie_auditor:
     st.session_state.usuario_nombre = cookie_auditor
-    st.session_state.modo_lectura = False # Si hay cookie, es un auditor real
+    st.session_state.modo_lectura = False 
 
-# --- CONTROL DE ACCESO (Estructura IF / ELSE) ---
+# --- CONTROL DE ACCESO ---
 if st.session_state.usuario_nombre is None and not st.session_state.modo_lectura:
     
     st.markdown("<h2 style='text-align: center;'>🛡️ Sistema de Gestión ESD S20.20</h2>", unsafe_allow_html=True)
@@ -56,9 +67,9 @@ if st.session_state.usuario_nombre is None and not st.session_state.modo_lectura
                             st.session_state.usuario_nombre = nombre_real
                             st.session_state.modo_lectura = False
                             
-                            # Guardamos la cookie por 7 días
-                            expira = datetime.now() + timedelta(days=7)
-                            controller.set('auditor_esd_sesion', nombre_real, expires=expira)
+                            # Guardamos la cookie de forma segura
+                            cookies['auditor_esd_sesion'] = nombre_real
+                            cookies.save() # Forzamos el guardado inmediato
                             st.rerun()
                         else:
                             st.error("❌ Credenciales incorrectas")
@@ -90,10 +101,10 @@ else:
             st.session_state.usuario_nombre = None
             st.session_state.modo_lectura = False
             
-            try:
-                controller.remove('auditor_esd_sesion')
-            except KeyError:
-                pass
+            # Borrado seguro de la cookie
+            if 'auditor_esd_sesion' in cookies:
+                del cookies['auditor_esd_sesion']
+                cookies.save()
                 
             st.rerun()
 
@@ -163,7 +174,6 @@ else:
         st.markdown("### 🆕 Registrar Nuevo Mobiliario en el Sistema")
         st.write("Complete los datos para agregar un nuevo activo a la base de datos corporativa.")
         
-        # FIX: Limpiamos vacíos (NaN) y aseguramos que todo sea texto antes de ordenar
         lineas_disponibles = sorted([str(x).strip() for x in df_mob_local['Línea'].unique() if pd.notna(x) and str(x).strip() != ''])
         tipos_disponibles = sorted([str(x).strip() for x in df_mob_local['Clasificación'].unique() if pd.notna(x) and str(x).strip() != ''])
 
@@ -195,20 +205,19 @@ else:
                         fecha_hoy = datetime.today().date()
                         proxima = calcular_proxima_fecha(fecha_hoy, frecuencia_alta)
                         
-                        # Fila estándar (Ajusta los índices si tu archivo tiene otro orden)
                         nueva_fila = [
-                            nueva_linea,             # A: Línea
-                            nuevo_id,                # B: Id de producto
-                            nuevo_tipo,              # C: Clasificación
-                            "OPERATIVO",             # D: Estatus operativo
-                            frecuencia_alta,         # E: Frecuencia
-                            "Ω",                     # F: Unidad
-                            float(limite_alta) if "E" in limite_alta.upper() else limite_alta, # G: Maximo
-                            float(valor_alta) if valor_alta > 0 else "",                       # H: Valor
-                            fecha_hoy.strftime("%d-%b-%Y"),                                    # I: Fecha verificación
-                            proxima.strftime("%d-%b-%Y"),                                      # J: Próxima
-                            "VIGENTE" if valor_alta > 0 else "NUEVO",                          # K: Estatus
-                            st.session_state.usuario_nombre                                    # L: Auditor
+                            nueva_linea,             
+                            nuevo_id,                
+                            nuevo_tipo,              
+                            "OPERATIVO",             
+                            frecuencia_alta,         
+                            "Ω",                     
+                            float(limite_alta) if "E" in limite_alta.upper() else limite_alta, 
+                            float(valor_alta) if valor_alta > 0 else "",                       
+                            fecha_hoy.strftime("%d-%b-%Y"),                                    
+                            proxima.strftime("%d-%b-%Y"),                                      
+                            "VIGENTE" if valor_alta > 0 else "NUEVO",                          
+                            st.session_state.usuario_nombre                                    
                         ]
                         
                         ws.append_row(nueva_fila, value_input_option="USER_ENTERED")
@@ -256,7 +265,6 @@ else:
                         hover_data={"X": False, "Y": False, "Etiqueta": False, "Total Vencidos": True},
                         color_continuous_scale="Reds"
                     )
-                    # FIX: Ajuste de tamaño y forzado de coordenadas estáticas de la imagen para evitar desfases
                     fig.update_traces(
                         textposition='middle center', 
                         textfont=dict(color='white', size=10, weight='bold'), 
@@ -314,7 +322,7 @@ else:
             }).catch(err => { document.getElementById("cam-status").innerText = "Otorga permisos de cámara."; });
             </script>
             """
-            components.html(html_code_qr, height=650) # Altura corregida para móviles
+            components.html(html_code_qr, height=650) 
             
             id_manual = st.text_input("O ingresa el ID manual:", key="input_manual")
             if id_manual:
@@ -350,7 +358,6 @@ else:
                 
                 c_fecha_ult, c_fecha_prox, c_val = st.columns(3)
                 
-                # Fechas sin límite de caracteres
                 fecha_ult_str = str(equipo.get('Fecha de verificación', 'N/A')).strip()
                 fecha_prox_str = str(equipo.get('Fecha de próxima verificación', 'N/A')).strip()
                 
@@ -363,7 +370,6 @@ else:
                 else:
                     c_val.metric("Resistencia Registrada", "N/A")
                 
-                # Buscamos el límite en la columna 'Maximo' con notación científica
                 limite_raw = equipo.get('Maximo', 'N/A')
                 if pd.notna(limite_raw) and str(limite_raw).strip() != 'N/A':
                     try:
