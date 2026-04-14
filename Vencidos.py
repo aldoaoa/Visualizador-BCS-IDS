@@ -134,8 +134,9 @@ else:
         st.write("Complete los datos para agregar un nuevo activo a la base de datos corporativa.")
         
         # Obtenemos las líneas existentes para el dropdown
-        lineas_disponibles = sorted(df_mob_local['Línea'].unique().tolist())
-        tipos_disponibles = sorted(df_mob_local['Clasificación'].unique().tolist())
+        # Limpiamos vacíos (NaN) y aseguramos que todo sea texto antes de ordenar alfabéticamente
+        lineas_disponibles = sorted([str(x).strip() for x in df_mob_local['Línea'].unique() if pd.notna(x) and str(x).strip() != ''])
+        tipos_disponibles = sorted([str(x).strip() for x in df_mob_local['Clasificación'].unique() if pd.notna(x) and str(x).strip() != ''])
 
         with st.form("form_alta_mobiliario"):
             col1, col2 = st.columns(2)
