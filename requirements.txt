@@ -2,4 +2,4 @@ plotly
 pillow
 openpyxl
 st-gsheets-connection
-streamlit-cookies-manager
+streamlit-cookies-controller
