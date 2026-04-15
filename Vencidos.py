@@ -173,11 +173,25 @@ else:
         
         st.divider()
         
-        # Pestañas para dividir la acción
-        tab_alta, tab_baja = st.tabs(["🆕 Registrar Nuevo", "🗑️ Dar de Baja"])
+        # --- LÓGICA DE MEMORIA PARA SUB-PESTAÑAS ---
+        if "radio_alta_baja" not in st.session_state:
+            st.session_state.radio_alta_baja = "🆕 Registrar Nuevo"
+            
+        # Forzar a la vista de "Baja" si se escaneó un código QR de baja
+        if id_baja_url:
+            st.session_state.radio_alta_baja = "🗑️ Dar de Baja"
+
+        # Usamos un radio horizontal que actúa visualmente como pestañas pero que sí podemos controlar
+        accion_seleccionada = st.radio(
+            "Selecciona la acción a realizar:",
+            ["🆕 Registrar Nuevo", "🗑️ Dar de Baja"],
+            horizontal=True,
+            label_visibility="collapsed",
+            key="radio_alta_baja"
+        )
         
-        # --- PESTAÑA 1: ALTA ---
-        with tab_alta:
+        # --- SUB-VISTA 1: ALTA ---
+        if accion_seleccionada == "🆕 Registrar Nuevo":
             lineas_disponibles = sorted([str(x).strip() for x in df_mob_local['Línea'].unique() if pd.notna(x) and str(x).strip() != ''])
             tipos_disponibles = sorted([str(x).strip() for x in df_mob_local['Clasificación'].unique() if pd.notna(x) and str(x).strip() != ''])
 
@@ -251,8 +265,8 @@ else:
                             st.cache_data.clear()
                             st.balloons()
                             
-        # --- PESTAÑA 2: BAJA ---
-        with tab_baja:
+        # --- SUB-VISTA 2: BAJA ---
+        elif accion_seleccionada == "🗑️ Dar de Baja":
             st.markdown("#### 🗑️ Eliminar equipo del sistema")
             
             if not id_baja_url:
@@ -341,7 +355,6 @@ else:
                                     st.error(f"Falta columna {e}")
                                     st.stop()
                                 
-                                # Buscamos la fila exacta para borrarla
                                 ids_gsheets_baja = ws_baja.col_values(id_idx_baja + 1)
                                 ids_gsheets_limpios_baja = [str(v).strip().upper() for v in ids_gsheets_baja]
                                 
@@ -351,7 +364,6 @@ else:
                                     st.error("No se pudo encontrar la fila exacta en el servidor para eliminarla.")
                                     st.stop()
                                 
-                                # Eliminamos la fila completa, los datos de abajo subirán solos.
                                 ws_baja.delete_rows(r_idx_baja)
                                 
                             st.success(f"✅ ¡Equipo {id_baja_url} eliminado exitosamente!")
@@ -472,7 +484,6 @@ else:
                     limpiar_url_escaneo()
                     st.rerun()
 
-            # --- FILTRO LIMPIADOR PARA BÚSQUEDA ---
             id_limpio = str(id_escaneado_url).strip().upper()
             
             piso_ids_limpios = df_piso_local['Id de producto'].astype(str).str.strip().str.upper()
@@ -486,11 +497,9 @@ else:
                 df_actual = df_piso_local if es_piso else df_mob_local
                 serie_busqueda = piso_ids_limpios if es_piso else mob_ids_limpios
                 
-                # Obtenemos el índice de la fila que hizo match
                 idx = serie_busqueda[serie_busqueda == id_limpio].index[0]
                 equipo = df_actual.loc[idx]
                 
-                # --- MOSTRAR DETALLES Y ESTATUS ---
                 st.markdown("### 📊 Detalles del Equipo")
                 
                 c_linea, c_estatus = st.columns(2)
@@ -528,11 +537,9 @@ else:
                 st.markdown(f"**Límite S20.20-2021 Permitido:** {limite_str}")
                 st.divider()
 
-                # --- BLOQUEO DE EDICIÓN PARA MODO CONSULTA ---
                 if st.session_state.modo_lectura:
                     st.warning("👁️ **Estás en Modo Consulta.** No tienes permisos para capturar pantallas de medidores ni actualizar los registros corporativos. Si deseas realizar una auditoría completa, cierra esta sesión en el menú lateral e ingresa con tus credenciales.")
                 else:
-                    # --- FLUJO DE AUDITOR ---
                     hacer_medicion = st.checkbox("✅ Realizar nueva medición y actualizar", value=bool(valor_ocr_detectado))
                     
                     if hacer_medicion:
