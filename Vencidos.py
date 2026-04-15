@@ -101,10 +101,10 @@ else:
     @st.cache_data(ttl=2, max_entries=1) 
     def cargar_datos_cloud():
         try:
-            df_piso = conn.read(worksheet="PISO", header=4)
+            # Solo cargamos MOBILIARIO
             df_mob = conn.read(worksheet="MOBILIARIO", header=4)
-            return df_piso, df_mob
-        except Exception: return None, None
+            return df_mob
+        except Exception: return None
 
     def calcular_proxima_fecha(fecha_actual, frecuencia):
         frecuencia = str(frecuencia).strip().lower()
@@ -115,9 +115,10 @@ else:
         else: return fecha_actual + relativedelta(years=1)
 
     st.title("Sistema de Gestión ESD BCS-AIS Querétaro")
-    df_piso_local, df_mob_local = cargar_datos_cloud()
+    
+    df_mob_local = cargar_datos_cloud()
 
-    if df_piso_local is None or df_mob_local is None:
+    if df_mob_local is None:
         st.error("Falla al conectar con el servidor.")
         st.stop()
 
@@ -128,7 +129,6 @@ else:
     valor_ocr_detectado = st.query_params.get("ocr_val", "")
     id_baja_url = st.query_params.get("qr_baja", "")
     
-    # Ruteo dinámico de vistas según los parámetros en la URL
     if id_escaneado_url or valor_ocr_detectado:
         st.session_state.vista_actual = "Escáner"
     elif id_baja_url:
@@ -147,7 +147,7 @@ else:
                 limpiar_url_escaneo()
                 st.rerun()
         with c_nav3:
-            if st.button("🆕 Alta Mobiliario", use_container_width=True, type="primary" if st.session_state.vista_actual == "Alta" else "secondary"):
+            if st.button("🆕 Alta/Baja Mobiliario", use_container_width=True, type="primary" if st.session_state.vista_actual == "Alta" else "secondary"):
                 st.session_state.vista_actual = "Alta"
                 limpiar_url_escaneo()
                 st.rerun()
@@ -160,7 +160,7 @@ else:
     # VISTA: ALTA Y BAJA DE MOBILIARIO
     # ==========================================
     if st.session_state.vista_actual == "Alta" and not st.session_state.modo_lectura:
-        st.markdown("### Gestión de Inventario ESD")
+        st.markdown("### Gestión de Inventario ESD (Mobiliario)")
         
         with st.expander("📋 Directorio de IDs Existentes (Click para abrir/cerrar)", expanded=False):
             st.info("💡 **Tip:** Puedes dejar este panel abierto. Haz clic en el título de una columna para ordenar (A-Z) o usa la lupa (🔍) en la tabla para buscar un ID específico.")
@@ -173,15 +173,12 @@ else:
         
         st.divider()
         
-        # --- LÓGICA DE MEMORIA PARA SUB-PESTAÑAS ---
         if "radio_alta_baja" not in st.session_state:
             st.session_state.radio_alta_baja = "🆕 Registrar Nuevo"
             
-        # Forzar a la vista de "Baja" si se escaneó un código QR de baja
         if id_baja_url:
             st.session_state.radio_alta_baja = "🗑️ Dar de Baja"
 
-        # Usamos un radio horizontal que actúa visualmente como pestañas pero que sí podemos controlar
         accion_seleccionada = st.radio(
             "Selecciona la acción a realizar:",
             ["🆕 Registrar Nuevo", "🗑️ Dar de Baja"],
@@ -319,38 +316,30 @@ else:
                         st.rerun()
 
                 id_limpio_baja = str(id_baja_url).strip().upper()
-                piso_ids = df_piso_local['Id de producto'].astype(str).str.strip().str.upper()
                 mob_ids = df_mob_local['Id de producto'].astype(str).str.strip().str.upper()
 
-                es_piso_baja = id_limpio_baja in piso_ids.values
-                es_mob_baja = id_limpio_baja in mob_ids.values
-
-                if es_piso_baja or es_mob_baja:
-                    hoja_activa_baja = "PISO" if es_piso_baja else "MOBILIARIO"
-                    df_actual_baja = df_piso_local if es_piso_baja else df_mob_local
-                    serie_busqueda_baja = piso_ids if es_piso_baja else mob_ids
-                    
-                    idx_baja = serie_busqueda_baja[serie_busqueda_baja == id_limpio_baja].index[0]
-                    equipo_baja = df_actual_baja.loc[idx_baja]
+                if id_limpio_baja in mob_ids.values:
+                    idx_baja = mob_ids[mob_ids == id_limpio_baja].index[0]
+                    equipo_baja = df_mob_local.loc[idx_baja]
                     
                     st.markdown("### Verificación del Equipo")
                     col1_b, col2_b, col3_b = st.columns(3)
                     col1_b.metric("Ubicación", str(equipo_baja.get('Línea', 'N/A')))
                     col2_b.metric("Clasificación", str(equipo_baja.get('Clasificación', 'N/A')))
-                    col3_b.metric("Base de Datos", hoja_activa_baja)
+                    col3_b.metric("Base de Datos", "MOBILIARIO")
 
                     with st.form("form_confirmacion_baja"):
-                        st.warning("⚠️ **¡Atención!** Esta acción destruirá la fila por completo en Google Sheets y no se puede deshacer.")
+                        st.warning("⚠️ **¡Atención!** Esta acción destruirá la fila por completo en el servidor y no se puede deshacer.")
                         
                         if st.form_submit_button("🗑️ Confirmar Baja Definitiva"):
                             with st.spinner("Eliminando fila en el servidor..."):
                                 import gspread
                                 sec = dict(st.secrets["connections"]["gsheets"])
                                 gc_gspread = gspread.service_account_from_dict(sec)
-                                ws_baja = gc_gspread.open_by_url(sec["spreadsheet"]).worksheet(hoja_activa_baja)
+                                ws_baja = gc_gspread.open_by_url(sec["spreadsheet"]).worksheet("MOBILIARIO")
                                 
                                 try:
-                                    id_idx_baja = df_actual_baja.columns.get_loc('Id de producto')
+                                    id_idx_baja = df_mob_local.columns.get_loc('Id de producto')
                                 except KeyError as e:
                                     st.error(f"Falta columna {e}")
                                     st.stop()
@@ -378,11 +367,7 @@ else:
     # ==========================================
     elif st.session_state.vista_actual == "Mapa" and not st.session_state.modo_lectura:
         st.info("☁️ Los datos mostrados están sincronizados en tiempo real con el servidor.")
-        df_piso_mapa = df_piso_local.copy()
-        df_piso_mapa['Hoja Origen'] = 'PISO'
-        df_mob_mapa = df_mob_local.copy()
-        df_mob_mapa['Hoja Origen'] = 'MOBILIARIO'
-        df_total = pd.concat([df_piso_mapa, df_mob_mapa], ignore_index=True)
+        df_total = df_mob_local.copy()
         df_total['Estatus de verificación'] = df_total['Estatus de verificación'].astype(str).str.strip().str.upper()
         if 'Estatus operativo' in df_total.columns:
             df_total['Estatus operativo'] = df_total['Estatus operativo'].astype(str).str.strip().str.upper()
@@ -392,13 +377,9 @@ else:
         vencidos = df_total[(df_total['Estatus de verificación'] == 'VENCIDO') & (df_total['Estatus operativo'] != 'NO OPERATIVO')]
         
         if not vencidos.empty:
-            st.error(f"🚨 Se encontraron {len(vencidos)} equipos VENCIDOS operativos.")
-            conteo_tipos = vencidos.groupby(['Línea', 'Hoja Origen']).size().unstack(fill_value=0).reset_index()
-            if 'PISO' not in conteo_tipos.columns: conteo_tipos['PISO'] = 0
-            if 'MOBILIARIO' not in conteo_tipos.columns: conteo_tipos['MOBILIARIO'] = 0
-            conteo_tipos.rename(columns={'PISO': 'Equipos (Piso)', 'MOBILIARIO': 'Mobiliario'}, inplace=True)
-            conteo_tipos['Total Vencidos'] = conteo_tipos['Equipos (Piso)'] + conteo_tipos['Mobiliario']
-            conteo_tipos['Etiqueta'] = "P: " + conteo_tipos['Equipos (Piso)'].astype(str) + "<br>M: " + conteo_tipos['Mobiliario'].astype(str)
+            st.error(f"🚨 Se encontraron {len(vencidos)} equipos de mobiliario VENCIDOS.")
+            conteo_tipos = vencidos.groupby(['Línea']).size().reset_index(name='Total Vencidos')
+            conteo_tipos['Etiqueta'] = "M: " + conteo_tipos['Total Vencidos'].astype(str)
             
             if os.path.exists(RUTA_MAPA) and os.path.exists(RUTA_COORDENADAS):
                 img = Image.open(RUTA_MAPA)
@@ -426,7 +407,7 @@ else:
                     st.plotly_chart(fig, use_container_width=True)
             st.dataframe(vencidos[['Línea', 'Id de producto', 'Clasificación', 'Estatus de verificación']], use_container_width=True, hide_index=True)
         else:
-            st.success("✅ ¡Felicidades! No hay equipos operativos VENCIDOS.")
+            st.success("✅ ¡Felicidades! No hay mobiliario operativo VENCIDO.")
 
     # ==========================================
     # VISTA 2: ESCÁNER Y DETALLES
@@ -485,20 +466,11 @@ else:
                     st.rerun()
 
             id_limpio = str(id_escaneado_url).strip().upper()
-            
-            piso_ids_limpios = df_piso_local['Id de producto'].astype(str).str.strip().str.upper()
             mob_ids_limpios = df_mob_local['Id de producto'].astype(str).str.strip().str.upper()
 
-            es_piso = id_limpio in piso_ids_limpios.values
-            es_mob = id_limpio in mob_ids_limpios.values
-
-            if es_piso or es_mob:
-                hoja_activa = "PISO" if es_piso else "MOBILIARIO"
-                df_actual = df_piso_local if es_piso else df_mob_local
-                serie_busqueda = piso_ids_limpios if es_piso else mob_ids_limpios
-                
-                idx = serie_busqueda[serie_busqueda == id_limpio].index[0]
-                equipo = df_actual.loc[idx]
+            if id_limpio in mob_ids_limpios.values:
+                idx = mob_ids_limpios[mob_ids_limpios == id_limpio].index[0]
+                equipo = df_mob_local.loc[idx]
                 
                 st.markdown("### 📊 Detalles del Equipo")
                 
@@ -671,15 +643,15 @@ else:
                                     sec = dict(st.secrets["connections"]["gsheets"])
                                     gc_gspread = gspread.service_account_from_dict(sec)
                                     
-                                    ws = gc_gspread.open_by_url(sec["spreadsheet"]).worksheet(hoja_activa)
+                                    ws = gc_gspread.open_by_url(sec["spreadsheet"]).worksheet("MOBILIARIO")
                                     
                                     try:
-                                        id_idx = df_actual.columns.get_loc('Id de producto')
-                                        val_idx = df_actual.columns.get_loc('Valor de verificación')
-                                        f_idx = df_actual.columns.get_loc('Fecha de verificación')
-                                        fp_idx = df_actual.columns.get_loc('Fecha de próxima verificación')
-                                        st_idx = df_actual.columns.get_loc('Estatus de verificación')
-                                        aud_idx = df_actual.columns.get_loc('Auditor') 
+                                        id_idx = df_mob_local.columns.get_loc('Id de producto')
+                                        val_idx = df_mob_local.columns.get_loc('Valor de verificación')
+                                        f_idx = df_mob_local.columns.get_loc('Fecha de verificación')
+                                        fp_idx = df_mob_local.columns.get_loc('Fecha de próxima verificación')
+                                        st_idx = df_mob_local.columns.get_loc('Estatus de verificación')
+                                        aud_idx = df_mob_local.columns.get_loc('Auditor') 
                                     except KeyError as e:
                                         st.error(f"Falta columna {e}")
                                         st.stop()
