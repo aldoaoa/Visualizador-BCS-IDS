@@ -17,7 +17,6 @@ st.set_page_config(page_title="Control ESD BCS-AIS", layout="wide")
 # FUNCIONES AUXILIARES DE URL Y SESIÓN
 # ==========================================
 def codificar_sesion(nombre):
-    # Oculta ligeramente el nombre en la URL usando Base64
     return base64.b64encode(nombre.encode('utf-8')).decode('utf-8')
 
 def decodificar_sesion(token):
@@ -27,11 +26,12 @@ def decodificar_sesion(token):
         return None
 
 def limpiar_url_escaneo():
-    # Borra los datos del QR/OCR pero mantiene vivo el token de sesión
     if "qr_id" in st.query_params:
         del st.query_params["qr_id"]
     if "ocr_val" in st.query_params:
         del st.query_params["ocr_val"]
+    if "qr_baja" in st.query_params:
+        del st.query_params["qr_baja"]
 
 # ==========================================
 # SEGURIDAD Y ACCESO (POR URL)
@@ -41,7 +41,6 @@ if "usuario_nombre" not in st.session_state:
 if "modo_lectura" not in st.session_state:
     st.session_state.modo_lectura = False
 
-# Lectura del token en la URL (Sobrevive recargas del navegador al 100%)
 token_actual = st.query_params.get("auth_token")
 
 if token_actual:
@@ -68,7 +67,6 @@ if st.session_state.usuario_nombre is None and not st.session_state.modo_lectura
                         usuarios_db = st.secrets["usuarios"]
                         if user_input in usuarios_db and usuarios_db[user_input]["password"] == pwd_input:
                             nombre_real = usuarios_db[user_input]["nombre"]
-                            # Inyectamos el token en la URL y recargamos
                             st.query_params["auth_token"] = codificar_sesion(nombre_real)
                             st.rerun()
                         else:
@@ -95,7 +93,6 @@ else:
         if st.button("Salir al Menú Principal", use_container_width=True):
             st.session_state.usuario_nombre = None
             st.session_state.modo_lectura = False
-            # Destruimos la URL para cerrar sesión
             st.query_params.clear() 
             st.rerun()
 
@@ -129,8 +126,13 @@ else:
 
     id_escaneado_url = st.query_params.get("qr_id", "")
     valor_ocr_detectado = st.query_params.get("ocr_val", "")
+    id_baja_url = st.query_params.get("qr_baja", "")
+    
+    # Ruteo dinámico de vistas según los parámetros en la URL
     if id_escaneado_url or valor_ocr_detectado:
         st.session_state.vista_actual = "Escáner"
+    elif id_baja_url:
+        st.session_state.vista_actual = "Alta"
 
     if not st.session_state.modo_lectura:
         c_nav1, c_nav2, c_nav3 = st.columns(3)
@@ -142,6 +144,7 @@ else:
         with c_nav2:
             if st.button("📱 Escáner / Auditoría", use_container_width=True, type="primary" if st.session_state.vista_actual == "Escáner" else "secondary"):
                 st.session_state.vista_actual = "Escáner"
+                limpiar_url_escaneo()
                 st.rerun()
         with c_nav3:
             if st.button("🆕 Alta Mobiliario", use_container_width=True, type="primary" if st.session_state.vista_actual == "Alta" else "secondary"):
@@ -154,13 +157,13 @@ else:
     st.divider()
 
     # ==========================================
-    # VISTA: ALTA DE MOBILIARIO
+    # VISTA: ALTA Y BAJA DE MOBILIARIO
     # ==========================================
     if st.session_state.vista_actual == "Alta" and not st.session_state.modo_lectura:
-        st.markdown("### 🆕 Registrar Nuevo Mobiliario")
+        st.markdown("### Gestión de Inventario ESD")
         
         with st.expander("📋 Directorio de IDs Existentes (Click para abrir/cerrar)", expanded=False):
-            st.info("💡 **Tip:** Puedes dejar este panel abierto mientras llenas el formulario abajo. Haz clic en el título de una columna para ordenar (A-Z) o usa la lupa (🔍) en la tabla para buscar un ID específico.")
+            st.info("💡 **Tip:** Puedes dejar este panel abierto. Haz clic en el título de una columna para ordenar (A-Z) o usa la lupa (🔍) en la tabla para buscar un ID específico.")
             if not df_mob_local.empty and 'Id de producto' in df_mob_local.columns and 'Línea' in df_mob_local.columns:
                 df_clean = df_mob_local[['Línea', 'Id de producto']].dropna(subset=['Id de producto'])
                 df_clean = df_clean[df_clean['Id de producto'].astype(str).str.strip() != '']
@@ -170,79 +173,193 @@ else:
         
         st.divider()
         
-        lineas_disponibles = sorted([str(x).strip() for x in df_mob_local['Línea'].unique() if pd.notna(x) and str(x).strip() != ''])
-        tipos_disponibles = sorted([str(x).strip() for x in df_mob_local['Clasificación'].unique() if pd.notna(x) and str(x).strip() != ''])
+        # Pestañas para dividir la acción
+        tab_alta, tab_baja = st.tabs(["🆕 Registrar Nuevo", "🗑️ Dar de Baja"])
+        
+        # --- PESTAÑA 1: ALTA ---
+        with tab_alta:
+            lineas_disponibles = sorted([str(x).strip() for x in df_mob_local['Línea'].unique() if pd.notna(x) and str(x).strip() != ''])
+            tipos_disponibles = sorted([str(x).strip() for x in df_mob_local['Clasificación'].unique() if pd.notna(x) and str(x).strip() != ''])
 
-        with st.form("form_alta_mobiliario"):
-            col1, col2 = st.columns(2)
-            nueva_linea = col1.selectbox("Línea (Ubicación)", options=lineas_disponibles)
-            nuevo_id = col2.text_input("ID de Producto (Ej: MOB-001)")
-            
-            nuevo_tipo = col1.selectbox("Tipo de Mobiliario (Clasificación)", options=tipos_disponibles)
-            valor_alta = col2.number_input("Valor de medición inicial (Opcional - Ohms)", value=0.0, format="%.2e")
-            
-            fabricante_opc = col1.selectbox("Fabricante", options=["BCS", "Otro", "N/A"])
-            fabricante_final = fabricante_opc
-            if fabricante_opc == "Otro":
-                fabricante_final = col1.text_input("Especifique Fabricante", help="Ingrese el nombre de la marca")
-            
-            frecuencia_alta = col2.selectbox("Frecuencia de verificación", options=["Anual", "Semestral", "Trimestral", "Mensual"], index=0)
-            
-            col3, col4 = st.columns(2)
-            nuevo_minimo = col3.number_input("Mínimo", value=0.00, format="%.2e")
-            limite_alta = col4.text_input("Límite S20.20 (Maximo)", value="1.00E+09")
-            
-            comentarios = st.text_area("Comentarios (Notas opcionales)")
-            
-            submit_alta = st.form_submit_button("Registrar en sistema", use_container_width=True)
-            
-            if submit_alta:
-                if not nuevo_id or (fabricante_opc == "Otro" and not fabricante_final):
-                    st.error("Por favor complete los campos obligatorios (ID y Fabricante).")
-                else:
-                    id_limpio_alta = str(nuevo_id).strip().upper()
-                    ids_existentes = df_mob_local['Id de producto'].astype(str).str.strip().str.upper().values
-                    
-                    if id_limpio_alta in ids_existentes:
-                        st.error(f"El ID {nuevo_id} ya existe en el sistema.")
+            with st.form("form_alta_mobiliario"):
+                col1, col2 = st.columns(2)
+                nueva_linea = col1.selectbox("Línea (Ubicación)", options=lineas_disponibles)
+                nuevo_id = col2.text_input("ID de Producto (Ej: MOB-001)")
+                
+                nuevo_tipo = col1.selectbox("Tipo de Mobiliario (Clasificación)", options=tipos_disponibles)
+                valor_alta = col2.number_input("Valor de medición inicial (Opcional - Ohms)", value=0.0, format="%.2e")
+                
+                fabricante_opc = col1.selectbox("Fabricante", options=["BCS", "Otro", "N/A"])
+                fabricante_final = fabricante_opc
+                if fabricante_opc == "Otro":
+                    fabricante_final = col1.text_input("Especifique Fabricante", help="Ingrese el nombre de la marca")
+                
+                frecuencia_alta = col2.selectbox("Frecuencia de verificación", options=["Anual", "Semestral", "Trimestral", "Mensual"], index=0)
+                
+                col3, col4 = st.columns(2)
+                nuevo_minimo = col3.number_input("Mínimo", value=0.00, format="%.2e")
+                limite_alta = col4.text_input("Límite S20.20 (Maximo)", value="1.00E+09")
+                
+                comentarios = st.text_area("Comentarios (Notas opcionales)")
+                
+                submit_alta = st.form_submit_button("Registrar en sistema", use_container_width=True)
+                
+                if submit_alta:
+                    if not nuevo_id or (fabricante_opc == "Otro" and not fabricante_final):
+                        st.error("Por favor complete los campos obligatorios (ID y Fabricante).")
                     else:
-                        with st.spinner("Creando nuevo registro..."):
-                            import gspread
-                            sec = dict(st.secrets["connections"]["gsheets"])
-                            gc_client = gspread.service_account_from_dict(sec)
-                            ws = gc_client.open_by_url(sec["spreadsheet"]).worksheet("MOBILIARIO")
+                        id_limpio_alta = str(nuevo_id).strip().upper()
+                        ids_existentes = df_mob_local['Id de producto'].astype(str).str.strip().str.upper().values
+                        
+                        if id_limpio_alta in ids_existentes:
+                            st.error(f"El ID {nuevo_id} ya existe en el sistema.")
+                        else:
+                            with st.spinner("Creando nuevo registro..."):
+                                import gspread
+                                sec = dict(st.secrets["connections"]["gsheets"])
+                                gc_client = gspread.service_account_from_dict(sec)
+                                ws = gc_client.open_by_url(sec["spreadsheet"]).worksheet("MOBILIARIO")
+                                
+                                fecha_hoy = datetime.today().date()
+                                dias_map = {"Anual": 360, "Semestral": 180, "Trimestral": 90, "Mensual": 30}
+                                proxima = fecha_hoy + timedelta(days=dias_map.get(frecuencia_alta, 360))
+                                
+                                nueva_fila = [
+                                    nueva_linea,                                     
+                                    nuevo_id,                                        
+                                    nuevo_tipo,                                      
+                                    "Aprobado",                                      
+                                    fabricante_final,                                
+                                    float(nuevo_minimo),                             
+                                    float(limite_alta) if "E" in limite_alta.upper() else limite_alta, 
+                                    "Ohms",                                          
+                                    float(valor_alta) if valor_alta > 0 else "",      
+                                    "Ohms",                                          
+                                    "RTG",                                           
+                                    fecha_hoy.strftime("%d-%b-%Y") if valor_alta > 0 else "", 
+                                    proxima.strftime("%d-%b-%Y") if valor_alta > 0 else "",   
+                                    frecuencia_alta,                                 
+                                    "Vigente" if valor_alta > 0 and fecha_hoy < proxima else "", 
+                                    "Operativo",                                     
+                                    comentarios,                                     
+                                    st.session_state.usuario_nombre                  
+                                ]
+                                
+                                ws.append_row(nueva_fila, value_input_option="USER_ENTERED")
+                                
+                            st.success(f"✅ ¡Activo {nuevo_id} registrado exitosamente en la línea {nueva_linea}!")
+                            st.cache_data.clear()
+                            st.balloons()
                             
-                            fecha_hoy = datetime.today().date()
-                            dias_map = {"Anual": 360, "Semestral": 180, "Trimestral": 90, "Mensual": 30}
-                            proxima = fecha_hoy + timedelta(days=dias_map.get(frecuencia_alta, 360))
-                            
-                            nueva_fila = [
-                                nueva_linea,                                     
-                                nuevo_id,                                        
-                                nuevo_tipo,                                      
-                                "Aprobado",                                      
-                                fabricante_final,                                
-                                float(nuevo_minimo),                             
-                                float(limite_alta) if "E" in limite_alta.upper() else limite_alta, 
-                                "Ohms",                                          
-                                float(valor_alta) if valor_alta > 0 else "",      
-                                "Ohms",                                          
-                                "RTG",                                           
-                                fecha_hoy.strftime("%d-%b-%Y") if valor_alta > 0 else "", 
-                                proxima.strftime("%d-%b-%Y") if valor_alta > 0 else "",   
-                                frecuencia_alta,                                 
-                                "Vigente" if valor_alta > 0 and fecha_hoy < proxima else "", 
-                                "Operativo",                                     
-                                comentarios,                                     
-                                st.session_state.usuario_nombre                  
-                            ]
-                            
-                            ws.append_row(nueva_fila, value_input_option="USER_ENTERED")
-                            
-                        st.success(f"✅ ¡Activo {nuevo_id} registrado exitosamente en la línea {nueva_linea}!")
-                        st.cache_data.clear()
-                        st.balloons()
+        # --- PESTAÑA 2: BAJA ---
+        with tab_baja:
+            st.markdown("#### 🗑️ Eliminar equipo del sistema")
+            
+            if not id_baja_url:
+                st.write("Escanea el QR o ingresa manualmente el ID del equipo a dar de baja.")
+                html_code_baja = """
+                <script src="https://unpkg.com/html5-qrcode"></script>
+                <div id="reader_baja" style="width:100%; max-width:500px; margin:auto; border-radius:10px; overflow:hidden; border: 2px solid #ddd; background-color: #f9f9f9;"></div>
+                <p id="cam-status-baja" style="text-align:center; color:#666; font-size: 14px;">Iniciando cámara trasera...</p>
+                <script>
+                Html5Qrcode.getCameras().then(devices => {
+                    if (devices && devices.length) {
+                        let selectedCameraId = devices[0].id; 
+                        let rearCams = devices.filter(c => c.label.toLowerCase().includes('back') || c.label.toLowerCase().includes('trasera'));
+                        if (rearCams.length > 0) {
+                            selectedCameraId = rearCams[0].id; 
+                            for (let cam of rearCams) {
+                                if (cam.label.toLowerCase().includes('ultra') || cam.label.toLowerCase().includes('macro')) {
+                                    selectedCameraId = cam.id; break;
+                                }
+                            }
+                        }
+                        const html5QrCode = new Html5Qrcode("reader_baja");
+                        html5QrCode.start(
+                            selectedCameraId, { fps: 15, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 },
+                            (decodedText) => {
+                                html5QrCode.stop();
+                                const url = new URL(window.parent.location.href);
+                                url.searchParams.set("qr_baja", decodedText);
+                                window.parent.history.replaceState({}, "", url);
+                                window.parent.location.reload();
+                            }, (err) => {} 
+                        ).then(() => { setTimeout(() => { document.getElementById("cam-status-baja").style.display = 'none'; }, 1500); });
+                    }
+                }).catch(err => { document.getElementById("cam-status-baja").innerText = "Otorga permisos de cámara."; });
+                </script>
+                """
+                components.html(html_code_baja, height=650) 
+                
+                id_manual_baja = st.text_input("Ingresa el ID manual a eliminar:", key="input_manual_baja")
+                if id_manual_baja:
+                    st.query_params["qr_baja"] = id_manual_baja
+                    st.rerun()
+            else:
+                colA, colB = st.columns([0.8, 0.2])
+                with colA:
+                    st.error(f"🗑️ **ID a Eliminar:** {id_baja_url}")
+                with colB:
+                    if st.button("❌ Cancelar"):
+                        limpiar_url_escaneo()
+                        st.rerun()
 
+                id_limpio_baja = str(id_baja_url).strip().upper()
+                piso_ids = df_piso_local['Id de producto'].astype(str).str.strip().str.upper()
+                mob_ids = df_mob_local['Id de producto'].astype(str).str.strip().str.upper()
+
+                es_piso_baja = id_limpio_baja in piso_ids.values
+                es_mob_baja = id_limpio_baja in mob_ids.values
+
+                if es_piso_baja or es_mob_baja:
+                    hoja_activa_baja = "PISO" if es_piso_baja else "MOBILIARIO"
+                    df_actual_baja = df_piso_local if es_piso_baja else df_mob_local
+                    serie_busqueda_baja = piso_ids if es_piso_baja else mob_ids
+                    
+                    idx_baja = serie_busqueda_baja[serie_busqueda_baja == id_limpio_baja].index[0]
+                    equipo_baja = df_actual_baja.loc[idx_baja]
+                    
+                    st.markdown("### Verificación del Equipo")
+                    col1_b, col2_b, col3_b = st.columns(3)
+                    col1_b.metric("Ubicación", str(equipo_baja.get('Línea', 'N/A')))
+                    col2_b.metric("Clasificación", str(equipo_baja.get('Clasificación', 'N/A')))
+                    col3_b.metric("Base de Datos", hoja_activa_baja)
+
+                    with st.form("form_confirmacion_baja"):
+                        st.warning("⚠️ **¡Atención!** Esta acción destruirá la fila por completo en Google Sheets y no se puede deshacer.")
+                        
+                        if st.form_submit_button("🗑️ Confirmar Baja Definitiva"):
+                            with st.spinner("Eliminando fila en el servidor..."):
+                                import gspread
+                                sec = dict(st.secrets["connections"]["gsheets"])
+                                gc_gspread = gspread.service_account_from_dict(sec)
+                                ws_baja = gc_gspread.open_by_url(sec["spreadsheet"]).worksheet(hoja_activa_baja)
+                                
+                                try:
+                                    id_idx_baja = df_actual_baja.columns.get_loc('Id de producto')
+                                except KeyError as e:
+                                    st.error(f"Falta columna {e}")
+                                    st.stop()
+                                
+                                # Buscamos la fila exacta para borrarla
+                                ids_gsheets_baja = ws_baja.col_values(id_idx_baja + 1)
+                                ids_gsheets_limpios_baja = [str(v).strip().upper() for v in ids_gsheets_baja]
+                                
+                                try:
+                                    r_idx_baja = ids_gsheets_limpios_baja.index(id_limpio_baja) + 1
+                                except ValueError:
+                                    st.error("No se pudo encontrar la fila exacta en el servidor para eliminarla.")
+                                    st.stop()
+                                
+                                # Eliminamos la fila completa, los datos de abajo subirán solos.
+                                ws_baja.delete_rows(r_idx_baja)
+                                
+                            st.success(f"✅ ¡Equipo {id_baja_url} eliminado exitosamente!")
+                            st.cache_data.clear()
+                            limpiar_url_escaneo()
+                            st.rerun()
+                else:
+                    st.error(f"❌ El ID '{id_baja_url}' no se encontró en la base de datos para darlo de baja.")
 
     # ==========================================
     # VISTA 1: MAPA Y REPORTES ESD
