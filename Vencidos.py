@@ -4,30 +4,55 @@ import plotly.express as px
 from PIL import Image
 import os
 import gc
+import base64
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
 from streamlit_gsheets import GSheetsConnection
 import streamlit.components.v1 as components
-from streamlit_cookies_controller import CookieController
 
 # Configuración de página
 st.set_page_config(page_title="Control ESD BCS-AIS", layout="wide")
 
-# Inicializar controlador de cookies
-controller = CookieController()
+# ==========================================
+# FUNCIONES AUXILIARES DE URL Y SESIÓN
+# ==========================================
+def codificar_sesion(nombre):
+    # Oculta ligeramente el nombre en la URL usando Base64
+    return base64.b64encode(nombre.encode('utf-8')).decode('utf-8')
+
+def decodificar_sesion(token):
+    try:
+        return base64.b64decode(token.encode('utf-8')).decode('utf-8')
+    except:
+        return None
+
+def limpiar_url_escaneo():
+    # Borra los datos del QR/OCR pero mantiene vivo el token de sesión
+    if "qr_id" in st.query_params:
+        del st.query_params["qr_id"]
+    if "ocr_val" in st.query_params:
+        del st.query_params["ocr_val"]
 
 # ==========================================
-# SEGURIDAD Y ACCESO
+# SEGURIDAD Y ACCESO (POR URL)
 # ==========================================
 if "usuario_nombre" not in st.session_state:
     st.session_state.usuario_nombre = None
 if "modo_lectura" not in st.session_state:
     st.session_state.modo_lectura = False
 
-cookie_auditor = controller.get('auditor_esd_sesion')
-if cookie_auditor:
-    st.session_state.usuario_nombre = cookie_auditor
-    st.session_state.modo_lectura = False 
+# Lectura del token en la URL (Sobrevive recargas del navegador al 100%)
+token_actual = st.query_params.get("auth_token")
+
+if token_actual:
+    if token_actual == "consulta_mode":
+        st.session_state.usuario_nombre = "Usuario de Consulta"
+        st.session_state.modo_lectura = True
+    else:
+        usuario_decodificado = decodificar_sesion(token_actual)
+        if usuario_decodificado:
+            st.session_state.usuario_nombre = usuario_decodificado
+            st.session_state.modo_lectura = False 
 
 if st.session_state.usuario_nombre is None and not st.session_state.modo_lectura:
     st.markdown("<h2 style='text-align: center;'>🛡️ Sistema de Gestión ESD BCS-AIS</h2>", unsafe_allow_html=True)
@@ -43,10 +68,8 @@ if st.session_state.usuario_nombre is None and not st.session_state.modo_lectura
                         usuarios_db = st.secrets["usuarios"]
                         if user_input in usuarios_db and usuarios_db[user_input]["password"] == pwd_input:
                             nombre_real = usuarios_db[user_input]["nombre"]
-                            st.session_state.usuario_nombre = nombre_real
-                            st.session_state.modo_lectura = False
-                            expira = datetime.now() + timedelta(days=7)
-                            controller.set('auditor_esd_sesion', nombre_real, expires=expira)
+                            # Inyectamos el token en la URL y recargamos
+                            st.query_params["auth_token"] = codificar_sesion(nombre_real)
                             st.rerun()
                         else:
                             st.error("❌ Credenciales incorrectas")
@@ -55,8 +78,7 @@ if st.session_state.usuario_nombre is None and not st.session_state.modo_lectura
         with tab_monitor:
             st.info("El Modo Consulta es de solo lectura.")
             if st.button("👁️ Entrar en Modo Consulta", use_container_width=True):
-                st.session_state.modo_lectura = True
-                st.session_state.usuario_nombre = "Usuario de Consulta"
+                st.query_params["auth_token"] = "consulta_mode"
                 st.rerun()
 else:
     # ==========================================
@@ -73,10 +95,8 @@ else:
         if st.button("Salir al Menú Principal", use_container_width=True):
             st.session_state.usuario_nombre = None
             st.session_state.modo_lectura = False
-            try: 
-                controller.remove('auditor_esd_sesion')
-            except KeyError: 
-                pass
+            # Destruimos la URL para cerrar sesión
+            st.query_params.clear() 
             st.rerun()
 
     conn = st.connection("gsheets", type=GSheetsConnection)
@@ -116,13 +136,18 @@ else:
         c_nav1, c_nav2, c_nav3 = st.columns(3)
         with c_nav1:
             if st.button("🗺️ Mapa y Reportes", use_container_width=True, type="primary" if st.session_state.vista_actual == "Mapa" else "secondary"):
-                st.session_state.vista_actual = "Mapa"; st.query_params.clear(); st.rerun()
+                st.session_state.vista_actual = "Mapa"
+                limpiar_url_escaneo() 
+                st.rerun()
         with c_nav2:
             if st.button("📱 Escáner / Auditoría", use_container_width=True, type="primary" if st.session_state.vista_actual == "Escáner" else "secondary"):
-                st.session_state.vista_actual = "Escáner"; st.rerun()
+                st.session_state.vista_actual = "Escáner"
+                st.rerun()
         with c_nav3:
             if st.button("🆕 Alta Mobiliario", use_container_width=True, type="primary" if st.session_state.vista_actual == "Alta" else "secondary"):
-                st.session_state.vista_actual = "Alta"; st.query_params.clear(); st.rerun()
+                st.session_state.vista_actual = "Alta"
+                limpiar_url_escaneo()
+                st.rerun()
     else:
         st.session_state.vista_actual = "Escáner"
 
@@ -327,7 +352,7 @@ else:
                 st.info(f"🔍 **ID Detectado:** {id_escaneado_url}")
             with colB:
                 if st.button("❌ Cerrar Escaneo"):
-                    st.query_params.clear()
+                    limpiar_url_escaneo()
                     st.rerun()
 
             # --- FILTRO LIMPIADOR PARA BÚSQUEDA ---
@@ -504,7 +529,7 @@ else:
                             st.success("✅ **Resistencia capturada:**")
                             st.metric("Nuevo Valor", f"{float(valor_ocr_detectado):.2E} Ω")
                             if st.button("🔄 Descartar captura"):
-                                if "ocr_val" in st.query_params: del st.query_params["ocr_val"]
+                                limpiar_url_escaneo()
                                 st.rerun()
 
                         with st.form("form_actualizacion"):
@@ -522,7 +547,6 @@ else:
                                     sec = dict(st.secrets["connections"]["gsheets"])
                                     gc_gspread = gspread.service_account_from_dict(sec)
                                     
-                                    # CORRECCIÓN AQUÍ: Se usa 'hoja_activa' directamente
                                     ws = gc_gspread.open_by_url(sec["spreadsheet"]).worksheet(hoja_activa)
                                     
                                     try:
@@ -536,7 +560,6 @@ else:
                                         st.error(f"Falta columna {e}")
                                         st.stop()
                                     
-                                    # Búsqueda exacta usando la lista limpia
                                     ids_gsheets = ws.col_values(id_idx + 1)
                                     ids_gsheets_limpios = [str(v).strip().upper() for v in ids_gsheets]
                                     
@@ -554,7 +577,7 @@ else:
 
                                 st.success("💾 ¡Guardado correctamente!")
                                 st.cache_data.clear()
-                                st.query_params.clear()
+                                limpiar_url_escaneo()
                                 st.rerun()
             else:
                 st.error(f"❌ El ID '{id_escaneado_url}' no se encontró en la base de datos.")
