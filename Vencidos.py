@@ -324,8 +324,6 @@ else:
                     st.markdown("### Verificación del Equipo")
                     col1_b, col2_b, col3_b = st.columns(3)
                     col1_b.metric("Ubicación", str(equipo_baja.get('Línea', 'N/A')))
-                    
-                    # MEJORA AÑADIDA: Mostrar la clasificación en la vista de Baja
                     col2_b.metric("Tipo (Clasificación)", str(equipo_baja.get('Clasificación', 'N/A')))
                     col3_b.metric("Base de Datos", "MOBILIARIO")
 
@@ -375,15 +373,20 @@ else:
         else:
             df_total['Estatus operativo'] = 'OPERATIVO'
 
-        # MEJORA AÑADIDA: Calcular el total de equipos activos para la proporción
+        # CÁLCULO DE CUMPLIMIENTO
         equipos_activos = df_total[df_total['Estatus operativo'] != 'NO OPERATIVO']
         total_equipos = len(equipos_activos)
 
         vencidos = equipos_activos[equipos_activos['Estatus de verificación'] == 'VENCIDO']
+        total_vencidos = len(vencidos)
         
+        if total_equipos > 0:
+            porcentaje_cumplimiento = ((total_equipos - total_vencidos) / total_equipos) * 100
+        else:
+            porcentaje_cumplimiento = 100.0
+
         if not vencidos.empty:
-            # MEJORA AÑADIDA: Mostrar la cantidad de equipos vencidos vs el total
-            st.error(f"🚨 Se encontraron **{len(vencidos)}** equipos de mobiliario VENCIDOS de un total de **{total_equipos}** equipos activos.")
+            st.error(f"🚨 **Cumplimiento:** {porcentaje_cumplimiento:.1f}% | **Equipos Vencidos:** {total_vencidos} de {total_equipos} activos.")
             conteo_tipos = vencidos.groupby(['Línea']).size().reset_index(name='Total Vencidos')
             conteo_tipos['Etiqueta'] = "M: " + conteo_tipos['Total Vencidos'].astype(str)
             
@@ -413,8 +416,7 @@ else:
                     st.plotly_chart(fig, use_container_width=True)
             st.dataframe(vencidos[['Línea', 'Id de producto', 'Clasificación', 'Estatus de verificación']], use_container_width=True, hide_index=True)
         else:
-            # MEJORA AÑADIDA: Mostrar la felicitación con el total de equipos evaluados
-            st.success(f"✅ ¡Felicidades! No hay mobiliario operativo VENCIDO (0 de {total_equipos} equipos activos).")
+            st.success(f"✅ **¡Felicidades! 100% de Cumplimiento.** No hay mobiliario operativo VENCIDO (0 de {total_equipos} activos).")
 
     # ==========================================
     # VISTA 2: ESCÁNER Y DETALLES
@@ -481,7 +483,6 @@ else:
                 
                 st.markdown("### 📊 Detalles del Equipo")
                 
-                # MEJORA AÑADIDA: Cambiado a 3 columnas para mostrar la Clasificación
                 c_linea, c_tipo, c_estatus = st.columns(3)
                 c_linea.metric("Ubicación (Línea)", str(equipo.get('Línea', 'N/A')))
                 c_tipo.metric("Tipo (Clasificación)", str(equipo.get('Clasificación', 'N/A')))
