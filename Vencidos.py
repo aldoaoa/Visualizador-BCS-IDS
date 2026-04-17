@@ -101,7 +101,6 @@ else:
     @st.cache_data(ttl=2, max_entries=1) 
     def cargar_datos_cloud():
         try:
-            # Solo cargamos MOBILIARIO
             df_mob = conn.read(worksheet="MOBILIARIO", header=4)
             return df_mob
         except Exception: return None
@@ -325,11 +324,13 @@ else:
                     st.markdown("### Verificación del Equipo")
                     col1_b, col2_b, col3_b = st.columns(3)
                     col1_b.metric("Ubicación", str(equipo_baja.get('Línea', 'N/A')))
-                    col2_b.metric("Clasificación", str(equipo_baja.get('Clasificación', 'N/A')))
+                    
+                    # MEJORA AÑADIDA: Mostrar la clasificación en la vista de Baja
+                    col2_b.metric("Tipo (Clasificación)", str(equipo_baja.get('Clasificación', 'N/A')))
                     col3_b.metric("Base de Datos", "MOBILIARIO")
 
                     with st.form("form_confirmacion_baja"):
-                        st.warning("⚠️ **¡Atención!** Esta acción destruirá la fila por completo en el servidor y no se puede deshacer.")
+                        st.warning("⚠️ **¡Atención!** Esta acción destruirá la fila por completo en Google Sheets y no se puede deshacer.")
                         
                         if st.form_submit_button("🗑️ Confirmar Baja Definitiva"):
                             with st.spinner("Eliminando fila en el servidor..."):
@@ -374,10 +375,15 @@ else:
         else:
             df_total['Estatus operativo'] = 'OPERATIVO'
 
-        vencidos = df_total[(df_total['Estatus de verificación'] == 'VENCIDO') & (df_total['Estatus operativo'] != 'NO OPERATIVO')]
+        # MEJORA AÑADIDA: Calcular el total de equipos activos para la proporción
+        equipos_activos = df_total[df_total['Estatus operativo'] != 'NO OPERATIVO']
+        total_equipos = len(equipos_activos)
+
+        vencidos = equipos_activos[equipos_activos['Estatus de verificación'] == 'VENCIDO']
         
         if not vencidos.empty:
-            st.error(f"🚨 Se encontraron {len(vencidos)} equipos de mobiliario VENCIDOS.")
+            # MEJORA AÑADIDA: Mostrar la cantidad de equipos vencidos vs el total
+            st.error(f"🚨 Se encontraron **{len(vencidos)}** equipos de mobiliario VENCIDOS de un total de **{total_equipos}** equipos activos.")
             conteo_tipos = vencidos.groupby(['Línea']).size().reset_index(name='Total Vencidos')
             conteo_tipos['Etiqueta'] = "M: " + conteo_tipos['Total Vencidos'].astype(str)
             
@@ -407,7 +413,8 @@ else:
                     st.plotly_chart(fig, use_container_width=True)
             st.dataframe(vencidos[['Línea', 'Id de producto', 'Clasificación', 'Estatus de verificación']], use_container_width=True, hide_index=True)
         else:
-            st.success("✅ ¡Felicidades! No hay mobiliario operativo VENCIDO.")
+            # MEJORA AÑADIDA: Mostrar la felicitación con el total de equipos evaluados
+            st.success(f"✅ ¡Felicidades! No hay mobiliario operativo VENCIDO (0 de {total_equipos} equipos activos).")
 
     # ==========================================
     # VISTA 2: ESCÁNER Y DETALLES
@@ -474,8 +481,11 @@ else:
                 
                 st.markdown("### 📊 Detalles del Equipo")
                 
-                c_linea, c_estatus = st.columns(2)
+                # MEJORA AÑADIDA: Cambiado a 3 columnas para mostrar la Clasificación
+                c_linea, c_tipo, c_estatus = st.columns(3)
                 c_linea.metric("Ubicación (Línea)", str(equipo.get('Línea', 'N/A')))
+                c_tipo.metric("Tipo (Clasificación)", str(equipo.get('Clasificación', 'N/A')))
+                
                 estatus_actual = str(equipo.get('Estatus de verificación', 'N/A')).strip().upper()
                 color_estatus = "🟢" if estatus_actual == "VIGENTE" else "🔴"
                 c_estatus.metric("Estatus Actual", f"{color_estatus} {estatus_actual}")
