@@ -100,14 +100,14 @@ else:
 
     @st.cache_data(ttl=2, max_entries=1) 
     def cargar_datos_cloud():
-        df_mob, df_ion = None, None
-        try:
-            df_mob = conn.read(worksheet="MOBILIARIO", header=4)
+        df_piso, df_mob, df_ion = None, None, None
+        try: df_piso = conn.read(worksheet="PISO", header=4)
         except: pass
-        try:
-            df_ion = conn.read(worksheet="IONIZADORES", header=4)
+        try: df_mob = conn.read(worksheet="MOBILIARIO", header=4)
         except: pass
-        return df_mob, df_ion
+        try: df_ion = conn.read(worksheet="IONIZADORES", header=4)
+        except: pass
+        return df_piso, df_mob, df_ion
 
     def calcular_proxima_fecha(fecha_actual, frecuencia):
         frecuencia = str(frecuencia).strip().lower()
@@ -119,13 +119,12 @@ else:
 
     st.title("Sistema de Gestión ESD BCS-AIS Querétaro")
     
-    df_mob_local, df_ion_local = cargar_datos_cloud()
+    df_piso_local, df_mob_local, df_ion_local = cargar_datos_cloud()
 
     if df_mob_local is None:
         st.error("Falla al conectar con el servidor (Pestaña MOBILIARIO no encontrada).")
         st.stop()
         
-    # Seguro por si la pestaña IONIZADORES aún no existe en el Google Sheet
     if df_ion_local is None:
         st.warning("⚠️ No se encontró la pestaña 'IONIZADORES' en Google Sheets. Por favor créala con el mismo formato que MOBILIARIO y agrégale una columna extra llamada 'Balance'.")
         df_ion_local = pd.DataFrame(columns=df_mob_local.columns.tolist() + ['Balance'])
@@ -204,36 +203,54 @@ else:
             tipo_alta = st.radio("Categoría del Equipo a Registrar:", ["Mobiliario", "Ionizador"], horizontal=True)
             df_target_alta = df_mob_local if tipo_alta == "Mobiliario" else df_ion_local
             
-            lineas_disponibles = sorted([str(x).strip() for x in df_target_alta.get('Línea', pd.Series()).unique() if pd.notna(x) and str(x).strip() != ''])
-            tipos_disponibles = sorted([str(x).strip() for x in df_target_alta.get('Clasificación', pd.Series()).unique() if pd.notna(x) and str(x).strip() != ''])
+            # Recolectar Líneas de TODAS las hojas (Piso, Mobiliario, Ionizadores)
+            todas_lineas = set()
+            for df_temp in [df_piso_local, df_mob_local, df_ion_local]:
+                if df_temp is not None and 'Línea' in df_temp.columns:
+                    todas_lineas.update([str(x).strip() for x in df_temp['Línea'].dropna() if str(x).strip() != ''])
+            lineas_disponibles = sorted(list(todas_lineas))
 
             with st.form("form_alta_equipo"):
                 col1, col2 = st.columns(2)
                 nueva_linea = col1.selectbox("Línea (Ubicación)", options=lineas_disponibles if lineas_disponibles else ["SMT", "Ensamble"])
                 nuevo_id = col2.text_input("ID de Producto (Ej: " + ("MOB-001" if tipo_alta=="Mobiliario" else "ION-001") + ")")
                 
-                nuevo_tipo = col1.selectbox("Tipo / Clasificación", options=tipos_disponibles if tipos_disponibles else ["Mesa", "Silla"] if tipo_alta=="Mobiliario" else ["Ventilador", "Pistola"])
-                
-                if tipo_alta == "Ionizador":
-                    valor_alta = col2.number_input("Tiempo de descarga inicial (Seg)", value=0.0, format="%.2f")
+                # --- LÓGICA DINÁMICA: MOBILIARIO VS IONIZADORES ---
+                if tipo_alta == "Mobiliario":
+                    tipos_disponibles = sorted([str(x).strip() for x in df_target_alta.get('Clasificación', pd.Series()).unique() if pd.notna(x) and str(x).strip() != ''])
+                    nuevo_tipo = col1.selectbox("Tipo / Clasificación", options=tipos_disponibles if tipos_disponibles else ["Mesa", "Silla"])
+                    
+                    valor_alta = col2.number_input("Valor de medición inicial (Opcional - Ohms)", value=0.0, format="%.2e")
+                    
+                    fabricante_opc = col1.selectbox("Fabricante", options=["BCS", "Otro", "N/A"])
+                    fabricante_final = fabricante_opc
+                    if fabricante_opc == "Otro":
+                        fabricante_final = col1.text_input("Especifique Fabricante")
+                        
+                    frecuencia_alta = col2.selectbox("Frecuencia de verificación", options=["Anual", "Semestral", "Trimestral", "Mensual"], index=0)
+                    
+                    col3, col4 = st.columns(2)
+                    nuevo_minimo = col3.number_input("Mínimo", value=0.00, format="%.2e")
+                    limite_alta = col4.text_input("Límite S20.20 (Maximo)", value="1.00E+09")
+                    
                 else:
-                    valor_alta = col2.number_input("Valor de medición inicial (Ohms)", value=0.0, format="%.2e")
-                
-                fabricante_opc = col1.selectbox("Fabricante", options=["BCS", "Otro", "N/A"])
-                fabricante_final = fabricante_opc
-                if fabricante_opc == "Otro":
-                    fabricante_final = col1.text_input("Especifique Fabricante")
-                
-                frecuencia_alta = col2.selectbox("Frecuencia de verificación", options=["Anual", "Semestral", "Trimestral", "Mensual"], index=0 if tipo_alta=="Mobiliario" else 1)
-                
-                col3, col4 = st.columns(2)
-                nuevo_minimo = col3.number_input("Mínimo", value=0.00, format="%.2f" if tipo_alta=="Ionizador" else "%.2e")
-                limite_alta = col4.text_input("Límite S20.20 (Maximo)", value="9.00" if tipo_alta=="Ionizador" else "1.00E+09")
-                
-                # Campo exclusivo para Ionizador
-                if tipo_alta == "Ionizador":
-                    balance_alta = col3.number_input("Balance Inicial (V)", value=0.0, format="%.2f", help="Puede ser negativo o positivo")
-                
+                    # Lógica específica para IONIZADOR
+                    nuevo_tipo = col1.selectbox("Tipo / Clasificación", options=["Ventilador", "Barra", "Pistola"])
+                    
+                    valor_alta = col2.number_input("Tiempo de descarga inicial (Seg)", value=0.0, format="%.2f")
+                    
+                    fabricante_opc = col1.selectbox("Fabricante", options=["SMC", "Panasonic", "Keyence", "SIMCO", "Otro"])
+                    fabricante_final = fabricante_opc
+                    if fabricante_opc == "Otro":
+                        fabricante_final = col1.text_input("Especifique Fabricante")
+                        
+                    balance_alta = col2.number_input("Balance Inicial (V)", value=0.0, format="%.2f", help="Puede ser negativo o positivo")
+                    
+                    # Valores ocultos y por defecto para Ionizadores
+                    frecuencia_alta = "Trimestral"
+                    nuevo_minimo = 0.00
+                    limite_alta = "10.00"
+
                 comentarios = st.text_area("Comentarios (Notas opcionales)")
                 
                 submit_alta = st.form_submit_button("Registrar en sistema", use_container_width=True)
@@ -283,7 +300,6 @@ else:
                                     st.session_state.usuario_nombre                  
                                 ]
                                 
-                                # Inserción del Balance si es Ionizador
                                 if tipo_alta == "Ionizador":
                                     if 'Balance' in df_target_alta.columns:
                                         bal_idx = df_target_alta.columns.get_loc('Balance')
@@ -427,7 +443,6 @@ else:
             else:
                 df_total['Estatus operativo'] = 'OPERATIVO'
 
-            # CÁLCULO DE CUMPLIMIENTO
             equipos_activos = df_total[df_total['Estatus operativo'] != 'NO OPERATIVO']
             total_equipos = len(equipos_activos)
 
@@ -564,7 +579,6 @@ else:
                 
                 val_previo = equipo.get('Valor de verificación', 0)
                 
-                # Despliegue de métricas dependiendo de si es Ionizador o Mobiliario
                 if es_ion:
                     if pd.notna(val_previo) and val_previo != 0 and str(val_previo).strip() != '':
                         try: c_val.metric("Tiempo de Descarga", f"{float(val_previo):.2f} s")
@@ -572,7 +586,6 @@ else:
                     else:
                         c_val.metric("Tiempo de Descarga", "N/A")
                         
-                    # Mostrar Balance en una nueva fila si es ionizador
                     c_bal, _, _ = st.columns(3)
                     bal_previo = equipo.get('Balance', 0)
                     if pd.notna(bal_previo) and str(bal_previo).strip() != '':
@@ -605,7 +618,6 @@ else:
                     hacer_medicion = st.checkbox("✅ Realizar nueva medición y actualizar", value=bool(valor_ocr_detectado))
                     
                     if hacer_medicion:
-                        # El OCR solo se muestra para Mobiliario (Ohms). Para Ionizadores es captura directa.
                         if not es_ion:
                             st.markdown("### 📷 Captura Automática del Medidor (BETA)")
                             if not valor_ocr_detectado:
@@ -722,7 +734,6 @@ else:
                         with st.form("form_actualizacion"):
                             def_val = float(valor_ocr_detectado) if valor_ocr_detectado else 0.0
                             
-                            # Formulario dinámico según tipo de equipo
                             if es_ion:
                                 st.markdown("#### Captura de Mediciones Ionizador")
                                 c_form1, c_form2 = st.columns(2)
@@ -775,13 +786,11 @@ else:
                                     ws.update_cell(r_idx, st_idx + 1, 'VIGENTE')
                                     ws.update_cell(r_idx, aud_idx + 1, st.session_state.usuario_nombre)
 
-                                    # Guardado exclusivo de Balance para Ionizadores
                                     if es_ion:
                                         try:
                                             bal_idx = df_actual.columns.get_loc('Balance')
                                             ws.update_cell(r_idx, bal_idx + 1, float(nuevo_balance))
                                         except KeyError:
-                                            # Si la columna Balance no existiera formalmente, se fuerza en la columna 19 (S)
                                             ws.update_cell(r_idx, 19, float(nuevo_balance))
 
                                 st.success("💾 ¡Guardado correctamente!")
