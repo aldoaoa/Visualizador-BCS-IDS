@@ -126,7 +126,7 @@ else:
         st.stop()
         
     if df_ion_local is None:
-        st.warning("⚠️ No se encontró la pestaña 'IONIZADORES' en Google Sheets.")
+        st.warning("⚠️ No se encontró la pestaña 'IONIZADORES' en Google Sheets. Por favor créala copiando los mismos encabezados que MOBILIARIO (en la fila 5) y agrégale la columna 'Balance'.")
         df_ion_local = pd.DataFrame(columns=df_mob_local.columns.tolist() + ['Balance'])
 
     if "vista_actual" not in st.session_state:
@@ -175,7 +175,6 @@ else:
             
             st.info("💡 **Tip:** Haz clic en el título de una columna para ordenar (A-Z) o usa la lupa (🔍) para buscar un ID específico.")
             if not df_dir.empty and 'Id de producto' in df_dir.columns and 'Línea' in df_dir.columns:
-                # Ocultamos los NO OPERATIVOS del directorio visual para que esté limpio
                 if 'Estatus operativo' in df_dir.columns:
                     df_clean = df_dir[df_dir['Estatus operativo'].astype(str).str.strip().str.upper() != 'NO OPERATIVO']
                 else:
@@ -414,7 +413,6 @@ else:
                                     st.error("No se pudo encontrar la fila exacta en el servidor para modificarla.")
                                     st.stop()
                                 
-                                # BAJA LÓGICA: Cambiamos Estatus Operativo y de Verificación
                                 ws_baja.update_cell(r_idx_baja, est_op_idx + 1, "NO OPERATIVO")
                                 ws_baja.update_cell(r_idx_baja, est_verif_idx + 1, "BAJA")
                                 
@@ -742,6 +740,18 @@ else:
                         with st.form("form_actualizacion"):
                             def_val = float(valor_ocr_detectado) if valor_ocr_detectado else 0.0
                             
+                            # --- NUEVO: Selección de Línea ---
+                            todas_lineas_escaner = set()
+                            for df_temp in [df_piso_local, df_mob_local, df_ion_local]:
+                                if df_temp is not None and 'Línea' in df_temp.columns:
+                                    todas_lineas_escaner.update([str(x).strip() for x in df_temp['Línea'].dropna() if str(x).strip() != ''])
+                            lineas_disponibles_escaner = sorted(list(todas_lineas_escaner))
+                            
+                            linea_actual = str(equipo.get('Línea', '')).strip()
+                            idx_linea_def = lineas_disponibles_escaner.index(linea_actual) if linea_actual in lineas_disponibles_escaner else 0
+                            
+                            nueva_linea_upd = st.selectbox("Línea / Ubicación (Modificar si el equipo fue reubicado)", options=lineas_disponibles_escaner, index=idx_linea_def)
+                            
                             if es_ion:
                                 st.markdown("#### Captura de Mediciones Ionizador")
                                 c_form1, c_form2 = st.columns(2)
@@ -766,31 +776,28 @@ else:
                                     sec = dict(st.secrets["connections"]["gsheets"])
                                     gc_gspread = gspread.service_account_from_dict(sec)
                                     
-                                    # --- 1. GUARDAR EL AUDIT TRAIL (HISTORIAL) ---
-                                    # Solo si el equipo ya tenía un valor previo
                                     if pd.notna(val_previo) and str(val_previo).strip() != '':
                                         try:
                                             ws_hist = gc_gspread.open_by_url(sec["spreadsheet"]).worksheet("HISTORIAL")
                                             fila_historial = [
-                                                id_limpio,                                  # ID Equipo
-                                                hoja_activa,                                # Base de Datos
-                                                equipo.get('Línea', ''),                    # Ubicación
-                                                str(val_previo),                            # Valor Anterior
-                                                str(equipo.get('Balance', '')),             # Balance Anterior
-                                                str(equipo.get('Fecha de verificación', '')),# Fecha Medición Anterior
-                                                str(equipo.get('Auditor', '')),             # Auditor Anterior
-                                                datetime.now().strftime("%d-%b-%Y %H:%M")   # Fecha de Archivo
+                                                id_limpio,                                  
+                                                hoja_activa,                                
+                                                equipo.get('Línea', ''),                    
+                                                str(val_previo),                            
+                                                str(equipo.get('Balance', '')),             
+                                                str(equipo.get('Fecha de verificación', '')),
+                                                str(equipo.get('Auditor', '')),             
+                                                datetime.now().strftime("%d-%b-%Y %H:%M")   
                                             ]
                                             ws_hist.append_row(fila_historial, value_input_option="USER_ENTERED")
                                         except Exception as e:
-                                            # Si la pestaña HISTORIAL no existe, no rompemos el proceso, solo avisamos.
                                             pass
 
-                                    # --- 2. ACTUALIZAR REGISTRO ACTUAL ---
                                     ws = gc_gspread.open_by_url(sec["spreadsheet"]).worksheet(hoja_activa)
                                     
                                     try:
                                         id_idx = df_actual.columns.get_loc('Id de producto')
+                                        linea_idx = df_actual.columns.get_loc('Línea') # NUEVO
                                         val_idx = df_actual.columns.get_loc('Valor de verificación')
                                         f_idx = df_actual.columns.get_loc('Fecha de verificación')
                                         fp_idx = df_actual.columns.get_loc('Fecha de próxima verificación')
@@ -809,6 +816,7 @@ else:
                                         st.error("No se pudo encontrar el campo en servidor para actualizar.")
                                         st.stop()
                                     
+                                    ws.update_cell(r_idx, linea_idx + 1, nueva_linea_upd) # NUEVO
                                     ws.update_cell(r_idx, val_idx + 1, float(nuevo_valor_final))
                                     ws.update_cell(r_idx, f_idx + 1, nueva_fecha_valida.strftime("%d-%b-%Y"))
                                     ws.update_cell(r_idx, fp_idx + 1, proxy.strftime("%d-%b-%Y"))
