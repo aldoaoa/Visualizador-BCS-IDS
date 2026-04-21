@@ -146,19 +146,13 @@ else:
         c_nav1, c_nav2, c_nav3 = st.columns(3)
         with c_nav1:
             if st.button("🗺️ Mapa y Reportes", use_container_width=True, type="primary" if st.session_state.vista_actual == "Mapa" else "secondary"):
-                st.session_state.vista_actual = "Mapa"
-                limpiar_url_escaneo() 
-                st.rerun()
+                st.session_state.vista_actual = "Mapa"; limpiar_url_escaneo(); st.rerun()
         with c_nav2:
             if st.button("📱 Escáner / Auditoría", use_container_width=True, type="primary" if st.session_state.vista_actual == "Escáner" else "secondary"):
-                st.session_state.vista_actual = "Escáner"
-                limpiar_url_escaneo()
-                st.rerun()
+                st.session_state.vista_actual = "Escáner"; limpiar_url_escaneo(); st.rerun()
         with c_nav3:
             if st.button("🆕 Alta/Baja Equipos", use_container_width=True, type="primary" if st.session_state.vista_actual == "Alta" else "secondary"):
-                st.session_state.vista_actual = "Alta"
-                limpiar_url_escaneo()
-                st.rerun()
+                st.session_state.vista_actual = "Alta"; limpiar_url_escaneo(); st.rerun()
     else:
         st.session_state.vista_actual = "Escáner"
 
@@ -224,14 +218,13 @@ else:
                     tipos_disponibles = sorted([str(x).strip() for x in df_target_alta.get('Clasificación', pd.Series()).unique() if pd.notna(x) and str(x).strip() != ''])
                     nuevo_tipo = col1.selectbox("Tipo / Clasificación", options=tipos_disponibles if tipos_disponibles else ["Mesa", "Silla"])
                     
-                    # --- MEJORA UX: División del campo de Notación Científica en ALTA ---
                     with col2:
                         st.caption("Valor de medición inicial (Opcional - Ohms)")
                         c_b, c_x, c_e = st.columns([2, 1, 2])
-                        base_alta = c_b.number_input("Número", value=0.0, format="%.2f")
+                        base_alta = c_b.number_input("Número", value=None, format="%.2f")
                         c_x.markdown("<div style='text-align: center; margin-top: 30px; font-weight: bold; font-size: 18px;'>x 10^</div>", unsafe_allow_html=True)
-                        exp_alta = c_e.number_input("Exponente", value=0, step=1, format="%d")
-                        valor_alta = base_alta * (10 ** exp_alta) if base_alta != 0 else 0.0
+                        exp_alta = c_e.number_input("Exponente", value=None, step=1)
+                        valor_alta = (base_alta * (10 ** exp_alta)) if base_alta is not None and exp_alta is not None else None
                     
                     fabricante_opc = col1.selectbox("Fabricante", options=["BCS", "Otro", "N/A"])
                     fabricante_final = fabricante_opc
@@ -245,13 +238,14 @@ else:
                     
                 else:
                     nuevo_tipo = col1.selectbox("Tipo / Clasificación", options=["Ventilador", "Barra", "Pistola"])
-                    valor_alta = col2.number_input("Tiempo de descarga inicial (Seg)", value=0.0, format="%.2f")
+                    valor_alta = col2.number_input("Tiempo de descarga inicial (Seg)", value=None, format="%.2f")
+                    
                     fabricante_opc = col1.selectbox("Fabricante", options=["SMC", "Panasonic", "Keyence", "SIMCO", "Otro"])
                     fabricante_final = fabricante_opc
                     if fabricante_opc == "Otro":
                         fabricante_final = col1.text_input("Especifique Fabricante")
                         
-                    balance_alta = col2.number_input("Balance Inicial (V)", value=0.0, format="%.2f")
+                    balance_alta = col2.number_input("Balance Inicial (V)", value=None, format="%.2f")
                     frecuencia_alta = "Trimestral"
                     nuevo_minimo = 0.00
                     limite_alta = "10.00"
@@ -283,6 +277,8 @@ else:
                                 unidad_medida = "Segundos" if tipo_alta == "Ionizador" else "Ohms"
                                 metodo = "CPM" if tipo_alta == "Ionizador" else "RTG"
                                 
+                                val_guardar = float(valor_alta) if valor_alta is not None else ""
+                                
                                 nueva_fila = [
                                     nueva_linea,                                     
                                     nuevo_id,                                        
@@ -292,26 +288,27 @@ else:
                                     float(nuevo_minimo),                             
                                     float(limite_alta) if "E" in limite_alta.upper() else limite_alta, 
                                     unidad_medida,                                          
-                                    float(valor_alta) if valor_alta > 0 else "",      
+                                    val_guardar,      
                                     unidad_medida,                                          
                                     metodo,                                           
-                                    fecha_hoy.strftime("%d-%b-%Y") if valor_alta > 0 else "", 
-                                    proxima.strftime("%d-%b-%Y") if valor_alta > 0 else "",   
+                                    fecha_hoy.strftime("%d-%b-%Y") if val_guardar != "" else "", 
+                                    proxima.strftime("%d-%b-%Y") if val_guardar != "" else "",   
                                     frecuencia_alta,                                 
-                                    "Vigente" if valor_alta > 0 and fecha_hoy < proxima else "", 
+                                    "Vigente" if val_guardar != "" and fecha_hoy < proxima else "", 
                                     "Operativo",                                     
                                     comentarios,                                     
                                     st.session_state.usuario_nombre                  
                                 ]
                                 
                                 if tipo_alta == "Ionizador":
+                                    bal_guardar = float(balance_alta) if balance_alta is not None else ""
                                     if 'Balance' in df_target_alta.columns:
                                         bal_idx = df_target_alta.columns.get_loc('Balance')
                                         while len(nueva_fila) <= bal_idx:
                                             nueva_fila.append("")
-                                        nueva_fila[bal_idx] = float(balance_alta)
+                                        nueva_fila[bal_idx] = bal_guardar
                                     else:
-                                        nueva_fila.append(float(balance_alta))
+                                        nueva_fila.append(bal_guardar)
                                 
                                 ws.append_row(nueva_fila, value_input_option="USER_ENTERED")
                                 
@@ -329,7 +326,11 @@ else:
                 html_code_baja = """
                 <script src="https://unpkg.com/html5-qrcode"></script>
                 <div id="reader_baja" style="width:100%; max-width:500px; margin:auto; border-radius:10px; overflow:hidden; border: 2px solid #ddd; background-color: #f9f9f9;"></div>
-                <p id="cam-status-baja" style="text-align:center; color:#666; font-size: 14px;">Iniciando cámara trasera...</p>
+                <div style="text-align:center; margin-top:10px; display:flex; justify-content:center; gap:10px;">
+                    <button type="button" id="zoom_1x_baja" style="padding:10px 20px; background:#0052cc; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">🔍 1X (NORMAL)</button>
+                    <button type="button" id="zoom_3x_baja" style="padding:10px 20px; background:#666; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">🔍 3X (CURVO)</button>
+                </div>
+                <p id="cam-status-baja" style="text-align:center; color:#666; font-size: 14px; margin-top: 10px;">Iniciando cámara...</p>
                 <script>
                 Html5Qrcode.getCameras().then(devices => {
                     if (devices && devices.length) {
@@ -353,7 +354,26 @@ else:
                                 window.parent.history.replaceState({}, "", url);
                                 window.parent.location.reload();
                             }, (err) => {} 
-                        ).then(() => { setTimeout(() => { document.getElementById("cam-status-baja").style.display = 'none'; }, 1500); });
+                        ).then(() => { 
+                            setTimeout(() => { document.getElementById("cam-status-baja").style.display = 'none'; }, 1500); 
+                            const track = html5QrCode.getRunningTrack();
+                            const capabilities = track.getCapabilities();
+                            if (capabilities.zoom) {
+                                const minZoom = capabilities.zoom.min || 1;
+                                const maxZoom = capabilities.zoom.max || 3;
+                                document.getElementById('zoom_1x_baja').addEventListener('click', () => {
+                                    track.applyConstraints({ advanced: [{ zoom: minZoom }] });
+                                    document.getElementById('zoom_1x_baja').style.background = "#0052cc";
+                                    document.getElementById('zoom_3x_baja').style.background = "#666";
+                                });
+                                document.getElementById('zoom_3x_baja').addEventListener('click', () => {
+                                    let targetZoom = Math.min(minZoom * 3, maxZoom);
+                                    track.applyConstraints({ advanced: [{ zoom: targetZoom }] });
+                                    document.getElementById('zoom_1x_baja').style.background = "#666";
+                                    document.getElementById('zoom_3x_baja').style.background = "#0052cc";
+                                });
+                            }
+                        });
                     }
                 }).catch(err => { document.getElementById("cam-status-baja").innerText = "Otorga permisos de cámara."; });
                 </script>
@@ -509,7 +529,11 @@ else:
             html_code_qr = """
             <script src="https://unpkg.com/html5-qrcode"></script>
             <div id="reader" style="width:100%; max-width:500px; margin:auto; border-radius:10px; overflow:hidden; border: 2px solid #ddd; background-color: #f9f9f9;"></div>
-            <p id="cam-status" style="text-align:center; color:#666; font-size: 14px;">Iniciando cámara trasera...</p>
+            <div style="text-align:center; margin-top:10px; display:flex; justify-content:center; gap:10px;">
+                <button type="button" id="zoom_1x_main" style="padding:10px 20px; background:#0052cc; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">🔍 1X (NORMAL)</button>
+                <button type="button" id="zoom_3x_main" style="padding:10px 20px; background:#666; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">🔍 3X (CURVO)</button>
+            </div>
+            <p id="cam-status" style="text-align:center; color:#666; font-size: 14px; margin-top:10px;">Iniciando cámara...</p>
             <script>
             Html5Qrcode.getCameras().then(devices => {
                 if (devices && devices.length) {
@@ -534,7 +558,26 @@ else:
                             window.parent.history.replaceState({}, "", url);
                             window.parent.location.reload();
                         }, (err) => {} 
-                    ).then(() => { setTimeout(() => { document.getElementById("cam-status").style.display = 'none'; }, 1500); });
+                    ).then(() => { 
+                        setTimeout(() => { document.getElementById("cam-status").style.display = 'none'; }, 1500); 
+                        const track = html5QrCode.getRunningTrack();
+                        const capabilities = track.getCapabilities();
+                        if (capabilities.zoom) {
+                            const minZoom = capabilities.zoom.min || 1;
+                            const maxZoom = capabilities.zoom.max || 3;
+                            document.getElementById('zoom_1x_main').addEventListener('click', () => {
+                                track.applyConstraints({ advanced: [{ zoom: minZoom }] });
+                                document.getElementById('zoom_1x_main').style.background = "#0052cc";
+                                document.getElementById('zoom_3x_main').style.background = "#666";
+                            });
+                            document.getElementById('zoom_3x_main').addEventListener('click', () => {
+                                let targetZoom = Math.min(minZoom * 3, maxZoom);
+                                track.applyConstraints({ advanced: [{ zoom: targetZoom }] });
+                                document.getElementById('zoom_1x_main').style.background = "#666";
+                                document.getElementById('zoom_3x_main').style.background = "#0052cc";
+                            });
+                        }
+                    });
                 }
             }).catch(err => { document.getElementById("cam-status").innerText = "Otorga permisos de cámara."; });
             </script>
@@ -765,18 +808,14 @@ else:
                             if es_ion:
                                 st.markdown("#### Captura de Mediciones Ionizador")
                                 c_form1, c_form2 = st.columns(2)
-                                nuevo_valor_final = c_form1.number_input("Tiempo de Descarga (Segundos)", value=0.0, format="%.2f")
-                                
-                                bal_def = equipo.get('Balance', 0.0)
-                                try: bal_def = float(bal_def)
-                                except: bal_def = 0.0
-                                nuevo_balance = c_form2.number_input("Balance (V)", value=bal_def, format="%.2f")
+                                v_act = c_form1.number_input("Tiempo de Descarga (Segundos)", value=None, format="%.2f")
+                                b_act = c_form2.number_input("Balance (V)", value=None, format="%.2f")
                             else:
                                 # --- MEJORA UX: División del campo de Notación Científica en ACTUALIZACIÓN ---
                                 st.caption("Resistencia (Ohms)")
                                 
-                                def_base = 0.0
-                                def_exp = 0
+                                def_base = None
+                                def_exp = None
                                 if def_val != 0:
                                     def_exp = int(math.floor(math.log10(abs(def_val))))
                                     def_base = def_val / (10 ** def_exp)
@@ -784,78 +823,90 @@ else:
                                 c_b, c_x, c_e = st.columns([2, 1, 2])
                                 base_upd = c_b.number_input("Número", value=def_base, format="%.2f")
                                 c_x.markdown("<div style='text-align: center; margin-top: 30px; font-weight: bold; font-size: 18px;'>x 10^</div>", unsafe_allow_html=True)
-                                exp_upd = c_e.number_input("Exponente", value=def_exp, step=1, format="%d")
-                                nuevo_valor_final = base_upd * (10 ** exp_upd) if base_upd != 0 else 0.0
+                                exp_upd = c_e.number_input("Exponente", value=def_exp, step=1)
                                 
                             fecha_hoy = datetime.today().date()
                             nueva_fecha_valida = st.date_input("Fecha de medición", fecha_hoy)
                             
                             if st.form_submit_button("Guardar en servidor"):
-                                with st.spinner("Guardando en base de datos y archivo histórico..."):
-                                    freq = str(equipo.get('Frecuencia de verificación', 'Anual'))
-                                    proxy = calcular_proxima_fecha(nueva_fecha_valida, freq)
-                                    
-                                    import gspread
-                                    sec = dict(st.secrets["connections"]["gsheets"])
-                                    gc_gspread = gspread.service_account_from_dict(sec)
-                                    
-                                    if pd.notna(val_previo) and str(val_previo).strip() != '':
+                                # Validación para asegurar que los campos no estén vacíos
+                                if (not es_ion and (base_upd is None or exp_upd is None)) or (es_ion and (v_act is None or b_act is None)):
+                                    st.error("⚠️ Por favor, ingresa los valores de medición antes de guardar.")
+                                else:
+                                    with st.spinner("Guardando en base de datos y archivo histórico..."):
+                                        if not es_ion:
+                                            nuevo_valor_final = base_upd * (10 ** exp_upd)
+                                        else:
+                                            nuevo_valor_final = v_act
+
+                                        freq = str(equipo.get('Frecuencia de verificación', 'Anual'))
+                                        proxy = calcular_proxima_fecha(nueva_fecha_valida, freq)
+                                        
+                                        import gspread
+                                        sec = dict(st.secrets["connections"]["gsheets"])
+                                        gc_gspread = gspread.service_account_from_dict(sec)
+                                        
+                                        if pd.notna(val_previo) and str(val_previo).strip() != '':
+                                            try:
+                                                ws_hist = gc_gspread.open_by_url(sec["spreadsheet"]).worksheet("HISTORIAL")
+                                                fila_historial = [
+                                                    id_limpio,                                  
+                                                    hoja_activa,                                
+                                                    equipo.get('Línea', ''),                    
+                                                    str(val_previo),                            
+                                                    str(equipo.get('Balance', '')),             
+                                                    str(equipo.get('Fecha de verificación', '')),
+                                                    str(equipo.get('Auditor', '')),             
+                                                    datetime.now().strftime("%d-%b-%Y %H:%M")   
+                                                ]
+                                                ws_hist.append_row(fila_historial, value_input_option="USER_ENTERED")
+                                            except Exception as e:
+                                                pass
+
+                                        ws = gc_gspread.open_by_url(sec["spreadsheet"]).worksheet(hoja_activa)
+                                        
                                         try:
-                                            ws_hist = gc_gspread.open_by_url(sec["spreadsheet"]).worksheet("HISTORIAL")
-                                            fila_historial = [
-                                                id_limpio,                                  
-                                                hoja_activa,                                
-                                                equipo.get('Línea', ''),                    
-                                                str(val_previo),                            
-                                                str(equipo.get('Balance', '')),             
-                                                str(equipo.get('Fecha de verificación', '')),
-                                                str(equipo.get('Auditor', '')),             
-                                                datetime.now().strftime("%d-%b-%Y %H:%M")   
-                                            ]
-                                            ws_hist.append_row(fila_historial, value_input_option="USER_ENTERED")
-                                        except Exception as e:
-                                            pass
-
-                                    ws = gc_gspread.open_by_url(sec["spreadsheet"]).worksheet(hoja_activa)
-                                    
-                                    try:
-                                        id_idx = df_actual.columns.get_loc('Id de producto')
-                                        linea_idx = df_actual.columns.get_loc('Línea')
-                                        val_idx = df_actual.columns.get_loc('Valor de verificación')
-                                        f_idx = df_actual.columns.get_loc('Fecha de verificación')
-                                        fp_idx = df_actual.columns.get_loc('Fecha de próxima verificación')
-                                        st_idx = df_actual.columns.get_loc('Estatus de verificación')
-                                        aud_idx = df_actual.columns.get_loc('Auditor') 
-                                    except KeyError as e:
-                                        st.error(f"Falta columna {e}")
-                                        st.stop()
-                                    
-                                    ids_gsheets = ws.col_values(id_idx + 1)
-                                    ids_gsheets_limpios = [str(v).strip().upper() for v in ids_gsheets]
-                                    
-                                    try:
-                                        r_idx = ids_gsheets_limpios.index(id_limpio) + 1
-                                    except ValueError:
-                                        st.error("No se pudo encontrar el campo en servidor para actualizar.")
-                                        st.stop()
-                                    
-                                    ws.update_cell(r_idx, linea_idx + 1, nueva_linea_upd)
-                                    ws.update_cell(r_idx, val_idx + 1, float(nuevo_valor_final))
-                                    ws.update_cell(r_idx, f_idx + 1, nueva_fecha_valida.strftime("%d-%b-%Y"))
-                                    ws.update_cell(r_idx, fp_idx + 1, proxy.strftime("%d-%b-%Y"))
-                                    ws.update_cell(r_idx, st_idx + 1, 'VIGENTE')
-                                    ws.update_cell(r_idx, aud_idx + 1, st.session_state.usuario_nombre)
-
-                                    if es_ion:
+                                            id_idx = df_actual.columns.get_loc('Id de producto')
+                                            linea_idx = df_actual.columns.get_loc('Línea')
+                                            val_idx = df_actual.columns.get_loc('Valor de verificación')
+                                            f_idx = df_actual.columns.get_loc('Fecha de verificación')
+                                            fp_idx = df_actual.columns.get_loc('Fecha de próxima verificación')
+                                            st_idx = df_actual.columns.get_loc('Estatus de verificación')
+                                            aud_idx = df_actual.columns.get_loc('Auditor') 
+                                        except KeyError as e:
+                                            st.error(f"Falta columna {e}")
+                                            st.stop()
+                                        
+                                        ids_gsheets = ws.col_values(id_idx + 1)
+                                        ids_gsheets_limpios = [str(v).strip().upper() for v in ids_gsheets]
+                                        
                                         try:
-                                            bal_idx = df_actual.columns.get_loc('Balance')
-                                            ws.update_cell(r_idx, bal_idx + 1, float(nuevo_balance))
-                                        except KeyError:
-                                            ws.update_cell(r_idx, 19, float(nuevo_balance))
+                                            r_idx = ids_gsheets_limpios.index(id_limpio) + 1
+                                        except ValueError:
+                                            st.error("No se pudo encontrar el campo en servidor para actualizar.")
+                                            st.stop()
+                                        
+                                        ws.update_cell(r_idx, linea_idx + 1, nueva_linea_upd)
+                                        ws.update_cell(r_idx, val_idx + 1, float(nuevo_valor_final))
+                                        ws.update_cell(r_idx, f_idx + 1, nueva_fecha_valida.strftime("%d-%b-%Y"))
+                                        ws.update_cell(r_idx, fp_idx + 1, proxy.strftime("%d-%b-%Y"))
+                                        ws.update_cell(r_idx, st_idx + 1, 'VIGENTE')
+                                        
+                                        try:
+                                            ws.update_cell(r_idx, aud_idx + 1, st.session_state.usuario_nombre)
+                                        except:
+                                            ws.update_cell(r_idx, 18, st.session_state.usuario_nombre)
+                                            
+                                        if es_ion:
+                                            try:
+                                                bal_idx = df_actual.columns.get_loc('Balance')
+                                                ws.update_cell(r_idx, bal_idx + 1, float(b_act))
+                                            except KeyError:
+                                                ws.update_cell(r_idx, 19, float(b_act))
 
-                                st.success("💾 ¡Guardado correctamente con trazabilidad histórica!")
-                                st.cache_data.clear()
-                                limpiar_url_escaneo()
-                                st.rerun()
+                                    st.success("💾 ¡Guardado correctamente con trazabilidad histórica!")
+                                    st.cache_data.clear()
+                                    limpiar_url_escaneo()
+                                    st.rerun()
             else:
-                st.error(f"❌ El ID '{id_escaneado_url}' no se encontró en la base de datos.") 
+                st.error(f"❌ El ID '{id_escaneado_url}' no se encontró en la base de datos.")
