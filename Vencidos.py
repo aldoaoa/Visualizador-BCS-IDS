@@ -356,23 +356,24 @@ else:
                             }, (err) => {} 
                         ).then(() => { 
                             setTimeout(() => { document.getElementById("cam-status-baja").style.display = 'none'; }, 1500); 
-                            const track = html5QrCode.getRunningTrack();
-                            const capabilities = track.getCapabilities();
-                            if (capabilities.zoom) {
-                                const minZoom = capabilities.zoom.min || 1;
-                                const maxZoom = capabilities.zoom.max || 3;
-                                document.getElementById('zoom_1x_baja').addEventListener('click', () => {
-                                    track.applyConstraints({ advanced: [{ zoom: minZoom }] });
-                                    document.getElementById('zoom_1x_baja').style.background = "#0052cc";
-                                    document.getElementById('zoom_3x_baja').style.background = "#666";
-                                });
-                                document.getElementById('zoom_3x_baja').addEventListener('click', () => {
-                                    let targetZoom = Math.min(minZoom * 3, maxZoom);
-                                    track.applyConstraints({ advanced: [{ zoom: targetZoom }] });
-                                    document.getElementById('zoom_1x_baja').style.background = "#666";
-                                    document.getElementById('zoom_3x_baja').style.background = "#0052cc";
-                                });
-                            }
+                            
+                            // Lógica de Zoom CSS
+                            const readerDiv = document.getElementById("reader_baja").querySelector("video");
+                            
+                            document.getElementById('zoom_1x_baja').addEventListener('click', () => {
+                                if (readerDiv) readerDiv.style.transform = "scale(1)";
+                                document.getElementById('zoom_1x_baja').style.background = "#0052cc";
+                                document.getElementById('zoom_3x_baja').style.background = "#666";
+                            });
+                            
+                            document.getElementById('zoom_3x_baja').addEventListener('click', () => {
+                                if (readerDiv) {
+                                    readerDiv.style.transform = "scale(3)";
+                                    readerDiv.style.transformOrigin = "center center";
+                                }
+                                document.getElementById('zoom_1x_baja').style.background = "#666";
+                                document.getElementById('zoom_3x_baja').style.background = "#0052cc";
+                            });
                         });
                     }
                 }).catch(err => { document.getElementById("cam-status-baja").innerText = "Otorga permisos de cámara."; });
@@ -560,23 +561,24 @@ else:
                         }, (err) => {} 
                     ).then(() => { 
                         setTimeout(() => { document.getElementById("cam-status").style.display = 'none'; }, 1500); 
-                        const track = html5QrCode.getRunningTrack();
-                        const capabilities = track.getCapabilities();
-                        if (capabilities.zoom) {
-                            const minZoom = capabilities.zoom.min || 1;
-                            const maxZoom = capabilities.zoom.max || 3;
-                            document.getElementById('zoom_1x_main').addEventListener('click', () => {
-                                track.applyConstraints({ advanced: [{ zoom: minZoom }] });
-                                document.getElementById('zoom_1x_main').style.background = "#0052cc";
-                                document.getElementById('zoom_3x_main').style.background = "#666";
-                            });
-                            document.getElementById('zoom_3x_main').addEventListener('click', () => {
-                                let targetZoom = Math.min(minZoom * 3, maxZoom);
-                                track.applyConstraints({ advanced: [{ zoom: targetZoom }] });
-                                document.getElementById('zoom_1x_main').style.background = "#666";
-                                document.getElementById('zoom_3x_main').style.background = "#0052cc";
-                            });
-                        }
+                        
+                        // Lógica de Zoom CSS
+                        const readerDiv = document.getElementById("reader").querySelector("video");
+                        
+                        document.getElementById('zoom_1x_main').addEventListener('click', () => {
+                            if (readerDiv) readerDiv.style.transform = "scale(1)";
+                            document.getElementById('zoom_1x_main').style.background = "#0052cc";
+                            document.getElementById('zoom_3x_main').style.background = "#666";
+                        });
+                        
+                        document.getElementById('zoom_3x_main').addEventListener('click', () => {
+                            if (readerDiv) {
+                                readerDiv.style.transform = "scale(3)";
+                                readerDiv.style.transformOrigin = "center center";
+                            }
+                            document.getElementById('zoom_1x_main').style.background = "#666";
+                            document.getElementById('zoom_3x_main').style.background = "#0052cc";
+                        });
                     });
                 }
             }).catch(err => { document.getElementById("cam-status").innerText = "Otorga permisos de cámara."; });
@@ -791,8 +793,6 @@ else:
                                     st.rerun()
 
                         with st.form("form_actualizacion"):
-                            def_val = float(valor_ocr_detectado) if valor_ocr_detectado else 0.0
-                            
                             # --- SELECCIÓN DE LÍNEA ---
                             todas_lineas_escaner = set()
                             for df_temp in [df_piso_local, df_mob_local, df_ion_local]:
@@ -813,23 +813,16 @@ else:
                             else:
                                 # --- MEJORA UX: División del campo de Notación Científica en ACTUALIZACIÓN ---
                                 st.caption("Resistencia (Ohms)")
-                                
-                                def_base = None
-                                def_exp = None
-                                if def_val != 0:
-                                    def_exp = int(math.floor(math.log10(abs(def_val))))
-                                    def_base = def_val / (10 ** def_exp)
-                                
                                 c_b, c_x, c_e = st.columns([2, 1, 2])
-                                base_upd = c_b.number_input("Número", value=def_base, format="%.2f")
+                                base_upd = c_b.number_input("Número", value=None, format="%.2f")
                                 c_x.markdown("<div style='text-align: center; margin-top: 30px; font-weight: bold; font-size: 18px;'>x 10^</div>", unsafe_allow_html=True)
-                                exp_upd = c_e.number_input("Exponente", value=def_exp, step=1)
+                                exp_upd = c_e.number_input("Exponente", value=None, step=1)
                                 
                             fecha_hoy = datetime.today().date()
                             nueva_fecha_valida = st.date_input("Fecha de medición", fecha_hoy)
                             
                             if st.form_submit_button("Guardar en servidor"):
-                                # Validación para asegurar que los campos no estén vacíos
+                                # Validación de campos vacíos
                                 if (not es_ion and (base_upd is None or exp_upd is None)) or (es_ion and (v_act is None or b_act is None)):
                                     st.error("⚠️ Por favor, ingresa los valores de medición antes de guardar.")
                                 else:
