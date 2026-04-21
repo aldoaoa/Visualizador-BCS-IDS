@@ -5,6 +5,7 @@ from PIL import Image
 import os
 import gc
 import base64
+import math
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
 from streamlit_gsheets import GSheetsConnection
@@ -222,7 +223,16 @@ else:
                 if tipo_alta == "Mobiliario":
                     tipos_disponibles = sorted([str(x).strip() for x in df_target_alta.get('Clasificación', pd.Series()).unique() if pd.notna(x) and str(x).strip() != ''])
                     nuevo_tipo = col1.selectbox("Tipo / Clasificación", options=tipos_disponibles if tipos_disponibles else ["Mesa", "Silla"])
-                    valor_alta = col2.number_input("Valor de medición inicial (Opcional - Ohms)", value=0.0, format="%.2e")
+                    
+                    # --- MEJORA UX: División del campo de Notación Científica en ALTA ---
+                    with col2:
+                        st.caption("Valor de medición inicial (Opcional - Ohms)")
+                        c_b, c_x, c_e = st.columns([2, 1, 2])
+                        base_alta = c_b.number_input("Número", value=0.0, format="%.2f")
+                        c_x.markdown("<div style='text-align: center; margin-top: 30px; font-weight: bold; font-size: 18px;'>x 10^</div>", unsafe_allow_html=True)
+                        exp_alta = c_e.number_input("Exponente", value=0, step=1, format="%d")
+                        valor_alta = base_alta * (10 ** exp_alta) if base_alta != 0 else 0.0
+                    
                     fabricante_opc = col1.selectbox("Fabricante", options=["BCS", "Otro", "N/A"])
                     fabricante_final = fabricante_opc
                     if fabricante_opc == "Otro":
@@ -740,7 +750,7 @@ else:
                         with st.form("form_actualizacion"):
                             def_val = float(valor_ocr_detectado) if valor_ocr_detectado else 0.0
                             
-                            # --- NUEVO: Selección de Línea ---
+                            # --- SELECCIÓN DE LÍNEA ---
                             todas_lineas_escaner = set()
                             for df_temp in [df_piso_local, df_mob_local, df_ion_local]:
                                 if df_temp is not None and 'Línea' in df_temp.columns:
@@ -762,7 +772,20 @@ else:
                                 except: bal_def = 0.0
                                 nuevo_balance = c_form2.number_input("Balance (V)", value=bal_def, format="%.2f")
                             else:
-                                nuevo_valor_final = st.number_input("Resistencia (Ohms)", value=def_val, format="%.2e")
+                                # --- MEJORA UX: División del campo de Notación Científica en ACTUALIZACIÓN ---
+                                st.caption("Resistencia (Ohms)")
+                                
+                                def_base = 0.0
+                                def_exp = 0
+                                if def_val != 0:
+                                    def_exp = int(math.floor(math.log10(abs(def_val))))
+                                    def_base = def_val / (10 ** def_exp)
+                                
+                                c_b, c_x, c_e = st.columns([2, 1, 2])
+                                base_upd = c_b.number_input("Número", value=def_base, format="%.2f")
+                                c_x.markdown("<div style='text-align: center; margin-top: 30px; font-weight: bold; font-size: 18px;'>x 10^</div>", unsafe_allow_html=True)
+                                exp_upd = c_e.number_input("Exponente", value=def_exp, step=1, format="%d")
+                                nuevo_valor_final = base_upd * (10 ** exp_upd) if base_upd != 0 else 0.0
                                 
                             fecha_hoy = datetime.today().date()
                             nueva_fecha_valida = st.date_input("Fecha de medición", fecha_hoy)
@@ -797,7 +820,7 @@ else:
                                     
                                     try:
                                         id_idx = df_actual.columns.get_loc('Id de producto')
-                                        linea_idx = df_actual.columns.get_loc('Línea') # NUEVO
+                                        linea_idx = df_actual.columns.get_loc('Línea')
                                         val_idx = df_actual.columns.get_loc('Valor de verificación')
                                         f_idx = df_actual.columns.get_loc('Fecha de verificación')
                                         fp_idx = df_actual.columns.get_loc('Fecha de próxima verificación')
@@ -816,7 +839,7 @@ else:
                                         st.error("No se pudo encontrar el campo en servidor para actualizar.")
                                         st.stop()
                                     
-                                    ws.update_cell(r_idx, linea_idx + 1, nueva_linea_upd) # NUEVO
+                                    ws.update_cell(r_idx, linea_idx + 1, nueva_linea_upd)
                                     ws.update_cell(r_idx, val_idx + 1, float(nuevo_valor_final))
                                     ws.update_cell(r_idx, f_idx + 1, nueva_fecha_valida.strftime("%d-%b-%Y"))
                                     ws.update_cell(r_idx, fp_idx + 1, proxy.strftime("%d-%b-%Y"))
