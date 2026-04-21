@@ -146,13 +146,19 @@ else:
         c_nav1, c_nav2, c_nav3 = st.columns(3)
         with c_nav1:
             if st.button("🗺️ Mapa y Reportes", use_container_width=True, type="primary" if st.session_state.vista_actual == "Mapa" else "secondary"):
-                st.session_state.vista_actual = "Mapa"; limpiar_url_escaneo(); st.rerun()
+                st.session_state.vista_actual = "Mapa"
+                limpiar_url_escaneo() 
+                st.rerun()
         with c_nav2:
             if st.button("📱 Escáner / Auditoría", use_container_width=True, type="primary" if st.session_state.vista_actual == "Escáner" else "secondary"):
-                st.session_state.vista_actual = "Escáner"; limpiar_url_escaneo(); st.rerun()
+                st.session_state.vista_actual = "Escáner"
+                limpiar_url_escaneo()
+                st.rerun()
         with c_nav3:
             if st.button("🆕 Alta/Baja Equipos", use_container_width=True, type="primary" if st.session_state.vista_actual == "Alta" else "secondary"):
-                st.session_state.vista_actual = "Alta"; limpiar_url_escaneo(); st.rerun()
+                st.session_state.vista_actual = "Alta"
+                limpiar_url_escaneo()
+                st.rerun()
     else:
         st.session_state.vista_actual = "Escáner"
 
@@ -326,60 +332,97 @@ else:
                 html_code_baja = """
                 <script src="https://unpkg.com/html5-qrcode"></script>
                 <div id="reader_baja" style="width:100%; max-width:500px; margin:auto; border-radius:10px; overflow:hidden; border: 2px solid #ddd; background-color: #f9f9f9;"></div>
-                <div style="text-align:center; margin-top:10px; display:flex; justify-content:center; gap:10px;">
+                
+                <div style="text-align:center; margin-top:10px; display:flex; justify-content:center; gap:5px; flex-wrap:wrap;">
+                    <button type="button" id="cam_wide_baja" style="padding:10px; background:#28a745; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">📸 LENTE ESTÁNDAR</button>
+                    <button type="button" id="cam_cycle_baja" style="padding:10px; background:#555; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">🔄 OTRA CÁMARA</button>
+                </div>
+                <div style="text-align:center; margin-top:10px; display:flex; justify-content:center; gap:5px;">
                     <button type="button" id="zoom_1x_baja" style="padding:10px 20px; background:#0052cc; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">🔍 1X (NORMAL)</button>
                     <button type="button" id="zoom_3x_baja" style="padding:10px 20px; background:#666; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">🔍 3X (CURVO)</button>
                 </div>
-                <p id="cam-status-baja" style="text-align:center; color:#666; font-size: 14px; margin-top: 10px;">Iniciando cámara...</p>
+                <p id="cam-status-baja" style="text-align:center; color:#666; font-size: 14px; margin-top: 10px;">Buscando cámaras...</p>
+                
                 <script>
+                let html5QrCodeBaja;
+                let rearCamsBaja = [];
+                let currentIdxBaja = 0;
+                let wideIdBaja = null;
+
+                function applyZoomBaja(scale) {
+                    const vid = document.querySelector("#reader_baja video");
+                    if (vid) {
+                        vid.style.transform = `scale(${scale})`;
+                        vid.style.transformOrigin = "center center";
+                    }
+                    document.getElementById('zoom_1x_baja').style.background = (scale === 1) ? "#0052cc" : "#666";
+                    document.getElementById('zoom_3x_baja').style.background = (scale === 3) ? "#0052cc" : "#666";
+                }
+
+                function startScannerBaja(camId) {
+                    if(!html5QrCodeBaja) html5QrCodeBaja = new Html5Qrcode("reader_baja");
+                    if (html5QrCodeBaja.isScanning) {
+                        html5QrCodeBaja.stop().then(() => { runScanBaja(camId); }).catch(e => console.log(e));
+                    } else {
+                        runScanBaja(camId);
+                    }
+                }
+
+                function runScanBaja(camId) {
+                    html5QrCodeBaja.start(
+                        camId, { fps: 15, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 },
+                        (decodedText) => {
+                            html5QrCodeBaja.stop();
+                            const url = new URL(window.parent.location.href);
+                            url.searchParams.set("qr_baja", decodedText);
+                            window.parent.history.replaceState({}, "", url);
+                            window.parent.location.reload();
+                        }, (err) => {} 
+                    ).then(() => { 
+                        let activeCam = rearCamsBaja.find(c => c.id === camId);
+                        document.getElementById("cam-status-baja").innerText = "Lente activo: " + (activeCam ? activeCam.label : "Cámara");
+                        applyZoomBaja(1);
+                    }).catch(err => {
+                        document.getElementById("cam-status-baja").innerText = "Error iniciando lente. Intenta 'Otra Cámara'.";
+                    });
+                }
+
                 Html5Qrcode.getCameras().then(devices => {
                     if (devices && devices.length) {
-                        let selectedCameraId = devices[0].id; 
-                        let rearCams = devices.filter(c => c.label.toLowerCase().includes('back') || c.label.toLowerCase().includes('trasera'));
-                        if (rearCams.length > 0) {
-                            selectedCameraId = rearCams[0].id; 
-                            for (let cam of rearCams) {
-                                if (cam.label.toLowerCase().includes('ultra') || cam.label.toLowerCase().includes('macro')) {
-                                    selectedCameraId = cam.id; break;
-                                }
+                        rearCamsBaja = devices.filter(c => c.label.toLowerCase().includes('back') || c.label.toLowerCase().includes('trasera') || c.label.toLowerCase().includes('environment'));
+                        if(rearCamsBaja.length === 0) rearCamsBaja = devices;
+
+                        // Buscar la cámara WIDE original (evitar la ULTRAWIDE)
+                        wideIdBaja = rearCamsBaja[0].id;
+                        for (let c of rearCamsBaja) {
+                            let lbl = c.label.toLowerCase();
+                            if (lbl.includes('wide') && !lbl.includes('ultra')) {
+                                wideIdBaja = c.id; break;
                             }
                         }
-                        const html5QrCode = new Html5Qrcode("reader_baja");
-                        html5QrCode.start(
-                            selectedCameraId, { fps: 15, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 },
-                            (decodedText) => {
-                                html5QrCode.stop();
-                                const url = new URL(window.parent.location.href);
-                                url.searchParams.set("qr_baja", decodedText);
-                                window.parent.history.replaceState({}, "", url);
-                                window.parent.location.reload();
-                            }, (err) => {} 
-                        ).then(() => { 
-                            setTimeout(() => { document.getElementById("cam-status-baja").style.display = 'none'; }, 1500); 
-                            
-                            // Lógica de Zoom CSS
-                            const readerDiv = document.getElementById("reader_baja").querySelector("video");
-                            
-                            document.getElementById('zoom_1x_baja').addEventListener('click', () => {
-                                if (readerDiv) readerDiv.style.transform = "scale(1)";
-                                document.getElementById('zoom_1x_baja').style.background = "#0052cc";
-                                document.getElementById('zoom_3x_baja').style.background = "#666";
-                            });
-                            
-                            document.getElementById('zoom_3x_baja').addEventListener('click', () => {
-                                if (readerDiv) {
-                                    readerDiv.style.transform = "scale(3)";
-                                    readerDiv.style.transformOrigin = "center center";
-                                }
-                                document.getElementById('zoom_1x_baja').style.background = "#666";
-                                document.getElementById('zoom_3x_baja').style.background = "#0052cc";
-                            });
+
+                        currentIdxBaja = rearCamsBaja.findIndex(c => c.id === wideIdBaja);
+                        if(currentIdxBaja === -1) currentIdxBaja = 0;
+
+                        startScannerBaja(wideIdBaja);
+
+                        document.getElementById('cam_wide_baja').addEventListener('click', () => {
+                            currentIdxBaja = rearCamsBaja.findIndex(c => c.id === wideIdBaja);
+                            startScannerBaja(wideIdBaja);
                         });
+
+                        document.getElementById('cam_cycle_baja').addEventListener('click', () => {
+                            currentIdxBaja = (currentIdxBaja + 1) % rearCamsBaja.length;
+                            startScannerBaja(rearCamsBaja[currentIdxBaja].id);
+                        });
+
+                        document.getElementById('zoom_1x_baja').addEventListener('click', () => applyZoomBaja(1));
+                        document.getElementById('zoom_3x_baja').addEventListener('click', () => applyZoomBaja(3));
                     }
-                }).catch(err => { document.getElementById("cam-status-baja").innerText = "Otorga permisos de cámara."; });
+                }).catch(err => { document.getElementById("cam-status-baja").innerText = "Permisos de cámara denegados."; });
                 </script>
                 """
-                components.html(html_code_baja, height=650) 
+                components.html(html_code_baja, height=750) 
                 
                 id_manual_baja = st.text_input("Ingresa el ID manual a eliminar:", key="input_manual_baja")
                 if id_manual_baja:
@@ -529,62 +572,98 @@ else:
             st.markdown("### 📷 Apunta al Código QR")
             html_code_qr = """
             <script src="https://unpkg.com/html5-qrcode"></script>
-            <div id="reader" style="width:100%; max-width:500px; margin:auto; border-radius:10px; overflow:hidden; border: 2px solid #ddd; background-color: #f9f9f9;"></div>
-            <div style="text-align:center; margin-top:10px; display:flex; justify-content:center; gap:10px;">
+            <div id="reader_main" style="width:100%; max-width:500px; margin:auto; border-radius:10px; overflow:hidden; border: 2px solid #0052cc; background-color: #f9f9f9;"></div>
+            
+            <div style="text-align:center; margin-top:10px; display:flex; justify-content:center; gap:5px; flex-wrap:wrap;">
+                <button type="button" id="cam_wide_main" style="padding:10px; background:#28a745; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">📸 LENTE ESTÁNDAR</button>
+                <button type="button" id="cam_cycle_main" style="padding:10px; background:#555; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">🔄 OTRA CÁMARA</button>
+            </div>
+            <div style="text-align:center; margin-top:10px; display:flex; justify-content:center; gap:5px;">
                 <button type="button" id="zoom_1x_main" style="padding:10px 20px; background:#0052cc; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">🔍 1X (NORMAL)</button>
                 <button type="button" id="zoom_3x_main" style="padding:10px 20px; background:#666; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">🔍 3X (CURVO)</button>
             </div>
-            <p id="cam-status" style="text-align:center; color:#666; font-size: 14px; margin-top:10px;">Iniciando cámara...</p>
+            <p id="cam-status-main" style="text-align:center; color:#666; font-size: 14px; margin-top: 10px;">Buscando cámaras...</p>
+            
             <script>
+            let html5QrCodeMain;
+            let rearCamsMain = [];
+            let currentIdxMain = 0;
+            let wideIdMain = null;
+
+            function applyZoomMain(scale) {
+                const vid = document.querySelector("#reader_main video");
+                if (vid) {
+                    vid.style.transform = `scale(${scale})`;
+                    vid.style.transformOrigin = "center center";
+                }
+                document.getElementById('zoom_1x_main').style.background = (scale === 1) ? "#0052cc" : "#666";
+                document.getElementById('zoom_3x_main').style.background = (scale === 3) ? "#0052cc" : "#666";
+            }
+
+            function startScannerMain(camId) {
+                if(!html5QrCodeMain) html5QrCodeMain = new Html5Qrcode("reader_main");
+                if (html5QrCodeMain.isScanning) {
+                    html5QrCodeMain.stop().then(() => { runScanMain(camId); }).catch(e => console.log(e));
+                } else {
+                    runScanMain(camId);
+                }
+            }
+
+            function runScanMain(camId) {
+                html5QrCodeMain.start(
+                    camId, { fps: 15, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 },
+                    (decodedText) => {
+                        html5QrCodeMain.stop();
+                        const url = new URL(window.parent.location.href);
+                        url.searchParams.set("qr_id", decodedText);
+                        window.parent.history.replaceState({}, "", url);
+                        window.parent.location.reload();
+                    }, (err) => {} 
+                ).then(() => { 
+                    let activeCam = rearCamsMain.find(c => c.id === camId);
+                    document.getElementById("cam-status-main").innerText = "Lente activo: " + (activeCam ? activeCam.label : "Cámara");
+                    applyZoomMain(1);
+                }).catch(err => {
+                    document.getElementById("cam-status-main").innerText = "Error iniciando lente. Intenta 'Otra Cámara'.";
+                });
+            }
+
             Html5Qrcode.getCameras().then(devices => {
                 if (devices && devices.length) {
-                    let selectedCameraId = devices[0].id; 
-                    let rearCams = devices.filter(c => c.label.toLowerCase().includes('back') || c.label.toLowerCase().includes('trasera'));
-                    if (rearCams.length > 0) {
-                        selectedCameraId = rearCams[0].id; 
-                        for (let cam of rearCams) {
-                            if (cam.label.toLowerCase().includes('ultra') || cam.label.toLowerCase().includes('macro')) {
-                                selectedCameraId = cam.id; break;
-                            }
+                    rearCamsMain = devices.filter(c => c.label.toLowerCase().includes('back') || c.label.toLowerCase().includes('trasera') || c.label.toLowerCase().includes('environment'));
+                    if(rearCamsMain.length === 0) rearCamsMain = devices;
+
+                    // Buscar la cámara WIDE original (evitar la ULTRAWIDE)
+                    wideIdMain = rearCamsMain[0].id;
+                    for (let c of rearCamsMain) {
+                        let lbl = c.label.toLowerCase();
+                        if (lbl.includes('wide') && !lbl.includes('ultra')) {
+                            wideIdMain = c.id; break;
                         }
                     }
-                    const html5QrCode = new Html5Qrcode("reader");
-                    html5QrCode.start(
-                        selectedCameraId, { fps: 15, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 },
-                        (decodedText) => {
-                            html5QrCode.stop();
-                            const url = new URL(window.parent.location.href);
-                            url.searchParams.set("qr_id", decodedText);
-                            url.searchParams.delete("ocr_val");
-                            window.parent.history.replaceState({}, "", url);
-                            window.parent.location.reload();
-                        }, (err) => {} 
-                    ).then(() => { 
-                        setTimeout(() => { document.getElementById("cam-status").style.display = 'none'; }, 1500); 
-                        
-                        // Lógica de Zoom CSS
-                        const readerDiv = document.getElementById("reader").querySelector("video");
-                        
-                        document.getElementById('zoom_1x_main').addEventListener('click', () => {
-                            if (readerDiv) readerDiv.style.transform = "scale(1)";
-                            document.getElementById('zoom_1x_main').style.background = "#0052cc";
-                            document.getElementById('zoom_3x_main').style.background = "#666";
-                        });
-                        
-                        document.getElementById('zoom_3x_main').addEventListener('click', () => {
-                            if (readerDiv) {
-                                readerDiv.style.transform = "scale(3)";
-                                readerDiv.style.transformOrigin = "center center";
-                            }
-                            document.getElementById('zoom_1x_main').style.background = "#666";
-                            document.getElementById('zoom_3x_main').style.background = "#0052cc";
-                        });
+
+                    currentIdxMain = rearCamsMain.findIndex(c => c.id === wideIdMain);
+                    if(currentIdxMain === -1) currentIdxMain = 0;
+
+                    startScannerMain(wideIdMain);
+
+                    document.getElementById('cam_wide_main').addEventListener('click', () => {
+                        currentIdxMain = rearCamsMain.findIndex(c => c.id === wideIdMain);
+                        startScannerMain(wideIdMain);
                     });
+
+                    document.getElementById('cam_cycle_main').addEventListener('click', () => {
+                        currentIdxMain = (currentIdxMain + 1) % rearCamsMain.length;
+                        startScannerMain(rearCamsMain[currentIdxMain].id);
+                    });
+
+                    document.getElementById('zoom_1x_main').addEventListener('click', () => applyZoomMain(1));
+                    document.getElementById('zoom_3x_main').addEventListener('click', () => applyZoomMain(3));
                 }
-            }).catch(err => { document.getElementById("cam-status").innerText = "Otorga permisos de cámara."; });
+            }).catch(err => { document.getElementById("cam-status-main").innerText = "Permisos de cámara denegados."; });
             </script>
             """
-            components.html(html_code_qr, height=650) 
+            components.html(html_code_qr, height=750) 
             
             id_manual = st.text_input("O ingresa el ID manual:", key="input_manual")
             if id_manual:
@@ -679,119 +758,6 @@ else:
                     hacer_medicion = st.checkbox("✅ Realizar nueva medición y actualizar", value=bool(valor_ocr_detectado))
                     
                     if hacer_medicion:
-                        if not es_ion:
-                            st.markdown("### 📷 Captura Automática del Medidor (BETA)")
-                            if not valor_ocr_detectado:
-                                html_code_ocr = """
-                                <script src="https://unpkg.com/tesseract.js@v4.0.3/dist/tesseract.min.js"></script>
-                                <div id="ocr_scanner" style="width:100%; max-width:600px; margin:auto; border-radius:10px; overflow:hidden; border: 2px solid #0052cc; background-color: #111; padding: 10px; text-align: center; color: white;">
-                                    <div id="cam_container" style="position: relative; width: 100%; padding-bottom: 75%; overflow: hidden; border-radius: 8px; background: #000;">
-                                        <video id="ocr_video" autoplay playsinline muted style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover;"></video>
-                                        <div id="lcd_screen" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 90%; height: 45%; border: 2px solid rgba(0,255,0,0.5); pointer-events: none;">
-                                            <div id="box-ohms" style="position: absolute; top: 10%; left: 5%; width: 90%; height: 80%; border: 3px solid #00ff00;">
-                                                <span style="position:absolute; top:-22px; left:0; font-size:12px; color:#00ff00; font-weight:bold;">ENFOQUE RESISTENCIA</span>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <p id="ocr_status" style="margin: 15px 0; font-size: 14px; color: #aaa;">Iniciando cámara trasera...</p>
-                                    <button id="ocr_btn" style="width: 100%; padding: 18px; font-size: 18px; font-weight: bold; background-color: #0052cc; color: white; border: none; border-radius: 8px;">📸 LEER MEDICIÓN</button>
-                                </div>
-                                <script>
-                                    const video = document.getElementById('ocr_video');
-                                    const btn = document.getElementById('ocr_btn');
-                                    const status = document.getElementById('ocr_status');
-                                    let camStream = null;
-
-                                    async function setupCamera() {
-                                        try {
-                                            let tempStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-                                            const devices = await navigator.mediaDevices.enumerateDevices();
-                                            const cameras = devices.filter(d => d.kind === 'videoinput');
-                                            let selectedId = null;
-                                            const rearCams = cameras.filter(c => c.label.toLowerCase().includes('back') || c.label.toLowerCase().includes('trasera'));
-                                            
-                                            if (rearCams.length > 0) {
-                                                selectedId = rearCams[0].id; 
-                                                status.innerText = "Alinea y lee.";
-                                                for (const cam of rearCams) {
-                                                    if (cam.label.toLowerCase().includes('ultra') || cam.label.toLowerCase().includes('macro')) {
-                                                        selectedId = cam.id; break;
-                                                    }
-                                                }
-                                            }
-                                            tempStream.getTracks().forEach(t => t.stop());
-                                            const constraints = selectedId ? { video: { deviceId: { exact: selectedId }, focusMode: 'continuous' } } : { video: { facingMode: 'environment', focusMode: 'continuous' } };
-                                            camStream = await navigator.mediaDevices.getUserMedia(constraints);
-                                            video.srcObject = camStream;
-                                        } catch (e) { status.innerText = "Error de cámara"; }
-                                    }
-                                    setupCamera();
-
-                                    btn.addEventListener('click', async () => {
-                                        btn.disabled = true;
-                                        status.innerText = "⏳ ANALIZANDO...";
-                                        
-                                        const box = document.getElementById('box-ohms');
-                                        const container = document.getElementById('cam_container');
-                                        const rectBox = box.getBoundingClientRect();
-                                        const rectCont = container.getBoundingClientRect();
-                                        const relX = (rectBox.left - rectCont.left) / rectCont.width;
-                                        const relY = (rectBox.top - rectCont.top) / rectCont.height;
-                                        const relW = rectBox.width / rectCont.width;
-                                        const relH = rectBox.height / rectCont.height;
-                                        const cropX = video.videoWidth * relX;
-                                        const cropY = video.videoHeight * relY;
-                                        const cropW = video.videoWidth * relW;
-                                        const cropH = video.videoHeight * relH;
-
-                                        const canvas = document.createElement('canvas');
-                                        canvas.width = cropW * 2; canvas.height = cropH * 2;
-                                        const ctx = canvas.getContext('2d');
-                                        ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, canvas.width, canvas.height);
-                                        
-                                        const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-                                        const data = imgData.data;
-                                        for (let i=0; i<data.length; i+=4) {
-                                            const avg = (data[i] + data[i+1] + data[i+2]) / 3;
-                                            data[i] = data[i+1] = data[i+2] = avg >= 130 ? 255 : 0; 
-                                        }
-                                        ctx.putImageData(imgData, 0, 0);
-                                        
-                                        try {
-                                            const worker = await Tesseract.createWorker();
-                                            await worker.loadLanguage('eng');
-                                            await worker.initialize('eng');
-                                            await worker.setParameters({ tessedit_char_whitelist: '0123456789.xX*Ee^ ' });
-                                            const { data: { text } } = await worker.recognize(canvas);
-                                            await worker.terminate();
-
-                                            let cleaned = text.replace(/\\s+/g, '');
-                                            const match = cleaned.match(/(\\d+\\.\\d{1,2}).*?10.*?(\\d{1,2})/);
-
-                                            if (match) {
-                                                const finalValue = parseFloat(match[1]) * Math.pow(10, parseInt(match[2]));
-                                                camStream.getTracks().forEach(t => t.stop());
-                                                const url = new URL(window.parent.location.href);
-                                                url.searchParams.set("ocr_val", finalValue);
-                                                window.parent.history.replaceState({}, "", url);
-                                                window.parent.location.reload();
-                                            } else {
-                                                status.innerText = "❌ Exponente no claro.";
-                                                status.style.color = "#ff4b4b";
-                                                btn.disabled = false;
-                                            }
-                                        } catch (err) { btn.disabled = false; }
-                                    });
-                                </script>
-                                """
-                                components.html(html_code_ocr, height=700)
-                            else:
-                                st.success("✅ **Resistencia capturada:**")
-                                st.metric("Nuevo Valor", f"{float(valor_ocr_detectado):.2E} Ω")
-                                if st.button("🔄 Descartar captura"):
-                                    limpiar_url_escaneo()
-                                    st.rerun()
-
                         with st.form("form_actualizacion"):
                             # --- SELECCIÓN DE LÍNEA ---
                             todas_lineas_escaner = set()
@@ -811,12 +777,19 @@ else:
                                 v_act = c_form1.number_input("Tiempo de Descarga (Segundos)", value=None, format="%.2f")
                                 b_act = c_form2.number_input("Balance (V)", value=None, format="%.2f")
                             else:
-                                # --- MEJORA UX: División del campo de Notación Científica en ACTUALIZACIÓN ---
                                 st.caption("Resistencia (Ohms)")
+                                def_val = float(valor_ocr_detectado) if valor_ocr_detectado else 0.0
+                                
+                                def_base = None
+                                def_exp = None
+                                if def_val != 0:
+                                    def_exp = int(math.floor(math.log10(abs(def_val))))
+                                    def_base = def_val / (10 ** def_exp)
+                                
                                 c_b, c_x, c_e = st.columns([2, 1, 2])
-                                base_upd = c_b.number_input("Número", value=None, format="%.2f")
+                                base_upd = c_b.number_input("Número", value=def_base, format="%.2f")
                                 c_x.markdown("<div style='text-align: center; margin-top: 30px; font-weight: bold; font-size: 18px;'>x 10^</div>", unsafe_allow_html=True)
-                                exp_upd = c_e.number_input("Exponente", value=None, step=1)
+                                exp_upd = c_e.number_input("Exponente", value=def_exp, step=1)
                                 
                             fecha_hoy = datetime.today().date()
                             nueva_fecha_valida = st.date_input("Fecha de medición", fecha_hoy)
