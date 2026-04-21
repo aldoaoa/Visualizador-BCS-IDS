@@ -126,7 +126,7 @@ else:
         st.stop()
         
     if df_ion_local is None:
-        st.warning("⚠️ No se encontró la pestaña 'IONIZADORES' en Google Sheets. Por favor créala con el mismo formato que MOBILIARIO y agrégale una columna extra llamada 'Balance'.")
+        st.warning("⚠️ No se encontró la pestaña 'IONIZADORES' en Google Sheets.")
         df_ion_local = pd.DataFrame(columns=df_mob_local.columns.tolist() + ['Balance'])
 
     if "vista_actual" not in st.session_state:
@@ -175,7 +175,13 @@ else:
             
             st.info("💡 **Tip:** Haz clic en el título de una columna para ordenar (A-Z) o usa la lupa (🔍) para buscar un ID específico.")
             if not df_dir.empty and 'Id de producto' in df_dir.columns and 'Línea' in df_dir.columns:
-                df_clean = df_dir[['Línea', 'Id de producto', 'Clasificación']].dropna(subset=['Id de producto'])
+                # Ocultamos los NO OPERATIVOS del directorio visual para que esté limpio
+                if 'Estatus operativo' in df_dir.columns:
+                    df_clean = df_dir[df_dir['Estatus operativo'].astype(str).str.strip().str.upper() != 'NO OPERATIVO']
+                else:
+                    df_clean = df_dir.copy()
+                    
+                df_clean = df_clean[['Línea', 'Id de producto', 'Clasificación']].dropna(subset=['Id de producto'])
                 df_clean = df_clean[df_clean['Id de producto'].astype(str).str.strip() != '']
                 st.dataframe(df_clean, use_container_width=True, hide_index=True)
             else:
@@ -203,7 +209,6 @@ else:
             tipo_alta = st.radio("Categoría del Equipo a Registrar:", ["Mobiliario", "Ionizador"], horizontal=True)
             df_target_alta = df_mob_local if tipo_alta == "Mobiliario" else df_ion_local
             
-            # Recolectar Líneas de TODAS las hojas (Piso, Mobiliario, Ionizadores)
             todas_lineas = set()
             for df_temp in [df_piso_local, df_mob_local, df_ion_local]:
                 if df_temp is not None and 'Línea' in df_temp.columns:
@@ -215,44 +220,34 @@ else:
                 nueva_linea = col1.selectbox("Línea (Ubicación)", options=lineas_disponibles if lineas_disponibles else ["SMT", "Ensamble"])
                 nuevo_id = col2.text_input("ID de Producto (Ej: " + ("MOB-001" if tipo_alta=="Mobiliario" else "ION-001") + ")")
                 
-                # --- LÓGICA DINÁMICA: MOBILIARIO VS IONIZADORES ---
                 if tipo_alta == "Mobiliario":
                     tipos_disponibles = sorted([str(x).strip() for x in df_target_alta.get('Clasificación', pd.Series()).unique() if pd.notna(x) and str(x).strip() != ''])
                     nuevo_tipo = col1.selectbox("Tipo / Clasificación", options=tipos_disponibles if tipos_disponibles else ["Mesa", "Silla"])
-                    
                     valor_alta = col2.number_input("Valor de medición inicial (Opcional - Ohms)", value=0.0, format="%.2e")
-                    
                     fabricante_opc = col1.selectbox("Fabricante", options=["BCS", "Otro", "N/A"])
                     fabricante_final = fabricante_opc
                     if fabricante_opc == "Otro":
                         fabricante_final = col1.text_input("Especifique Fabricante")
                         
                     frecuencia_alta = col2.selectbox("Frecuencia de verificación", options=["Anual", "Semestral", "Trimestral", "Mensual"], index=0)
-                    
                     col3, col4 = st.columns(2)
                     nuevo_minimo = col3.number_input("Mínimo", value=0.00, format="%.2e")
                     limite_alta = col4.text_input("Límite S20.20 (Maximo)", value="1.00E+09")
                     
                 else:
-                    # Lógica específica para IONIZADOR
                     nuevo_tipo = col1.selectbox("Tipo / Clasificación", options=["Ventilador", "Barra", "Pistola"])
-                    
                     valor_alta = col2.number_input("Tiempo de descarga inicial (Seg)", value=0.0, format="%.2f")
-                    
                     fabricante_opc = col1.selectbox("Fabricante", options=["SMC", "Panasonic", "Keyence", "SIMCO", "Otro"])
                     fabricante_final = fabricante_opc
                     if fabricante_opc == "Otro":
                         fabricante_final = col1.text_input("Especifique Fabricante")
                         
-                    balance_alta = col2.number_input("Balance Inicial (V)", value=0.0, format="%.2f", help="Puede ser negativo o positivo")
-                    
-                    # Valores ocultos y por defecto para Ionizadores
+                    balance_alta = col2.number_input("Balance Inicial (V)", value=0.0, format="%.2f")
                     frecuencia_alta = "Trimestral"
                     nuevo_minimo = 0.00
                     limite_alta = "10.00"
 
                 comentarios = st.text_area("Comentarios (Notas opcionales)")
-                
                 submit_alta = st.form_submit_button("Registrar en sistema", use_container_width=True)
                 
                 if submit_alta:
@@ -315,9 +310,10 @@ else:
                             st.cache_data.clear()
                             st.balloons()
                             
-        # --- SUB-VISTA 2: BAJA ---
+        # --- SUB-VISTA 2: BAJA (SOFT DELETE) ---
         elif accion_seleccionada == "🗑️ Dar de Baja":
-            st.markdown("#### 🗑️ Eliminar equipo del sistema")
+            st.markdown("#### 🗑️ Dar de Baja (Desactivar Equipo)")
+            st.info("Esta acción cambiará el estatus del equipo a **NO OPERATIVO**, conservando su historial pero eliminándolo de los reportes y mapas activos.")
             
             if not id_baja_url:
                 st.write("Escanea el QR o ingresa manualmente el ID del equipo a dar de baja.")
@@ -362,7 +358,7 @@ else:
             else:
                 colA, colB = st.columns([0.8, 0.2])
                 with colA:
-                    st.error(f"🗑️ **ID a Eliminar:** {id_baja_url}")
+                    st.error(f"🗑️ **ID a Procesar:** {id_baja_url}")
                 with colB:
                     if st.button("❌ Cancelar"):
                         limpiar_url_escaneo()
@@ -383,6 +379,10 @@ else:
                     idx_baja = serie_busqueda_baja[serie_busqueda_baja == id_limpio_baja].index[0]
                     equipo_baja = df_actual_baja.loc[idx_baja]
                     
+                    estatus_actual_op = str(equipo_baja.get('Estatus operativo', '')).strip().upper()
+                    if estatus_actual_op == "NO OPERATIVO":
+                        st.warning("⚠️ Este equipo ya se encuentra dado de BAJA (No Operativo).")
+                    
                     st.markdown("### Verificación del Equipo")
                     col1_b, col2_b, col3_b = st.columns(3)
                     col1_b.metric("Ubicación", str(equipo_baja.get('Línea', 'N/A')))
@@ -390,10 +390,8 @@ else:
                     col3_b.metric("Base de Datos", hoja_activa_baja)
 
                     with st.form("form_confirmacion_baja"):
-                        st.warning("⚠️ **¡Atención!** Esta acción destruirá la fila por completo en Google Sheets y no se puede deshacer.")
-                        
-                        if st.form_submit_button("🗑️ Confirmar Baja Definitiva"):
-                            with st.spinner("Eliminando fila en el servidor..."):
+                        if st.form_submit_button("🗑️ Confirmar Baja (Soft Delete)"):
+                            with st.spinner("Actualizando estatus en el servidor..."):
                                 import gspread
                                 sec = dict(st.secrets["connections"]["gsheets"])
                                 gc_gspread = gspread.service_account_from_dict(sec)
@@ -401,8 +399,10 @@ else:
                                 
                                 try:
                                     id_idx_baja = df_actual_baja.columns.get_loc('Id de producto')
+                                    est_op_idx = df_actual_baja.columns.get_loc('Estatus operativo')
+                                    est_verif_idx = df_actual_baja.columns.get_loc('Estatus de verificación')
                                 except KeyError as e:
-                                    st.error(f"Falta columna {e}")
+                                    st.error(f"Falta columna {e} en Google Sheets.")
                                     st.stop()
                                 
                                 ids_gsheets_baja = ws_baja.col_values(id_idx_baja + 1)
@@ -411,12 +411,14 @@ else:
                                 try:
                                     r_idx_baja = ids_gsheets_limpios_baja.index(id_limpio_baja) + 1
                                 except ValueError:
-                                    st.error("No se pudo encontrar la fila exacta en el servidor para eliminarla.")
+                                    st.error("No se pudo encontrar la fila exacta en el servidor para modificarla.")
                                     st.stop()
                                 
-                                ws_baja.delete_rows(r_idx_baja)
+                                # BAJA LÓGICA: Cambiamos Estatus Operativo y de Verificación
+                                ws_baja.update_cell(r_idx_baja, est_op_idx + 1, "NO OPERATIVO")
+                                ws_baja.update_cell(r_idx_baja, est_verif_idx + 1, "BAJA")
                                 
-                            st.success(f"✅ ¡Equipo {id_baja_url} eliminado exitosamente de {hoja_activa_baja}!")
+                            st.success(f"✅ ¡Equipo {id_baja_url} desactivado correctamente en {hoja_activa_baja}!")
                             st.cache_data.clear()
                             limpiar_url_escaneo()
                             st.rerun()
@@ -436,6 +438,8 @@ else:
         
         if df_total.empty:
             st.warning(f"No hay datos registrados en la base de datos de {tipo_mapa}.")
+        elif 'Estatus de verificación' not in df_total.columns:
+            st.warning(f"⚠️ La pestaña de {tipo_mapa} existe en Google Sheets, pero no tiene los encabezados correctos.")
         else:
             df_total['Estatus de verificación'] = df_total['Estatus de verificación'].astype(str).str.strip().str.upper()
             if 'Estatus operativo' in df_total.columns:
@@ -558,6 +562,10 @@ else:
                 
                 idx = serie_busqueda[serie_busqueda == id_limpio].index[0]
                 equipo = df_actual.loc[idx]
+                
+                estatus_actual_op = str(equipo.get('Estatus operativo', '')).strip().upper()
+                if estatus_actual_op == "NO OPERATIVO":
+                    st.error("⚠️ Este equipo se encuentra dado de BAJA (No Operativo).")
                 
                 st.markdown(f"### 📊 Detalles del Equipo ({hoja_activa})")
                 
@@ -750,7 +758,7 @@ else:
                             nueva_fecha_valida = st.date_input("Fecha de medición", fecha_hoy)
                             
                             if st.form_submit_button("Guardar en servidor"):
-                                with st.spinner("Guardando..."):
+                                with st.spinner("Guardando en base de datos y archivo histórico..."):
                                     freq = str(equipo.get('Frecuencia de verificación', 'Anual'))
                                     proxy = calcular_proxima_fecha(nueva_fecha_valida, freq)
                                     
@@ -758,6 +766,27 @@ else:
                                     sec = dict(st.secrets["connections"]["gsheets"])
                                     gc_gspread = gspread.service_account_from_dict(sec)
                                     
+                                    # --- 1. GUARDAR EL AUDIT TRAIL (HISTORIAL) ---
+                                    # Solo si el equipo ya tenía un valor previo
+                                    if pd.notna(val_previo) and str(val_previo).strip() != '':
+                                        try:
+                                            ws_hist = gc_gspread.open_by_url(sec["spreadsheet"]).worksheet("HISTORIAL")
+                                            fila_historial = [
+                                                id_limpio,                                  # ID Equipo
+                                                hoja_activa,                                # Base de Datos
+                                                equipo.get('Línea', ''),                    # Ubicación
+                                                str(val_previo),                            # Valor Anterior
+                                                str(equipo.get('Balance', '')),             # Balance Anterior
+                                                str(equipo.get('Fecha de verificación', '')),# Fecha Medición Anterior
+                                                str(equipo.get('Auditor', '')),             # Auditor Anterior
+                                                datetime.now().strftime("%d-%b-%Y %H:%M")   # Fecha de Archivo
+                                            ]
+                                            ws_hist.append_row(fila_historial, value_input_option="USER_ENTERED")
+                                        except Exception as e:
+                                            # Si la pestaña HISTORIAL no existe, no rompemos el proceso, solo avisamos.
+                                            pass
+
+                                    # --- 2. ACTUALIZAR REGISTRO ACTUAL ---
                                     ws = gc_gspread.open_by_url(sec["spreadsheet"]).worksheet(hoja_activa)
                                     
                                     try:
@@ -793,7 +822,7 @@ else:
                                         except KeyError:
                                             ws.update_cell(r_idx, 19, float(nuevo_balance))
 
-                                st.success("💾 ¡Guardado correctamente!")
+                                st.success("💾 ¡Guardado correctamente con trazabilidad histórica!")
                                 st.cache_data.clear()
                                 limpiar_url_escaneo()
                                 st.rerun()
