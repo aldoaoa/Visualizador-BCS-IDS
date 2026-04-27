@@ -214,7 +214,6 @@ else:
                     col1, col2 = st.columns(2)
                     nueva_linea = col1.selectbox("Línea (Ubicación)", options=lineas_disponibles if lineas_disponibles else ["SMT", "Ensamble"])
                     
-                    # --- MEJORA: Validación en tiempo real del ID ---
                     nuevo_id = col2.text_input("ID de Producto")
                     id_limpio_alta = str(nuevo_id).strip().upper()
                     
@@ -306,7 +305,6 @@ else:
                                     bal_guardar = float(balance_alta) if balance_alta is not None else ""
                                     nueva_fila.append(bal_guardar)
                                 
-                                # Si es reactivación, sobreescribimos la fila existente
                                 if es_reactivacion:
                                     id_idx_alta = df_target_alta.columns.get_loc('Id de producto')
                                     ids_gsheets_alta = ws.col_values(id_idx_alta + 1)
@@ -327,40 +325,98 @@ else:
                 st.markdown("#### Escanea el equipo a dar de baja")
                 html_code_baja = """
                 <script src="https://unpkg.com/html5-qrcode"></script>
-                <div id="reader_baja" style="width:100%; max-width:500px; margin:auto; border-radius:10px; overflow:hidden; border: 2px solid #ddd;"></div>
-                <div style="text-align:center; margin-top:10px;">
-                    <button id="zoom_btn_baja" style="padding:10px 20px; background:#0052cc; color:white; border:none; border-radius:5px; font-weight:bold;">🔍 MODO RACK CURVO (ZOOM)</button>
+                <div id="reader_baja" style="width:100%; max-width:500px; margin:auto; border-radius:10px; overflow:hidden; border: 2px solid #ddd; background-color: #f9f9f9;"></div>
+                
+                <div style="text-align:center; margin-top:10px; display:flex; justify-content:center; gap:5px; flex-wrap:wrap;">
+                    <button type="button" id="cam_wide_baja" style="padding:10px; background:#28a745; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">📸 LENTE ESTÁNDAR</button>
+                    <button type="button" id="cam_cycle_baja" style="padding:10px; background:#555; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">🔄 OTRA CÁMARA</button>
                 </div>
+                <div style="text-align:center; margin-top:10px; display:flex; justify-content:center; gap:5px;">
+                    <button type="button" id="zoom_1x_baja" style="padding:10px 20px; background:#0052cc; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">🔍 1X (NORMAL)</button>
+                    <button type="button" id="zoom_3x_baja" style="padding:10px 20px; background:#666; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">🔍 3X (CURVO)</button>
+                </div>
+                <p id="cam-status-baja" style="text-align:center; color:#666; font-size: 14px; margin-top: 10px;">Buscando cámaras...</p>
+                
                 <script>
-                var isZoomed = false;
+                let html5QrCodeBaja;
+                let rearCamsBaja = [];
+                let currentIdxBaja = 0;
+                let wideIdBaja = null;
+
+                function startScannerBaja(camId) {
+                    if(!html5QrCodeBaja) html5QrCodeBaja = new Html5Qrcode("reader_baja");
+                    if (html5QrCodeBaja.isScanning) {
+                        html5QrCodeBaja.stop().then(() => { runScanBaja(camId); }).catch(e => console.log(e));
+                    } else {
+                        runScanBaja(camId);
+                    }
+                }
+
+                function runScanBaja(camId) {
+                    html5QrCodeBaja.start(
+                        camId, { fps: 15, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 },
+                        (decodedText) => {
+                            html5QrCodeBaja.stop();
+                            const url = new URL(window.parent.location.href);
+                            url.searchParams.set("qr_baja", decodedText);
+                            window.parent.history.replaceState({}, "", url);
+                            window.parent.location.reload();
+                        }, (err) => {} 
+                    ).then(() => { 
+                        let activeCam = rearCamsBaja.find(c => c.id === camId);
+                        document.getElementById("cam-status-baja").innerText = "Lente activo: " + (activeCam ? activeCam.label : "Cámara");
+                        
+                        // Vinculación de Zoom CSS
+                        const readerDiv = document.getElementById("reader_baja").querySelector("video");
+                        document.getElementById('zoom_1x_baja').addEventListener('click', () => {
+                            if (readerDiv) readerDiv.style.transform = "scale(1)";
+                            document.getElementById('zoom_1x_baja').style.background = "#0052cc";
+                            document.getElementById('zoom_3x_baja').style.background = "#666";
+                        });
+                        document.getElementById('zoom_3x_baja').addEventListener('click', () => {
+                            if (readerDiv) {
+                                readerDiv.style.transform = "scale(3)";
+                                readerDiv.style.transformOrigin = "center center";
+                            }
+                            document.getElementById('zoom_1x_baja').style.background = "#666";
+                            document.getElementById('zoom_3x_baja').style.background = "#0052cc";
+                        });
+                    }).catch(err => {
+                        document.getElementById("cam-status-baja").innerText = "Error iniciando lente. Intenta 'Otra Cámara'.";
+                    });
+                }
+
                 Html5Qrcode.getCameras().then(devices => {
                     if (devices && devices.length) {
-                        let selectedId = devices[0].id;
-                        let back = devices.find(d => d.label.toLowerCase().includes('back') || d.label.toLowerCase().includes('trasera'));
-                        if (back) selectedId = back.id;
-                        const html5QrCode = new Html5Qrcode("reader_baja");
-                        html5QrCode.start(selectedId, { fps: 15, qrbox: 250 }, (txt) => {
-                            html5QrCode.stop();
-                            const url = new URL(window.parent.location.href);
-                            url.searchParams.set("qr_baja", txt);
-                            window.parent.location.reload();
-                        }).then(() => {
-                            document.getElementById('zoom_btn_baja').addEventListener('click', () => {
-                                const track = html5QrCode.getRunningTrack();
-                                const capabilities = track.getCapabilities();
-                                if (capabilities.zoom) {
-                                    isZoomed = !isZoomed;
-                                    track.applyConstraints({ advanced: [{ zoom: isZoomed ? capabilities.zoom.max / 2 : capabilities.zoom.min }] });
-                                    document.getElementById('zoom_btn_baja').innerText = isZoomed ? "🔄 VOLVER A 1X" : "🔍 MODO RACK CURVO (ZOOM)";
-                                    document.getElementById('zoom_btn_baja').style.background = isZoomed ? "#d9534f" : "#0052cc";
-                                } else { alert("Tu cámara no soporta Zoom digital."); }
-                            });
+                        rearCamsBaja = devices.filter(c => c.label.toLowerCase().includes('back') || c.label.toLowerCase().includes('trasera') || c.label.toLowerCase().includes('environment'));
+                        if(rearCamsBaja.length === 0) rearCamsBaja = devices;
+
+                        // Buscar la cámara WIDE original
+                        wideIdBaja = rearCamsBaja[0].id;
+                        for (let c of rearCamsBaja) {
+                            let lbl = c.label.toLowerCase();
+                            if (lbl.includes('wide') && !lbl.includes('ultra')) {
+                                wideIdBaja = c.id; break;
+                            }
+                        }
+
+                        currentIdxBaja = rearCamsBaja.findIndex(c => c.id === wideIdBaja);
+                        if(currentIdxBaja === -1) currentIdxBaja = 0;
+
+                        startScannerBaja(wideIdBaja);
+
+                        document.getElementById('cam_wide_baja').addEventListener('click', () => {
+                            startScannerBaja(wideIdBaja);
+                        });
+                        document.getElementById('cam_cycle_baja').addEventListener('click', () => {
+                            currentIdxBaja = (currentIdxBaja + 1) % rearCamsBaja.length;
+                            startScannerBaja(rearCamsBaja[currentIdxBaja].id);
                         });
                     }
-                });
+                }).catch(err => { document.getElementById("cam-status-baja").innerText = "Permisos de cámara denegados."; });
                 </script>
                 """
-                components.html(html_code_baja, height=650)
+                components.html(html_code_baja, height=750)
                 man_b = st.text_input("O ingresa ID manual para baja:")
                 if man_b: st.query_params["qr_baja"] = man_b; st.rerun()
 
@@ -399,35 +455,100 @@ else:
     elif st.session_state.vista_actual == "Escáner":
         if not id_escaneado_url:
             st.markdown("### 📷 Identificar Activo")
+            # ESCÁNER PRINCIPAL CON ZOOM Y CÁMARA SELECTOR
             html_qr_zoom = """
             <script src="https://unpkg.com/html5-qrcode"></script>
-            <div id="reader_main" style="width:100%; max-width:500px; margin:auto; border-radius:10px; overflow:hidden; border: 2px solid #0052cc;"></div>
-            <div style="text-align:center; margin-top:10px;">
-                <button id="zoom_btn_main" style="padding:10px 20px; background:#0052cc; color:white; border:none; border-radius:5px; font-weight:bold;">🔍 MODO RACK CURVO (ZOOM)</button>
+            <div id="reader_main" style="width:100%; max-width:500px; margin:auto; border-radius:10px; overflow:hidden; border: 2px solid #0052cc; background-color: #f9f9f9;"></div>
+            
+            <div style="text-align:center; margin-top:10px; display:flex; justify-content:center; gap:5px; flex-wrap:wrap;">
+                <button type="button" id="cam_wide_main" style="padding:10px; background:#28a745; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">📸 LENTE ESTÁNDAR</button>
+                <button type="button" id="cam_cycle_main" style="padding:10px; background:#555; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">🔄 OTRA CÁMARA</button>
             </div>
+            <div style="text-align:center; margin-top:10px; display:flex; justify-content:center; gap:5px;">
+                <button type="button" id="zoom_1x_main" style="padding:10px 20px; background:#0052cc; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">🔍 1X (NORMAL)</button>
+                <button type="button" id="zoom_3x_main" style="padding:10px 20px; background:#666; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">🔍 3X (CURVO)</button>
+            </div>
+            <p id="cam-status-main" style="text-align:center; color:#666; font-size: 14px; margin-top: 10px;">Buscando cámaras...</p>
+            
             <script>
-            var isZoomedMain = false;
-            const html5QrCodeMain = new Html5Qrcode("reader_main");
-            html5QrCodeMain.start({ facingMode: "environment" }, { fps: 15, qrbox: 250 }, (txt) => {
-                html5QrCodeMain.stop();
-                const url = new URL(window.parent.location.href);
-                url.searchParams.set("qr_id", txt);
-                window.parent.location.reload();
-            }).then(() => {
-                document.getElementById('zoom_btn_main').addEventListener('click', () => {
-                    const track = html5QrCodeMain.getRunningTrack();
-                    const capabilities = track.getCapabilities();
-                    if (capabilities.zoom) {
-                        isZoomedMain = !isZoomedMain;
-                        track.applyConstraints({ advanced: [{ zoom: isZoomedMain ? capabilities.zoom.max / 2 : capabilities.zoom.min }] });
-                        document.getElementById('zoom_btn_main').innerText = isZoomedMain ? "🔄 VOLVER A 1X" : "🔍 MODO RACK CURVO (ZOOM)";
-                        document.getElementById('zoom_btn_main').style.background = isZoomedMain ? "#d9534f" : "#0052cc";
-                    } else { alert("Tu cámara no soporta Zoom digital."); }
+            let html5QrCodeMain;
+            let rearCamsMain = [];
+            let currentIdxMain = 0;
+            let wideIdMain = null;
+
+            function startScannerMain(camId) {
+                if(!html5QrCodeMain) html5QrCodeMain = new Html5Qrcode("reader_main");
+                if (html5QrCodeMain.isScanning) {
+                    html5QrCodeMain.stop().then(() => { runScanMain(camId); }).catch(e => console.log(e));
+                } else {
+                    runScanMain(camId);
+                }
+            }
+
+            function runScanMain(camId) {
+                html5QrCodeMain.start(
+                    camId, { fps: 15, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 },
+                    (decodedText) => {
+                        html5QrCodeMain.stop();
+                        const url = new URL(window.parent.location.href);
+                        url.searchParams.set("qr_id", decodedText);
+                        window.parent.history.replaceState({}, "", url);
+                        window.parent.location.reload();
+                    }, (err) => {} 
+                ).then(() => { 
+                    let activeCam = rearCamsMain.find(c => c.id === camId);
+                    document.getElementById("cam-status-main").innerText = "Lente activo: " + (activeCam ? activeCam.label : "Cámara");
+                    
+                    // Vinculación de Zoom CSS
+                    const readerDiv = document.getElementById("reader_main").querySelector("video");
+                    document.getElementById('zoom_1x_main').addEventListener('click', () => {
+                        if (readerDiv) readerDiv.style.transform = "scale(1)";
+                        document.getElementById('zoom_1x_main').style.background = "#0052cc";
+                        document.getElementById('zoom_3x_main').style.background = "#666";
+                    });
+                    document.getElementById('zoom_3x_main').addEventListener('click', () => {
+                        if (readerDiv) {
+                            readerDiv.style.transform = "scale(3)";
+                            readerDiv.style.transformOrigin = "center center";
+                        }
+                        document.getElementById('zoom_1x_main').style.background = "#666";
+                        document.getElementById('zoom_3x_main').style.background = "#0052cc";
+                    });
+                }).catch(err => {
+                    document.getElementById("cam-status-main").innerText = "Error iniciando lente. Intenta 'Otra Cámara'.";
                 });
-            });
+            }
+
+            Html5Qrcode.getCameras().then(devices => {
+                if (devices && devices.length) {
+                    rearCamsMain = devices.filter(c => c.label.toLowerCase().includes('back') || c.label.toLowerCase().includes('trasera') || c.label.toLowerCase().includes('environment'));
+                    if(rearCamsMain.length === 0) rearCamsMain = devices;
+
+                    wideIdMain = rearCamsMain[0].id;
+                    for (let c of rearCamsMain) {
+                        let lbl = c.label.toLowerCase();
+                        if (lbl.includes('wide') && !lbl.includes('ultra')) {
+                            wideIdMain = c.id; break;
+                        }
+                    }
+
+                    currentIdxMain = rearCamsMain.findIndex(c => c.id === wideIdMain);
+                    if(currentIdxMain === -1) currentIdxMain = 0;
+
+                    startScannerMain(wideIdMain);
+
+                    document.getElementById('cam_wide_main').addEventListener('click', () => {
+                        startScannerMain(wideIdMain);
+                    });
+                    document.getElementById('cam_cycle_main').addEventListener('click', () => {
+                        currentIdxMain = (currentIdxMain + 1) % rearCamsMain.length;
+                        startScannerMain(rearCamsMain[currentIdxMain].id);
+                    });
+                }
+            }).catch(err => { document.getElementById("cam-status-main").innerText = "Permisos de cámara denegados."; });
             </script>
             """
-            components.html(html_qr_zoom, height=650)
+            components.html(html_qr_zoom, height=750)
             man_main = st.text_input("Ingresar ID manual:")
             if man_main: st.query_params["qr_id"] = man_main; st.rerun()
         else:
@@ -448,7 +569,6 @@ else:
                 
                 st.subheader(f"Equipo: {id_limpio} ({hoja_activa})")
                 
-                # --- MEJORA: Checkbox dinámico (Actualizar vs Reactivar) ---
                 if estatus_actual_op == "NO OPERATIVO":
                     texto_checkbox = "✅ REACTIVAR equipo y registrar nueva medición"
                 else:
@@ -489,13 +609,11 @@ else:
                                     sec = dict(st.secrets["connections"]["gsheets"])
                                     gc = gspread.service_account_from_dict(sec)
                                     
-                                    # Historial
                                     try:
                                         wh = gc.open_by_url(sec["spreadsheet"]).worksheet("HISTORIAL")
                                         wh.append_row([id_limpio, hoja_activa, equipo.get('Línea',''), str(equipo.get('Valor de verificación','')), str(equipo.get('Balance','')), str(equipo.get('Fecha de verificación','')), str(equipo.get('Auditor','')), datetime.now().strftime("%d-%b-%Y %H:%M")])
                                     except: pass
                                     
-                                    # Update
                                     ws = gc.open_by_url(sec["spreadsheet"]).worksheet(hoja_activa)
                                     r_idx = ws.col_values(df.columns.get_loc('Id de producto') + 1).index(id_limpio) + 1
                                     
@@ -505,7 +623,6 @@ else:
                                     ws.update_cell(r_idx, df.columns.get_loc('Fecha de próxima verificación') + 1, calcular_proxima_fecha(f_med, equipo.get('Frecuencia de verificación','Anual')).strftime("%d-%b-%Y"))
                                     ws.update_cell(r_idx, df.columns.get_loc('Estatus de verificación') + 1, "VIGENTE")
                                     
-                                    # Si estaba dado de baja, se fuerza a OPERATIVO nuevamente
                                     if estatus_actual_op == "NO OPERATIVO":
                                         try: ws.update_cell(r_idx, df.columns.get_loc('Estatus operativo') + 1, "OPERATIVO")
                                         except: pass
@@ -520,4 +637,3 @@ else:
                                     st.success("Guardado"); st.cache_data.clear(); limpiar_url_escaneo(); st.rerun()
             else:
                 st.error("No encontrado.")
-            
