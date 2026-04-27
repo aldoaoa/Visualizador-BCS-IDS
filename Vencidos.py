@@ -142,13 +142,19 @@ else:
         c_nav1, c_nav2, c_nav3 = st.columns(3)
         with c_nav1:
             if st.button("🗺️ Mapa y Reportes", use_container_width=True, type="primary" if st.session_state.vista_actual == "Mapa" else "secondary"):
-                st.session_state.vista_actual = "Mapa"; limpiar_url_escaneo(); st.rerun()
+                st.session_state.vista_actual = "Mapa"
+                limpiar_url_escaneo() 
+                st.rerun()
         with c_nav2:
             if st.button("📱 Escáner / Auditoría", use_container_width=True, type="primary" if st.session_state.vista_actual == "Escáner" else "secondary"):
-                st.session_state.vista_actual = "Escáner"; limpiar_url_escaneo(); st.rerun()
+                st.session_state.vista_actual = "Escáner"
+                limpiar_url_escaneo()
+                st.rerun()
         with c_nav3:
             if st.button("🆕 Alta/Baja Equipos", use_container_width=True, type="primary" if st.session_state.vista_actual == "Alta" else "secondary"):
-                st.session_state.vista_actual = "Alta"; limpiar_url_escaneo(); st.rerun()
+                st.session_state.vista_actual = "Alta"
+                limpiar_url_escaneo()
+                st.rerun()
     else:
         st.session_state.vista_actual = "Escáner"
 
@@ -191,7 +197,6 @@ else:
                 st.error("ID no encontrado en ninguna base de datos."); st.button("Volver", on_click=limpiar_url_escaneo)
 
         else:
-            # Vista normal de Alta / Baja
             with st.expander("📋 Directorio de IDs Existentes"):
                 tipo_dir = st.radio("Ver:", ["Mobiliario", "Ionizadores"], horizontal=True)
                 df_dir = df_mob_local if tipo_dir == "Mobiliario" else df_ion_local
@@ -325,103 +330,45 @@ else:
                 st.markdown("#### Escanea el equipo a dar de baja")
                 html_code_baja = """
                 <script src="https://unpkg.com/html5-qrcode"></script>
-                <div id="reader_baja" style="width:100%; max-width:500px; margin:auto; border-radius:10px; overflow:hidden; border: 2px solid #ddd; background-color: #f9f9f9;"></div>
-                
-                <div style="text-align:center; margin-top:10px; display:flex; justify-content:center; gap:5px; flex-wrap:wrap;">
-                    <button type="button" id="cam_wide_baja" style="padding:10px; background:#28a745; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">📸 LENTE ESTÁNDAR</button>
-                    <button type="button" id="cam_cycle_baja" style="padding:10px; background:#555; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">🔄 OTRA CÁMARA</button>
+                <div id="reader_baja" style="width:100%; max-width:500px; margin:auto; border-radius:10px; overflow:hidden; border: 2px solid #ddd;"></div>
+                <div style="text-align:center; margin-top:10px;">
+                    <button id="zoom_btn_baja" style="padding:10px 20px; background:#0052cc; color:white; border:none; border-radius:5px; font-weight:bold;">🔍 MODO RACK CURVO (ZOOM)</button>
                 </div>
-                <div style="text-align:center; margin-top:10px; display:flex; justify-content:center; gap:5px;">
-                    <button type="button" id="zoom_1x_baja" style="padding:10px 20px; background:#0052cc; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">🔍 1X (NORMAL)</button>
-                    <button type="button" id="zoom_3x_baja" style="padding:10px 20px; background:#666; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">🔍 3X (CURVO)</button>
-                </div>
-                <p id="cam-status-baja" style="text-align:center; color:#666; font-size: 14px; margin-top: 10px;">Buscando cámaras...</p>
-                
                 <script>
-                let html5QrCodeBaja;
-                let rearCamsBaja = [];
-                let currentIdxBaja = 0;
-                let wideIdBaja = null;
-
-                function startScannerBaja(camId) {
-                    if(!html5QrCodeBaja) html5QrCodeBaja = new Html5Qrcode("reader_baja");
-                    if (html5QrCodeBaja.isScanning) {
-                        html5QrCodeBaja.stop().then(() => { runScanBaja(camId); }).catch(e => console.log(e));
-                    } else {
-                        runScanBaja(camId);
-                    }
-                }
-
-                function runScanBaja(camId) {
-                    html5QrCodeBaja.start(
-                        camId, { fps: 15, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 },
-                        (decodedText) => {
-                            html5QrCodeBaja.stop();
-                            const url = new URL(window.parent.location.href);
-                            url.searchParams.set("qr_baja", decodedText);
-                            window.parent.history.replaceState({}, "", url);
-                            window.parent.location.reload();
-                        }, (err) => {} 
-                    ).then(() => { 
-                        let activeCam = rearCamsBaja.find(c => c.id === camId);
-                        document.getElementById("cam-status-baja").innerText = "Lente activo: " + (activeCam ? activeCam.label : "Cámara");
-                        
-                        // Vinculación de Zoom CSS
-                        const readerDiv = document.getElementById("reader_baja").querySelector("video");
-                        document.getElementById('zoom_1x_baja').addEventListener('click', () => {
-                            if (readerDiv) readerDiv.style.transform = "scale(1)";
-                            document.getElementById('zoom_1x_baja').style.background = "#0052cc";
-                            document.getElementById('zoom_3x_baja').style.background = "#666";
-                        });
-                        document.getElementById('zoom_3x_baja').addEventListener('click', () => {
-                            if (readerDiv) {
-                                readerDiv.style.transform = "scale(3)";
-                                readerDiv.style.transformOrigin = "center center";
-                            }
-                            document.getElementById('zoom_1x_baja').style.background = "#666";
-                            document.getElementById('zoom_3x_baja').style.background = "#0052cc";
-                        });
-                    }).catch(err => {
-                        document.getElementById("cam-status-baja").innerText = "Error iniciando lente. Intenta 'Otra Cámara'.";
-                    });
-                }
-
+                var isZoomed = false;
                 Html5Qrcode.getCameras().then(devices => {
                     if (devices && devices.length) {
-                        rearCamsBaja = devices.filter(c => c.label.toLowerCase().includes('back') || c.label.toLowerCase().includes('trasera') || c.label.toLowerCase().includes('environment'));
-                        if(rearCamsBaja.length === 0) rearCamsBaja = devices;
-
-                        // Buscar la cámara WIDE original
-                        wideIdBaja = rearCamsBaja[0].id;
-                        for (let c of rearCamsBaja) {
-                            let lbl = c.label.toLowerCase();
-                            if (lbl.includes('wide') && !lbl.includes('ultra')) {
-                                wideIdBaja = c.id; break;
-                            }
-                        }
-
-                        currentIdxBaja = rearCamsBaja.findIndex(c => c.id === wideIdBaja);
-                        if(currentIdxBaja === -1) currentIdxBaja = 0;
-
-                        startScannerBaja(wideIdBaja);
-
-                        document.getElementById('cam_wide_baja').addEventListener('click', () => {
-                            startScannerBaja(wideIdBaja);
-                        });
-                        document.getElementById('cam_cycle_baja').addEventListener('click', () => {
-                            currentIdxBaja = (currentIdxBaja + 1) % rearCamsBaja.length;
-                            startScannerBaja(rearCamsBaja[currentIdxBaja].id);
+                        let selectedId = devices[0].id;
+                        let back = devices.find(d => d.label.toLowerCase().includes('back') || d.label.toLowerCase().includes('trasera'));
+                        if (back) selectedId = back.id;
+                        const html5QrCode = new Html5Qrcode("reader_baja");
+                        html5QrCode.start(selectedId, { fps: 15, qrbox: 250 }, (txt) => {
+                            html5QrCode.stop();
+                            const url = new URL(window.parent.location.href);
+                            url.searchParams.set("qr_baja", txt);
+                            window.parent.location.reload();
+                        }).then(() => {
+                            document.getElementById('zoom_btn_baja').addEventListener('click', () => {
+                                const track = html5QrCode.getRunningTrack();
+                                const capabilities = track.getCapabilities();
+                                if (capabilities.zoom) {
+                                    isZoomed = !isZoomed;
+                                    track.applyConstraints({ advanced: [{ zoom: isZoomed ? capabilities.zoom.max / 2 : capabilities.zoom.min }] });
+                                    document.getElementById('zoom_btn_baja').innerText = isZoomed ? "🔄 VOLVER A 1X" : "🔍 MODO RACK CURVO (ZOOM)";
+                                    document.getElementById('zoom_btn_baja').style.background = isZoomed ? "#d9534f" : "#0052cc";
+                                } else { alert("Tu cámara no soporta Zoom digital."); }
+                            });
                         });
                     }
-                }).catch(err => { document.getElementById("cam-status-baja").innerText = "Permisos de cámara denegados."; });
+                });
                 </script>
                 """
-                components.html(html_code_baja, height=750)
+                components.html(html_code_baja, height=650)
                 man_b = st.text_input("O ingresa ID manual para baja:")
                 if man_b: st.query_params["qr_baja"] = man_b; st.rerun()
 
     # ==========================================
-    # VISTA: MAPA
+    # VISTA: MAPA (CORRECCIÓN DE PROPORCIONES)
     # ==========================================
     elif st.session_state.vista_actual == "Mapa":
         tipo_mapa = st.radio("Categoría:", ["Mobiliario", "Ionizadores"], horizontal=True)
@@ -441,10 +388,37 @@ else:
             if not vencidos.empty:
                 st.error(f"🚨 Cumplimiento: {cumplimiento:.1f}% | {len(vencidos)} vencidos de {len(activos)} activos.")
                 if os.path.exists(RUTA_MAPA) and os.path.exists(RUTA_COORDENADAS):
-                    img = Image.open(RUTA_MAPA); df_coords = pd.read_csv(RUTA_COORDENADAS)
+                    img = Image.open(RUTA_MAPA)
+                    img_width, img_height = img.size
+                    df_coords = pd.read_csv(RUTA_COORDENADAS)
+                    
                     mapa_data = pd.merge(vencidos.groupby('Línea').size().reset_index(name='V'), df_coords, on='Línea')
-                    fig = px.scatter(mapa_data, x="X", y="Y", color="V", text="V", hover_name="Línea", color_continuous_scale="Reds")
-                    fig.update_layout(images=[dict(source=img, xref="x", yref="y", x=0, y=0, sizex=img.size[0], sizey=img.size[1], sizing="stretch", layer="below")], xaxis_visible=False, yaxis_visible=False, yaxis_range=[img.size[1], 0], margin=dict(l=0,r=0,t=0,b=0))
+                    
+                    fig = px.scatter(
+                        mapa_data, x="X", y="Y", color="V", text="V", hover_name="Línea", 
+                        color_continuous_scale="Reds"
+                    )
+                    
+                    # Marcadores más grandes y visibles
+                    fig.update_traces(
+                        textposition='middle center', 
+                        textfont=dict(color='white', size=14, weight='bold'), 
+                        marker=dict(symbol='circle', size=45, opacity=0.9, line=dict(width=2, color='black'))
+                    )
+                    
+                    # Cálculo de altura dinámica para evitar que el mapa se estire/aplaste
+                    # Asumimos un ancho contenedor base de ~1200px para la estimación de escala.
+                    aspect_ratio = img_height / img_width
+                    plot_height = max(600, int(1200 * aspect_ratio))
+                    
+                    fig.update_layout(
+                        height=plot_height, # <-- Corrección de Aspect Ratio
+                        images=[dict(source=img, xref="x", yref="y", x=0, y=0, sizex=img_width, sizey=img_height, sizing="stretch", layer="below")], 
+                        xaxis=dict(visible=False, range=[0, img_width]), 
+                        yaxis=dict(visible=False, range=[img_height, 0], scaleanchor="x", scaleratio=1), 
+                        margin=dict(l=0,r=0,t=0,b=0),
+                        coloraxis_showscale=False
+                    )
                     st.plotly_chart(fig, use_container_width=True)
             else:
                 st.success(f"✅ 100% Cumplimiento ({len(activos)} activos).")
@@ -455,100 +429,35 @@ else:
     elif st.session_state.vista_actual == "Escáner":
         if not id_escaneado_url:
             st.markdown("### 📷 Identificar Activo")
-            # ESCÁNER PRINCIPAL CON ZOOM Y CÁMARA SELECTOR
             html_qr_zoom = """
             <script src="https://unpkg.com/html5-qrcode"></script>
-            <div id="reader_main" style="width:100%; max-width:500px; margin:auto; border-radius:10px; overflow:hidden; border: 2px solid #0052cc; background-color: #f9f9f9;"></div>
-            
-            <div style="text-align:center; margin-top:10px; display:flex; justify-content:center; gap:5px; flex-wrap:wrap;">
-                <button type="button" id="cam_wide_main" style="padding:10px; background:#28a745; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">📸 LENTE ESTÁNDAR</button>
-                <button type="button" id="cam_cycle_main" style="padding:10px; background:#555; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">🔄 OTRA CÁMARA</button>
+            <div id="reader_main" style="width:100%; max-width:500px; margin:auto; border-radius:10px; overflow:hidden; border: 2px solid #0052cc;"></div>
+            <div style="text-align:center; margin-top:10px;">
+                <button id="zoom_btn_main" style="padding:10px 20px; background:#0052cc; color:white; border:none; border-radius:5px; font-weight:bold;">🔍 MODO RACK CURVO (ZOOM)</button>
             </div>
-            <div style="text-align:center; margin-top:10px; display:flex; justify-content:center; gap:5px;">
-                <button type="button" id="zoom_1x_main" style="padding:10px 20px; background:#0052cc; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">🔍 1X (NORMAL)</button>
-                <button type="button" id="zoom_3x_main" style="padding:10px 20px; background:#666; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">🔍 3X (CURVO)</button>
-            </div>
-            <p id="cam-status-main" style="text-align:center; color:#666; font-size: 14px; margin-top: 10px;">Buscando cámaras...</p>
-            
             <script>
-            let html5QrCodeMain;
-            let rearCamsMain = [];
-            let currentIdxMain = 0;
-            let wideIdMain = null;
-
-            function startScannerMain(camId) {
-                if(!html5QrCodeMain) html5QrCodeMain = new Html5Qrcode("reader_main");
-                if (html5QrCodeMain.isScanning) {
-                    html5QrCodeMain.stop().then(() => { runScanMain(camId); }).catch(e => console.log(e));
-                } else {
-                    runScanMain(camId);
-                }
-            }
-
-            function runScanMain(camId) {
-                html5QrCodeMain.start(
-                    camId, { fps: 15, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 },
-                    (decodedText) => {
-                        html5QrCodeMain.stop();
-                        const url = new URL(window.parent.location.href);
-                        url.searchParams.set("qr_id", decodedText);
-                        window.parent.history.replaceState({}, "", url);
-                        window.parent.location.reload();
-                    }, (err) => {} 
-                ).then(() => { 
-                    let activeCam = rearCamsMain.find(c => c.id === camId);
-                    document.getElementById("cam-status-main").innerText = "Lente activo: " + (activeCam ? activeCam.label : "Cámara");
-                    
-                    // Vinculación de Zoom CSS
-                    const readerDiv = document.getElementById("reader_main").querySelector("video");
-                    document.getElementById('zoom_1x_main').addEventListener('click', () => {
-                        if (readerDiv) readerDiv.style.transform = "scale(1)";
-                        document.getElementById('zoom_1x_main').style.background = "#0052cc";
-                        document.getElementById('zoom_3x_main').style.background = "#666";
-                    });
-                    document.getElementById('zoom_3x_main').addEventListener('click', () => {
-                        if (readerDiv) {
-                            readerDiv.style.transform = "scale(3)";
-                            readerDiv.style.transformOrigin = "center center";
-                        }
-                        document.getElementById('zoom_1x_main').style.background = "#666";
-                        document.getElementById('zoom_3x_main').style.background = "#0052cc";
-                    });
-                }).catch(err => {
-                    document.getElementById("cam-status-main").innerText = "Error iniciando lente. Intenta 'Otra Cámara'.";
+            var isZoomedMain = false;
+            const html5QrCodeMain = new Html5Qrcode("reader_main");
+            html5QrCodeMain.start({ facingMode: "environment" }, { fps: 15, qrbox: 250 }, (txt) => {
+                html5QrCodeMain.stop();
+                const url = new URL(window.parent.location.href);
+                url.searchParams.set("qr_id", txt);
+                window.parent.location.reload();
+            }).then(() => {
+                document.getElementById('zoom_btn_main').addEventListener('click', () => {
+                    const track = html5QrCodeMain.getRunningTrack();
+                    const capabilities = track.getCapabilities();
+                    if (capabilities.zoom) {
+                        isZoomedMain = !isZoomedMain;
+                        track.applyConstraints({ advanced: [{ zoom: isZoomedMain ? capabilities.zoom.max / 2 : capabilities.zoom.min }] });
+                        document.getElementById('zoom_btn_main').innerText = isZoomedMain ? "🔄 VOLVER A 1X" : "🔍 MODO RACK CURVO (ZOOM)";
+                        document.getElementById('zoom_btn_main').style.background = isZoomedMain ? "#d9534f" : "#0052cc";
+                    } else { alert("Tu cámara no soporta Zoom digital."); }
                 });
-            }
-
-            Html5Qrcode.getCameras().then(devices => {
-                if (devices && devices.length) {
-                    rearCamsMain = devices.filter(c => c.label.toLowerCase().includes('back') || c.label.toLowerCase().includes('trasera') || c.label.toLowerCase().includes('environment'));
-                    if(rearCamsMain.length === 0) rearCamsMain = devices;
-
-                    wideIdMain = rearCamsMain[0].id;
-                    for (let c of rearCamsMain) {
-                        let lbl = c.label.toLowerCase();
-                        if (lbl.includes('wide') && !lbl.includes('ultra')) {
-                            wideIdMain = c.id; break;
-                        }
-                    }
-
-                    currentIdxMain = rearCamsMain.findIndex(c => c.id === wideIdMain);
-                    if(currentIdxMain === -1) currentIdxMain = 0;
-
-                    startScannerMain(wideIdMain);
-
-                    document.getElementById('cam_wide_main').addEventListener('click', () => {
-                        startScannerMain(wideIdMain);
-                    });
-                    document.getElementById('cam_cycle_main').addEventListener('click', () => {
-                        currentIdxMain = (currentIdxMain + 1) % rearCamsMain.length;
-                        startScannerMain(rearCamsMain[currentIdxMain].id);
-                    });
-                }
-            }).catch(err => { document.getElementById("cam-status-main").innerText = "Permisos de cámara denegados."; });
+            });
             </script>
             """
-            components.html(html_qr_zoom, height=750)
+            components.html(html_qr_zoom, height=650)
             man_main = st.text_input("Ingresar ID manual:")
             if man_main: st.query_params["qr_id"] = man_main; st.rerun()
         else:
