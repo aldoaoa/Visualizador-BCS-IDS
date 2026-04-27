@@ -123,13 +123,9 @@ else:
     df_piso_local, df_mob_local, df_ion_local = cargar_datos_cloud()
 
     if df_mob_local is None:
-        st.error("Falla al conectar con el servidor (Pestaña MOBILIARIO no encontrada).")
+        st.error("Falla al conectar con el servidor.")
         st.stop()
         
-    if df_ion_local is None:
-        st.warning("⚠️ No se encontró la pestaña 'IONIZADORES' en Google Sheets. Por favor créala copiando los mismos encabezados que MOBILIARIO (en la fila 5) y agrégale la columna 'Balance'.")
-        df_ion_local = pd.DataFrame(columns=df_mob_local.columns.tolist() + ['Balance'])
-
     if "vista_actual" not in st.session_state:
         st.session_state.vista_actual = "Escáner" 
 
@@ -146,19 +142,13 @@ else:
         c_nav1, c_nav2, c_nav3 = st.columns(3)
         with c_nav1:
             if st.button("🗺️ Mapa y Reportes", use_container_width=True, type="primary" if st.session_state.vista_actual == "Mapa" else "secondary"):
-                st.session_state.vista_actual = "Mapa"
-                limpiar_url_escaneo() 
-                st.rerun()
+                st.session_state.vista_actual = "Mapa"; limpiar_url_escaneo(); st.rerun()
         with c_nav2:
             if st.button("📱 Escáner / Auditoría", use_container_width=True, type="primary" if st.session_state.vista_actual == "Escáner" else "secondary"):
-                st.session_state.vista_actual = "Escáner"
-                limpiar_url_escaneo()
-                st.rerun()
+                st.session_state.vista_actual = "Escáner"; limpiar_url_escaneo(); st.rerun()
         with c_nav3:
             if st.button("🆕 Alta/Baja Equipos", use_container_width=True, type="primary" if st.session_state.vista_actual == "Alta" else "secondary"):
-                st.session_state.vista_actual = "Alta"
-                limpiar_url_escaneo()
-                st.rerun()
+                st.session_state.vista_actual = "Alta"; limpiar_url_escaneo(); st.rerun()
     else:
         st.session_state.vista_actual = "Escáner"
 
@@ -170,106 +160,124 @@ else:
     if st.session_state.vista_actual == "Alta" and not st.session_state.modo_lectura:
         st.markdown("### Gestión de Inventario ESD")
         
-        with st.expander("📋 Directorio de IDs Existentes (Click para abrir/cerrar)", expanded=False):
-            tipo_dir = st.radio("Ver directorio de:", ["Mobiliario", "Ionizadores"], horizontal=True)
-            df_dir = df_mob_local if tipo_dir == "Mobiliario" else df_ion_local
-            
-            st.info("💡 **Tip:** Haz clic en el título de una columna para ordenar (A-Z) o usa la lupa (🔍) para buscar un ID específico.")
-            if not df_dir.empty and 'Id de producto' in df_dir.columns and 'Línea' in df_dir.columns:
-                if 'Estatus operativo' in df_dir.columns:
-                    df_clean = df_dir[df_dir['Estatus operativo'].astype(str).str.strip().str.upper() != 'NO OPERATIVO']
-                else:
-                    df_clean = df_dir.copy()
-                    
-                df_clean = df_clean[['Línea', 'Id de producto', 'Clasificación']].dropna(subset=['Id de producto'])
-                df_clean = df_clean[df_clean['Id de producto'].astype(str).str.strip() != '']
-                st.dataframe(df_clean, use_container_width=True, hide_index=True)
-            else:
-                st.warning("No hay datos disponibles aún en esta categoría.")
-        
-        st.divider()
-        
-        if "radio_alta_baja" not in st.session_state:
-            st.session_state.radio_alta_baja = "🆕 Registrar Nuevo"
-            
+        # --- SUB-VISTA: BAJA ---
         if id_baja_url:
-            st.session_state.radio_alta_baja = "🗑️ Dar de Baja"
+            if st.button("❌ Cancelar Baja"): limpiar_url_escaneo(); st.rerun()
+            id_limpio_baja = str(id_baja_url).strip().upper()
+            es_mob_baja = id_limpio_baja in df_mob_local.get('Id de producto', pd.Series()).astype(str).str.strip().str.upper().values
+            es_ion_baja = id_limpio_baja in df_ion_local.get('Id de producto', pd.Series()).astype(str).str.strip().str.upper().values if df_ion_local is not None else False
 
-        accion_seleccionada = st.radio(
-            "Selecciona la acción a realizar:",
-            ["🆕 Registrar Nuevo", "🗑️ Dar de Baja"],
-            horizontal=True,
-            label_visibility="collapsed",
-            key="radio_alta_baja"
-        )
-        
-        # --- SUB-VISTA 1: ALTA ---
-        if accion_seleccionada == "🆕 Registrar Nuevo":
-            
-            tipo_alta = st.radio("Categoría del Equipo a Registrar:", ["Mobiliario", "Ionizador"], horizontal=True)
-            df_target_alta = df_mob_local if tipo_alta == "Mobiliario" else df_ion_local
-            
-            todas_lineas = set()
-            for df_temp in [df_piso_local, df_mob_local, df_ion_local]:
-                if df_temp is not None and 'Línea' in df_temp.columns:
-                    todas_lineas.update([str(x).strip() for x in df_temp['Línea'].dropna() if str(x).strip() != ''])
-            lineas_disponibles = sorted(list(todas_lineas))
-
-            with st.form("form_alta_equipo"):
-                col1, col2 = st.columns(2)
-                nueva_linea = col1.selectbox("Línea (Ubicación)", options=lineas_disponibles if lineas_disponibles else ["SMT", "Ensamble"])
-                nuevo_id = col2.text_input("ID de Producto (Ej: " + ("MOB-001" if tipo_alta=="Mobiliario" else "ION-001") + ")")
+            if es_mob_baja or es_ion_baja:
+                hoja = "MOBILIARIO" if es_mob_baja else "IONIZADORES"
+                df = df_mob_local if es_mob_baja else df_ion_local
+                idx = df[df['Id de producto'].astype(str).str.strip().str.upper() == id_limpio_baja].index[0]
+                equipo = df.loc[idx]
                 
-                if tipo_alta == "Mobiliario":
-                    tipos_disponibles = sorted([str(x).strip() for x in df_target_alta.get('Clasificación', pd.Series()).unique() if pd.notna(x) and str(x).strip() != ''])
-                    nuevo_tipo = col1.selectbox("Tipo / Clasificación", options=tipos_disponibles if tipos_disponibles else ["Mesa", "Silla"])
+                estatus_op = str(equipo.get('Estatus operativo', '')).strip().upper()
+                if estatus_op == "NO OPERATIVO":
+                    st.warning("⚠️ Este equipo ya se encuentra dado de BAJA.")
+                
+                st.metric("Ubicación Detectada", str(equipo.get('Línea', 'N/A')))
+                if st.button("🗑️ Confirmar Desactivación (No Operativo)"):
+                    import gspread
+                    sec = dict(st.secrets["connections"]["gsheets"])
+                    gc = gspread.service_account_from_dict(sec)
+                    ws = gc.open_by_url(sec["spreadsheet"]).worksheet(hoja)
+                    r_idx = ws.col_values(df.columns.get_loc('Id de producto') + 1).index(id_limpio_baja) + 1
+                    ws.update_cell(r_idx, df.columns.get_loc('Estatus operativo') + 1, "NO OPERATIVO")
+                    ws.update_cell(r_idx, df.columns.get_loc('Estatus de verificación') + 1, "BAJA")
+                    st.success("Equipo actualizado a No Operativo"); st.cache_data.clear(); limpiar_url_escaneo(); st.rerun()
+            else:
+                st.error("ID no encontrado en ninguna base de datos."); st.button("Volver", on_click=limpiar_url_escaneo)
+
+        else:
+            # Vista normal de Alta / Baja
+            with st.expander("📋 Directorio de IDs Existentes"):
+                tipo_dir = st.radio("Ver:", ["Mobiliario", "Ionizadores"], horizontal=True)
+                df_dir = df_mob_local if tipo_dir == "Mobiliario" else df_ion_local
+                if df_dir is not None:
+                    st.dataframe(df_dir[df_dir['Estatus operativo'] != 'NO OPERATIVO'][['Línea', 'Id de producto', 'Clasificación']], use_container_width=True, hide_index=True)
+
+            tab_alta, tab_baja = st.tabs(["🆕 Registrar Nuevo", "🗑️ Dar de Baja"])
+            
+            with tab_alta:
+                tipo_alta = st.radio("Categoría:", ["Mobiliario", "Ionizador"], horizontal=True)
+                df_target_alta = df_mob_local if tipo_alta == "Mobiliario" else df_ion_local
+                
+                todas_lineas = set()
+                for df_temp in [df_piso_local, df_mob_local, df_ion_local]:
+                    if df_temp is not None and 'Línea' in df_temp.columns:
+                        todas_lineas.update([str(x).strip() for x in df_temp['Línea'].dropna() if str(x).strip() != ''])
+                lineas_disponibles = sorted(list(todas_lineas))
+
+                with st.form("form_alta_equipo"):
+                    col1, col2 = st.columns(2)
+                    nueva_linea = col1.selectbox("Línea (Ubicación)", options=lineas_disponibles if lineas_disponibles else ["SMT", "Ensamble"])
                     
-                    with col2:
-                        st.caption("Valor de medición inicial (Opcional - Ohms)")
+                    # --- MEJORA: Validación en tiempo real del ID ---
+                    nuevo_id = col2.text_input("ID de Producto")
+                    id_limpio_alta = str(nuevo_id).strip().upper()
+                    
+                    es_duplicado = False
+                    es_reactivacion = False
+                    
+                    if id_limpio_alta:
+                        ids_existentes = df_target_alta.get('Id de producto', pd.Series()).astype(str).str.strip().str.upper()
+                        if id_limpio_alta in ids_existentes.values:
+                            idx_ext = ids_existentes[ids_existentes == id_limpio_alta].index[0]
+                            estatus_op_ext = str(df_target_alta.loc[idx_ext].get('Estatus operativo', '')).strip().upper()
+                            
+                            if estatus_op_ext == "NO OPERATIVO":
+                                col2.warning("⚠️ Este equipo está dado de BAJA. Si continúas, se REACTIVARÁ con los datos nuevos.")
+                                es_reactivacion = True
+                            else:
+                                col2.error("❌ Este ID ya está en uso y Activo.")
+                                es_duplicado = True
+                    
+                    if tipo_alta == "Mobiliario":
+                        tipos_disponibles = sorted([str(x).strip() for x in df_target_alta.get('Clasificación', pd.Series()).unique() if pd.notna(x) and str(x).strip() != ''])
+                        nuevo_tipo = col1.selectbox("Tipo", options=tipos_disponibles if tipos_disponibles else ["Mesa", "Silla"])
+                        
+                        st.caption("Valor de medición inicial (Ohms)")
                         c_b, c_x, c_e = st.columns([2, 1, 2])
-                        base_alta = c_b.number_input("Número", value=None, format="%.2f")
-                        c_x.markdown("<div style='text-align: center; margin-top: 30px; font-weight: bold; font-size: 18px;'>x 10^</div>", unsafe_allow_html=True)
-                        exp_alta = c_e.number_input("Exponente", value=None, step=1)
+                        base_alta = c_b.number_input("Número", value=None, format="%.2f", key="base_alt_mob")
+                        c_x.markdown("<div style='text-align: center; margin-top: 30px;'>x 10^</div>", unsafe_allow_html=True)
+                        exp_alta = c_e.number_input("Exponente", value=None, step=1, key="exp_alt_mob")
                         valor_alta = (base_alta * (10 ** exp_alta)) if base_alta is not None and exp_alta is not None else None
-                    
-                    fabricante_opc = col1.selectbox("Fabricante", options=["BCS", "Otro", "N/A"])
-                    fabricante_final = fabricante_opc
-                    if fabricante_opc == "Otro":
-                        fabricante_final = col1.text_input("Especifique Fabricante")
                         
-                    frecuencia_alta = col2.selectbox("Frecuencia de verificación", options=["Anual", "Semestral", "Trimestral", "Mensual"], index=0)
-                    col3, col4 = st.columns(2)
-                    nuevo_minimo = col3.number_input("Mínimo", value=0.00, format="%.2e")
-                    limite_alta = col4.text_input("Límite S20.20 (Maximo)", value="1.00E+09")
-                    
-                else:
-                    nuevo_tipo = col1.selectbox("Tipo / Clasificación", options=["Ventilador", "Barra", "Pistola"])
-                    valor_alta = col2.number_input("Tiempo de descarga inicial (Seg)", value=None, format="%.2f")
-                    
-                    fabricante_opc = col1.selectbox("Fabricante", options=["SMC", "Panasonic", "Keyence", "SIMCO", "Otro"])
-                    fabricante_final = fabricante_opc
-                    if fabricante_opc == "Otro":
-                        fabricante_final = col1.text_input("Especifique Fabricante")
+                        fabricante_opc = col1.selectbox("Fabricante", options=["BCS", "Otro", "N/A"])
+                        fabricante_final = fabricante_opc
+                        if fabricante_opc == "Otro":
+                            fabricante_final = col1.text_input("Especifique Fabricante")
+                            
+                        frecuencia_alta = col2.selectbox("Frecuencia", options=["Anual", "Semestral", "Trimestral", "Mensual"], index=0)
+                        col3, col4 = st.columns(2)
+                        nuevo_minimo = col3.number_input("Mínimo", value=0.00, format="%.2e")
+                        limite_alta = col4.text_input("Límite S20.20", value="1.00E+09")
                         
-                    balance_alta = col2.number_input("Balance Inicial (V)", value=None, format="%.2f")
-                    frecuencia_alta = "Trimestral"
-                    nuevo_minimo = 0.00
-                    limite_alta = "10.00"
-
-                comentarios = st.text_area("Comentarios (Notas opcionales)")
-                submit_alta = st.form_submit_button("Registrar en sistema", use_container_width=True)
-                
-                if submit_alta:
-                    if not nuevo_id or (fabricante_opc == "Otro" and not fabricante_final):
-                        st.error("Por favor complete los campos obligatorios (ID y Fabricante).")
                     else:
-                        id_limpio_alta = str(nuevo_id).strip().upper()
-                        ids_existentes = df_target_alta.get('Id de producto', pd.Series()).astype(str).str.strip().str.upper().values
-                        
-                        if id_limpio_alta in ids_existentes:
-                            st.error(f"El ID {nuevo_id} ya existe en la base de datos de {tipo_alta}.")
+                        nuevo_tipo = col1.selectbox("Tipo", options=["Ventilador", "Barra", "Pistola"])
+                        valor_alta = col2.number_input("Tiempo de descarga (Seg)", value=None, format="%.2f")
+                        fabricante_opc = col1.selectbox("Fabricante", options=["SMC", "Panasonic", "Keyence", "SIMCO", "Otro"])
+                        fabricante_final = fabricante_opc
+                        if fabricante_opc == "Otro":
+                            fabricante_final = col1.text_input("Especifique Fabricante")
+                            
+                        balance_alta = col2.number_input("Balance (V)", value=None, format="%.2f")
+                        frecuencia_alta = "Trimestral"; nuevo_minimo = 0.00; limite_alta = "10.00"
+
+                    comentarios = st.text_area("Comentarios")
+                    
+                    texto_boton = "Reactivar Equipo" if es_reactivacion else "Registrar en sistema"
+                    submit_alta = st.form_submit_button(texto_boton, use_container_width=True)
+                    
+                    if submit_alta:
+                        if es_duplicado:
+                            st.error(f"❌ No se puede guardar. El ID {nuevo_id} ya existe y está activo.")
+                        elif not nuevo_id or (fabricante_opc == "Otro" and not fabricante_final):
+                            st.error("Completa los campos obligatorios.")
                         else:
-                            with st.spinner("Creando nuevo registro..."):
+                            with st.spinner("Guardando en base de datos..."):
                                 import gspread
                                 sec = dict(st.secrets["connections"]["gsheets"])
                                 gc_client = gspread.service_account_from_dict(sec)
@@ -277,602 +285,239 @@ else:
                                 ws = gc_client.open_by_url(sec["spreadsheet"]).worksheet(nombre_hoja)
                                 
                                 fecha_hoy = datetime.today().date()
-                                dias_map = {"Anual": 360, "Semestral": 180, "Trimestral": 90, "Mensual": 30}
-                                proxima = fecha_hoy + timedelta(days=dias_map.get(frecuencia_alta, 360))
+                                proxima = calcular_proxima_fecha(fecha_hoy, frecuencia_alta)
                                 
-                                unidad_medida = "Segundos" if tipo_alta == "Ionizador" else "Ohms"
+                                unidad = "Segundos" if tipo_alta == "Ionizador" else "Ohms"
                                 metodo = "CPM" if tipo_alta == "Ionizador" else "RTG"
                                 
                                 val_guardar = float(valor_alta) if valor_alta is not None else ""
                                 
                                 nueva_fila = [
-                                    nueva_linea,                                     
-                                    nuevo_id,                                        
-                                    nuevo_tipo,                                      
-                                    "Aprobado",                                      
-                                    fabricante_final,                                
-                                    float(nuevo_minimo),                             
-                                    float(limite_alta) if "E" in limite_alta.upper() else limite_alta, 
-                                    unidad_medida,                                          
-                                    val_guardar,      
-                                    unidad_medida,                                          
-                                    metodo,                                           
+                                    nueva_linea, nuevo_id, nuevo_tipo, "Aprobado", fabricante_final,
+                                    float(nuevo_minimo), float(limite_alta) if "E" in str(limite_alta).upper() else limite_alta,
+                                    unidad, val_guardar, unidad, metodo,
                                     fecha_hoy.strftime("%d-%b-%Y") if val_guardar != "" else "", 
-                                    proxima.strftime("%d-%b-%Y") if val_guardar != "" else "",   
-                                    frecuencia_alta,                                 
+                                    proxima.strftime("%d-%b-%Y") if val_guardar != "" else "", frecuencia_alta,
                                     "Vigente" if val_guardar != "" and fecha_hoy < proxima else "", 
-                                    "Operativo",                                     
-                                    comentarios,                                     
-                                    st.session_state.usuario_nombre                  
+                                    "Operativo", comentarios, st.session_state.usuario_nombre
                                 ]
                                 
                                 if tipo_alta == "Ionizador":
                                     bal_guardar = float(balance_alta) if balance_alta is not None else ""
-                                    if 'Balance' in df_target_alta.columns:
-                                        bal_idx = df_target_alta.columns.get_loc('Balance')
-                                        while len(nueva_fila) <= bal_idx:
-                                            nueva_fila.append("")
-                                        nueva_fila[bal_idx] = bal_guardar
-                                    else:
-                                        nueva_fila.append(bal_guardar)
+                                    nueva_fila.append(bal_guardar)
                                 
-                                ws.append_row(nueva_fila, value_input_option="USER_ENTERED")
-                                
-                            st.success(f"✅ ¡Activo {nuevo_id} registrado exitosamente en {nombre_hoja}!")
-                            st.cache_data.clear()
-                            st.balloons()
-                            
-        # --- SUB-VISTA 2: BAJA (SOFT DELETE) ---
-        elif accion_seleccionada == "🗑️ Dar de Baja":
-            st.markdown("#### 🗑️ Dar de Baja (Desactivar Equipo)")
-            st.info("Esta acción cambiará el estatus del equipo a **NO OPERATIVO**, conservando su historial pero eliminándolo de los reportes y mapas activos.")
-            
-            if not id_baja_url:
-                st.write("Escanea el QR o ingresa manualmente el ID del equipo a dar de baja.")
+                                # Si es reactivación, sobreescribimos la fila existente
+                                if es_reactivacion:
+                                    id_idx_alta = df_target_alta.columns.get_loc('Id de producto')
+                                    ids_gsheets_alta = ws.col_values(id_idx_alta + 1)
+                                    ids_gsheets_limpios_alta = [str(v).strip().upper() for v in ids_gsheets_alta]
+                                    r_idx_alta = ids_gsheets_limpios_alta.index(id_limpio_alta) + 1
+                                    
+                                    for col_num, val in enumerate(nueva_fila, start=1):
+                                        ws.update_cell(r_idx_alta, col_num, val)
+                                        
+                                    st.success(f"✅ ¡Equipo {nuevo_id} REACTIVADO con éxito en {nombre_hoja}!")
+                                else:
+                                    ws.append_row(nueva_fila, value_input_option="USER_ENTERED")
+                                    st.success(f"✅ Registrado exitosamente en {nombre_hoja}")
+                                    
+                                st.cache_data.clear(); st.balloons()
+
+            with tab_baja:
+                st.markdown("#### Escanea el equipo a dar de baja")
                 html_code_baja = """
                 <script src="https://unpkg.com/html5-qrcode"></script>
-                <div id="reader_baja" style="width:100%; max-width:500px; margin:auto; border-radius:10px; overflow:hidden; border: 2px solid #ddd; background-color: #f9f9f9;"></div>
-                
-                <div style="text-align:center; margin-top:10px; display:flex; justify-content:center; gap:5px; flex-wrap:wrap;">
-                    <button type="button" id="cam_wide_baja" style="padding:10px; background:#28a745; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">📸 LENTE ESTÁNDAR</button>
-                    <button type="button" id="cam_cycle_baja" style="padding:10px; background:#555; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">🔄 OTRA CÁMARA</button>
+                <div id="reader_baja" style="width:100%; max-width:500px; margin:auto; border-radius:10px; overflow:hidden; border: 2px solid #ddd;"></div>
+                <div style="text-align:center; margin-top:10px;">
+                    <button id="zoom_btn_baja" style="padding:10px 20px; background:#0052cc; color:white; border:none; border-radius:5px; font-weight:bold;">🔍 MODO RACK CURVO (ZOOM)</button>
                 </div>
-                <div style="text-align:center; margin-top:10px; display:flex; justify-content:center; gap:5px;">
-                    <button type="button" id="zoom_1x_baja" style="padding:10px 20px; background:#0052cc; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">🔍 1X (NORMAL)</button>
-                    <button type="button" id="zoom_3x_baja" style="padding:10px 20px; background:#666; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">🔍 3X (CURVO)</button>
-                </div>
-                <p id="cam-status-baja" style="text-align:center; color:#666; font-size: 14px; margin-top: 10px;">Buscando cámaras...</p>
-                
                 <script>
-                let html5QrCodeBaja;
-                let rearCamsBaja = [];
-                let currentIdxBaja = 0;
-                let wideIdBaja = null;
-
-                function applyZoomBaja(scale) {
-                    const vid = document.querySelector("#reader_baja video");
-                    if (vid) {
-                        vid.style.transform = `scale(${scale})`;
-                        vid.style.transformOrigin = "center center";
-                    }
-                    document.getElementById('zoom_1x_baja').style.background = (scale === 1) ? "#0052cc" : "#666";
-                    document.getElementById('zoom_3x_baja').style.background = (scale === 3) ? "#0052cc" : "#666";
-                }
-
-                function startScannerBaja(camId) {
-                    if(!html5QrCodeBaja) html5QrCodeBaja = new Html5Qrcode("reader_baja");
-                    if (html5QrCodeBaja.isScanning) {
-                        html5QrCodeBaja.stop().then(() => { runScanBaja(camId); }).catch(e => console.log(e));
-                    } else {
-                        runScanBaja(camId);
-                    }
-                }
-
-                function runScanBaja(camId) {
-                    html5QrCodeBaja.start(
-                        camId, { fps: 15, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 },
-                        (decodedText) => {
-                            html5QrCodeBaja.stop();
-                            const url = new URL(window.parent.location.href);
-                            url.searchParams.set("qr_baja", decodedText);
-                            window.parent.history.replaceState({}, "", url);
-                            window.parent.location.reload();
-                        }, (err) => {} 
-                    ).then(() => { 
-                        let activeCam = rearCamsBaja.find(c => c.id === camId);
-                        document.getElementById("cam-status-baja").innerText = "Lente activo: " + (activeCam ? activeCam.label : "Cámara");
-                        applyZoomBaja(1);
-                    }).catch(err => {
-                        document.getElementById("cam-status-baja").innerText = "Error iniciando lente. Intenta 'Otra Cámara'.";
-                    });
-                }
-
+                var isZoomed = false;
                 Html5Qrcode.getCameras().then(devices => {
                     if (devices && devices.length) {
-                        rearCamsBaja = devices.filter(c => c.label.toLowerCase().includes('back') || c.label.toLowerCase().includes('trasera') || c.label.toLowerCase().includes('environment'));
-                        if(rearCamsBaja.length === 0) rearCamsBaja = devices;
-
-                        // Buscar la cámara WIDE original (evitar la ULTRAWIDE)
-                        wideIdBaja = rearCamsBaja[0].id;
-                        for (let c of rearCamsBaja) {
-                            let lbl = c.label.toLowerCase();
-                            if (lbl.includes('wide') && !lbl.includes('ultra')) {
-                                wideIdBaja = c.id; break;
-                            }
-                        }
-
-                        currentIdxBaja = rearCamsBaja.findIndex(c => c.id === wideIdBaja);
-                        if(currentIdxBaja === -1) currentIdxBaja = 0;
-
-                        startScannerBaja(wideIdBaja);
-
-                        document.getElementById('cam_wide_baja').addEventListener('click', () => {
-                            currentIdxBaja = rearCamsBaja.findIndex(c => c.id === wideIdBaja);
-                            startScannerBaja(wideIdBaja);
+                        let selectedId = devices[0].id;
+                        let back = devices.find(d => d.label.toLowerCase().includes('back') || d.label.toLowerCase().includes('trasera'));
+                        if (back) selectedId = back.id;
+                        const html5QrCode = new Html5Qrcode("reader_baja");
+                        html5QrCode.start(selectedId, { fps: 15, qrbox: 250 }, (txt) => {
+                            html5QrCode.stop();
+                            const url = new URL(window.parent.location.href);
+                            url.searchParams.set("qr_baja", txt);
+                            window.parent.location.reload();
+                        }).then(() => {
+                            document.getElementById('zoom_btn_baja').addEventListener('click', () => {
+                                const track = html5QrCode.getRunningTrack();
+                                const capabilities = track.getCapabilities();
+                                if (capabilities.zoom) {
+                                    isZoomed = !isZoomed;
+                                    track.applyConstraints({ advanced: [{ zoom: isZoomed ? capabilities.zoom.max / 2 : capabilities.zoom.min }] });
+                                    document.getElementById('zoom_btn_baja').innerText = isZoomed ? "🔄 VOLVER A 1X" : "🔍 MODO RACK CURVO (ZOOM)";
+                                    document.getElementById('zoom_btn_baja').style.background = isZoomed ? "#d9534f" : "#0052cc";
+                                } else { alert("Tu cámara no soporta Zoom digital."); }
+                            });
                         });
-
-                        document.getElementById('cam_cycle_baja').addEventListener('click', () => {
-                            currentIdxBaja = (currentIdxBaja + 1) % rearCamsBaja.length;
-                            startScannerBaja(rearCamsBaja[currentIdxBaja].id);
-                        });
-
-                        document.getElementById('zoom_1x_baja').addEventListener('click', () => applyZoomBaja(1));
-                        document.getElementById('zoom_3x_baja').addEventListener('click', () => applyZoomBaja(3));
                     }
-                }).catch(err => { document.getElementById("cam-status-baja").innerText = "Permisos de cámara denegados."; });
+                });
                 </script>
                 """
-                components.html(html_code_baja, height=750) 
-                
-                id_manual_baja = st.text_input("Ingresa el ID manual a eliminar:", key="input_manual_baja")
-                if id_manual_baja:
-                    st.query_params["qr_baja"] = id_manual_baja
-                    st.rerun()
-            else:
-                colA, colB = st.columns([0.8, 0.2])
-                with colA:
-                    st.error(f"🗑️ **ID a Procesar:** {id_baja_url}")
-                with colB:
-                    if st.button("❌ Cancelar"):
-                        limpiar_url_escaneo()
-                        st.rerun()
-
-                id_limpio_baja = str(id_baja_url).strip().upper()
-                mob_ids = df_mob_local.get('Id de producto', pd.Series()).astype(str).str.strip().str.upper()
-                ion_ids = df_ion_local.get('Id de producto', pd.Series()).astype(str).str.strip().str.upper()
-
-                es_mob_baja = id_limpio_baja in mob_ids.values
-                es_ion_baja = id_limpio_baja in ion_ids.values
-
-                if es_mob_baja or es_ion_baja:
-                    hoja_activa_baja = "MOBILIARIO" if es_mob_baja else "IONIZADORES"
-                    df_actual_baja = df_mob_local if es_mob_baja else df_ion_local
-                    serie_busqueda_baja = mob_ids if es_mob_baja else ion_ids
-                    
-                    idx_baja = serie_busqueda_baja[serie_busqueda_baja == id_limpio_baja].index[0]
-                    equipo_baja = df_actual_baja.loc[idx_baja]
-                    
-                    estatus_actual_op = str(equipo_baja.get('Estatus operativo', '')).strip().upper()
-                    if estatus_actual_op == "NO OPERATIVO":
-                        st.warning("⚠️ Este equipo ya se encuentra dado de BAJA (No Operativo).")
-                    
-                    st.markdown("### Verificación del Equipo")
-                    col1_b, col2_b, col3_b = st.columns(3)
-                    col1_b.metric("Ubicación", str(equipo_baja.get('Línea', 'N/A')))
-                    col2_b.metric("Tipo (Clasificación)", str(equipo_baja.get('Clasificación', 'N/A')))
-                    col3_b.metric("Base de Datos", hoja_activa_baja)
-
-                    with st.form("form_confirmacion_baja"):
-                        if st.form_submit_button("🗑️ Confirmar Baja (Soft Delete)"):
-                            with st.spinner("Actualizando estatus en el servidor..."):
-                                import gspread
-                                sec = dict(st.secrets["connections"]["gsheets"])
-                                gc_gspread = gspread.service_account_from_dict(sec)
-                                ws_baja = gc_gspread.open_by_url(sec["spreadsheet"]).worksheet(hoja_activa_baja)
-                                
-                                try:
-                                    id_idx_baja = df_actual_baja.columns.get_loc('Id de producto')
-                                    est_op_idx = df_actual_baja.columns.get_loc('Estatus operativo')
-                                    est_verif_idx = df_actual_baja.columns.get_loc('Estatus de verificación')
-                                except KeyError as e:
-                                    st.error(f"Falta columna {e} en Google Sheets.")
-                                    st.stop()
-                                
-                                ids_gsheets_baja = ws_baja.col_values(id_idx_baja + 1)
-                                ids_gsheets_limpios_baja = [str(v).strip().upper() for v in ids_gsheets_baja]
-                                
-                                try:
-                                    r_idx_baja = ids_gsheets_limpios_baja.index(id_limpio_baja) + 1
-                                except ValueError:
-                                    st.error("No se pudo encontrar la fila exacta en el servidor para modificarla.")
-                                    st.stop()
-                                
-                                ws_baja.update_cell(r_idx_baja, est_op_idx + 1, "NO OPERATIVO")
-                                ws_baja.update_cell(r_idx_baja, est_verif_idx + 1, "BAJA")
-                                
-                            st.success(f"✅ ¡Equipo {id_baja_url} desactivado correctamente en {hoja_activa_baja}!")
-                            st.cache_data.clear()
-                            limpiar_url_escaneo()
-                            st.rerun()
-                else:
-                    st.error(f"❌ El ID '{id_baja_url}' no se encontró en Mobiliario ni en Ionizadores.")
+                components.html(html_code_baja, height=650)
+                man_b = st.text_input("O ingresa ID manual para baja:")
+                if man_b: st.query_params["qr_baja"] = man_b; st.rerun()
 
     # ==========================================
-    # VISTA 1: MAPA Y REPORTES ESD
+    # VISTA: MAPA
     # ==========================================
-    elif st.session_state.vista_actual == "Mapa" and not st.session_state.modo_lectura:
-        st.markdown("### Mapa y Cumplimiento ESD")
-        
-        tipo_mapa = st.radio("Selecciona la categoría a visualizar en el mapa:", ["Mobiliario", "Ionizadores"], horizontal=True)
-        st.info("☁️ Los datos mostrados están sincronizados en tiempo real con el servidor.")
-        
+    elif st.session_state.vista_actual == "Mapa":
+        tipo_mapa = st.radio("Categoría:", ["Mobiliario", "Ionizadores"], horizontal=True)
         df_total = df_mob_local.copy() if tipo_mapa == "Mobiliario" else df_ion_local.copy()
         
-        if df_total.empty:
-            st.warning(f"No hay datos registrados en la base de datos de {tipo_mapa}.")
-        elif 'Estatus de verificación' not in df_total.columns:
-            st.warning(f"⚠️ La pestaña de {tipo_mapa} existe en Google Sheets, pero no tiene los encabezados correctos.")
+        if df_total.empty or 'Estatus de verificación' not in df_total.columns:
+            st.warning("Verifica los encabezados de la hoja.")
         else:
             df_total['Estatus de verificación'] = df_total['Estatus de verificación'].astype(str).str.strip().str.upper()
-            if 'Estatus operativo' in df_total.columns:
-                df_total['Estatus operativo'] = df_total['Estatus operativo'].astype(str).str.strip().str.upper()
-            else:
-                df_total['Estatus operativo'] = 'OPERATIVO'
-
-            equipos_activos = df_total[df_total['Estatus operativo'] != 'NO OPERATIVO']
-            total_equipos = len(equipos_activos)
-
-            vencidos = equipos_activos[equipos_activos['Estatus de verificación'] == 'VENCIDO']
-            total_vencidos = len(vencidos)
+            df_total['Estatus operativo'] = df_total['Estatus operativo'].astype(str).str.strip().str.upper() if 'Estatus operativo' in df_total.columns else 'OPERATIVO'
             
-            if total_equipos > 0:
-                porcentaje_cumplimiento = ((total_equipos - total_vencidos) / total_equipos) * 100
-            else:
-                porcentaje_cumplimiento = 100.0
-
+            activos = df_total[df_total['Estatus operativo'] != 'NO OPERATIVO']
+            vencidos = activos[activos['Estatus de verificación'] == 'VENCIDO']
+            
+            cumplimiento = ((len(activos) - len(vencidos)) / len(activos) * 100) if not activos.empty else 100
+            
             if not vencidos.empty:
-                st.error(f"🚨 **Cumplimiento {tipo_mapa}:** {porcentaje_cumplimiento:.1f}% | **Equipos Vencidos:** {total_vencidos} de {total_equipos} activos.")
-                conteo_tipos = vencidos.groupby(['Línea']).size().reset_index(name='Total Vencidos')
-                conteo_tipos['Etiqueta'] = ("M: " if tipo_mapa == "Mobiliario" else "I: ") + conteo_tipos['Total Vencidos'].astype(str)
-                
+                st.error(f"🚨 Cumplimiento: {cumplimiento:.1f}% | {len(vencidos)} vencidos de {len(activos)} activos.")
                 if os.path.exists(RUTA_MAPA) and os.path.exists(RUTA_COORDENADAS):
-                    img = Image.open(RUTA_MAPA)
-                    width, height = img.size
-                    df_coords = pd.read_csv(RUTA_COORDENADAS)
-                    mapa_data = pd.merge(conteo_tipos, df_coords, on='Línea', how='inner')
-                    if not mapa_data.empty:
-                        fig = px.scatter(
-                            mapa_data, x="X", y="Y", color="Total Vencidos", text="Etiqueta", hover_name="Línea",
-                            hover_data={"X": False, "Y": False, "Etiqueta": False, "Total Vencidos": True},
-                            color_continuous_scale="Reds"
-                        )
-                        fig.update_traces(
-                            textposition='middle center', 
-                            textfont=dict(color='white', size=10, weight='bold'), 
-                            marker=dict(symbol='square', size=26, opacity=0.85, line=dict(width=1, color='black'))
-                        )
-                        fig.update_layout(
-                            images=[dict(source=img, xref="x", yref="y", x=0, y=0, sizex=width, sizey=height, sizing="stretch", opacity=1, layer="below")], 
-                            xaxis=dict(visible=False, range=[0, width]), 
-                            yaxis=dict(visible=False, range=[height, 0], scaleanchor="x"), 
-                            margin=dict(l=0, r=0, t=0, b=0),
-                            coloraxis_showscale=False
-                        )
-                        st.plotly_chart(fig, use_container_width=True)
-                st.dataframe(vencidos[['Línea', 'Id de producto', 'Clasificación', 'Estatus de verificación']], use_container_width=True, hide_index=True)
+                    img = Image.open(RUTA_MAPA); df_coords = pd.read_csv(RUTA_COORDENADAS)
+                    mapa_data = pd.merge(vencidos.groupby('Línea').size().reset_index(name='V'), df_coords, on='Línea')
+                    fig = px.scatter(mapa_data, x="X", y="Y", color="V", text="V", hover_name="Línea", color_continuous_scale="Reds")
+                    fig.update_layout(images=[dict(source=img, xref="x", yref="y", x=0, y=0, sizex=img.size[0], sizey=img.size[1], sizing="stretch", layer="below")], xaxis_visible=False, yaxis_visible=False, yaxis_range=[img.size[1], 0], margin=dict(l=0,r=0,t=0,b=0))
+                    st.plotly_chart(fig, use_container_width=True)
             else:
-                st.success(f"✅ **¡Felicidades! 100% de Cumplimiento en {tipo_mapa}.** No hay equipos operativos VENCIDOS (0 de {total_equipos} activos).")
+                st.success(f"✅ 100% Cumplimiento ({len(activos)} activos).")
 
     # ==========================================
-    # VISTA 2: ESCÁNER Y DETALLES
+    # VISTA: ESCÁNER / AUDITORÍA
     # ==========================================
     elif st.session_state.vista_actual == "Escáner":
-        
         if not id_escaneado_url:
-            st.markdown("### 📷 Apunta al Código QR")
-            html_code_qr = """
+            st.markdown("### 📷 Identificar Activo")
+            html_qr_zoom = """
             <script src="https://unpkg.com/html5-qrcode"></script>
-            <div id="reader_main" style="width:100%; max-width:500px; margin:auto; border-radius:10px; overflow:hidden; border: 2px solid #0052cc; background-color: #f9f9f9;"></div>
-            
-            <div style="text-align:center; margin-top:10px; display:flex; justify-content:center; gap:5px; flex-wrap:wrap;">
-                <button type="button" id="cam_wide_main" style="padding:10px; background:#28a745; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">📸 LENTE ESTÁNDAR</button>
-                <button type="button" id="cam_cycle_main" style="padding:10px; background:#555; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">🔄 OTRA CÁMARA</button>
+            <div id="reader_main" style="width:100%; max-width:500px; margin:auto; border-radius:10px; overflow:hidden; border: 2px solid #0052cc;"></div>
+            <div style="text-align:center; margin-top:10px;">
+                <button id="zoom_btn_main" style="padding:10px 20px; background:#0052cc; color:white; border:none; border-radius:5px; font-weight:bold;">🔍 MODO RACK CURVO (ZOOM)</button>
             </div>
-            <div style="text-align:center; margin-top:10px; display:flex; justify-content:center; gap:5px;">
-                <button type="button" id="zoom_1x_main" style="padding:10px 20px; background:#0052cc; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">🔍 1X (NORMAL)</button>
-                <button type="button" id="zoom_3x_main" style="padding:10px 20px; background:#666; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">🔍 3X (CURVO)</button>
-            </div>
-            <p id="cam-status-main" style="text-align:center; color:#666; font-size: 14px; margin-top: 10px;">Buscando cámaras...</p>
-            
             <script>
-            let html5QrCodeMain;
-            let rearCamsMain = [];
-            let currentIdxMain = 0;
-            let wideIdMain = null;
-
-            function applyZoomMain(scale) {
-                const vid = document.querySelector("#reader_main video");
-                if (vid) {
-                    vid.style.transform = `scale(${scale})`;
-                    vid.style.transformOrigin = "center center";
-                }
-                document.getElementById('zoom_1x_main').style.background = (scale === 1) ? "#0052cc" : "#666";
-                document.getElementById('zoom_3x_main').style.background = (scale === 3) ? "#0052cc" : "#666";
-            }
-
-            function startScannerMain(camId) {
-                if(!html5QrCodeMain) html5QrCodeMain = new Html5Qrcode("reader_main");
-                if (html5QrCodeMain.isScanning) {
-                    html5QrCodeMain.stop().then(() => { runScanMain(camId); }).catch(e => console.log(e));
-                } else {
-                    runScanMain(camId);
-                }
-            }
-
-            function runScanMain(camId) {
-                html5QrCodeMain.start(
-                    camId, { fps: 15, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 },
-                    (decodedText) => {
-                        html5QrCodeMain.stop();
-                        const url = new URL(window.parent.location.href);
-                        url.searchParams.set("qr_id", decodedText);
-                        window.parent.history.replaceState({}, "", url);
-                        window.parent.location.reload();
-                    }, (err) => {} 
-                ).then(() => { 
-                    let activeCam = rearCamsMain.find(c => c.id === camId);
-                    document.getElementById("cam-status-main").innerText = "Lente activo: " + (activeCam ? activeCam.label : "Cámara");
-                    applyZoomMain(1);
-                }).catch(err => {
-                    document.getElementById("cam-status-main").innerText = "Error iniciando lente. Intenta 'Otra Cámara'.";
+            var isZoomedMain = false;
+            const html5QrCodeMain = new Html5Qrcode("reader_main");
+            html5QrCodeMain.start({ facingMode: "environment" }, { fps: 15, qrbox: 250 }, (txt) => {
+                html5QrCodeMain.stop();
+                const url = new URL(window.parent.location.href);
+                url.searchParams.set("qr_id", txt);
+                window.parent.location.reload();
+            }).then(() => {
+                document.getElementById('zoom_btn_main').addEventListener('click', () => {
+                    const track = html5QrCodeMain.getRunningTrack();
+                    const capabilities = track.getCapabilities();
+                    if (capabilities.zoom) {
+                        isZoomedMain = !isZoomedMain;
+                        track.applyConstraints({ advanced: [{ zoom: isZoomedMain ? capabilities.zoom.max / 2 : capabilities.zoom.min }] });
+                        document.getElementById('zoom_btn_main').innerText = isZoomedMain ? "🔄 VOLVER A 1X" : "🔍 MODO RACK CURVO (ZOOM)";
+                        document.getElementById('zoom_btn_main').style.background = isZoomedMain ? "#d9534f" : "#0052cc";
+                    } else { alert("Tu cámara no soporta Zoom digital."); }
                 });
-            }
-
-            Html5Qrcode.getCameras().then(devices => {
-                if (devices && devices.length) {
-                    rearCamsMain = devices.filter(c => c.label.toLowerCase().includes('back') || c.label.toLowerCase().includes('trasera') || c.label.toLowerCase().includes('environment'));
-                    if(rearCamsMain.length === 0) rearCamsMain = devices;
-
-                    // Buscar la cámara WIDE original (evitar la ULTRAWIDE)
-                    wideIdMain = rearCamsMain[0].id;
-                    for (let c of rearCamsMain) {
-                        let lbl = c.label.toLowerCase();
-                        if (lbl.includes('wide') && !lbl.includes('ultra')) {
-                            wideIdMain = c.id; break;
-                        }
-                    }
-
-                    currentIdxMain = rearCamsMain.findIndex(c => c.id === wideIdMain);
-                    if(currentIdxMain === -1) currentIdxMain = 0;
-
-                    startScannerMain(wideIdMain);
-
-                    document.getElementById('cam_wide_main').addEventListener('click', () => {
-                        currentIdxMain = rearCamsMain.findIndex(c => c.id === wideIdMain);
-                        startScannerMain(wideIdMain);
-                    });
-
-                    document.getElementById('cam_cycle_main').addEventListener('click', () => {
-                        currentIdxMain = (currentIdxMain + 1) % rearCamsMain.length;
-                        startScannerMain(rearCamsMain[currentIdxMain].id);
-                    });
-
-                    document.getElementById('zoom_1x_main').addEventListener('click', () => applyZoomMain(1));
-                    document.getElementById('zoom_3x_main').addEventListener('click', () => applyZoomMain(3));
-                }
-            }).catch(err => { document.getElementById("cam-status-main").innerText = "Permisos de cámara denegados."; });
+            });
             </script>
             """
-            components.html(html_code_qr, height=750) 
-            
-            id_manual = st.text_input("O ingresa el ID manual:", key="input_manual")
-            if id_manual:
-                st.query_params["qr_id"] = id_manual
-                st.rerun()
-
-        if id_escaneado_url:
-            colA, colB = st.columns([0.8, 0.2])
-            with colA:
-                st.info(f"🔍 **ID Detectado:** {id_escaneado_url}")
-            with colB:
-                if st.button("❌ Cerrar Escaneo"):
-                    limpiar_url_escaneo()
-                    st.rerun()
-
+            components.html(html_qr_zoom, height=650)
+            man_main = st.text_input("Ingresar ID manual:")
+            if man_main: st.query_params["qr_id"] = man_main; st.rerun()
+        else:
+            if st.button("❌ Cerrar Escaneo"): limpiar_url_escaneo(); st.rerun()
             id_limpio = str(id_escaneado_url).strip().upper()
-            
-            mob_ids_limpios = df_mob_local.get('Id de producto', pd.Series()).astype(str).str.strip().str.upper()
-            ion_ids_limpios = df_ion_local.get('Id de producto', pd.Series()).astype(str).str.strip().str.upper()
-
-            es_mob = id_limpio in mob_ids_limpios.values
-            es_ion = id_limpio in ion_ids_limpios.values
+            es_mob = id_limpio in df_mob_local.get('Id de producto', pd.Series()).astype(str).str.strip().str.upper().values
+            es_ion = id_limpio in df_ion_local.get('Id de producto', pd.Series()).astype(str).str.strip().str.upper().values
 
             if es_mob or es_ion:
                 hoja_activa = "MOBILIARIO" if es_mob else "IONIZADORES"
-                df_actual = df_mob_local if es_mob else df_ion_local
-                serie_busqueda = mob_ids_limpios if es_mob else ion_ids_limpios
-                
-                idx = serie_busqueda[serie_busqueda == id_limpio].index[0]
-                equipo = df_actual.loc[idx]
+                df = df_mob_local if es_mob else df_ion_local
+                idx = df[df['Id de producto'].astype(str).str.strip().str.upper() == id_limpio].index[0]
+                equipo = df.loc[idx]
                 
                 estatus_actual_op = str(equipo.get('Estatus operativo', '')).strip().upper()
                 if estatus_actual_op == "NO OPERATIVO":
-                    st.error("⚠️ Este equipo se encuentra dado de BAJA (No Operativo).")
+                    st.error("⚠️ Este equipo se encuentra dado de BAJA.")
                 
-                st.markdown(f"### 📊 Detalles del Equipo ({hoja_activa})")
+                st.subheader(f"Equipo: {id_limpio} ({hoja_activa})")
                 
-                c_linea, c_tipo, c_estatus = st.columns(3)
-                c_linea.metric("Ubicación (Línea)", str(equipo.get('Línea', 'N/A')))
-                c_tipo.metric("Tipo (Clasificación)", str(equipo.get('Clasificación', 'N/A')))
+                # --- MEJORA: Checkbox dinámico (Actualizar vs Reactivar) ---
+                if estatus_actual_op == "NO OPERATIVO":
+                    texto_checkbox = "✅ REACTIVAR equipo y registrar nueva medición"
+                else:
+                    texto_checkbox = "✅ Realizar nueva medición y actualizar"
                 
-                estatus_actual = str(equipo.get('Estatus de verificación', 'N/A')).strip().upper()
-                color_estatus = "🟢" if estatus_actual == "VIGENTE" else "🔴"
-                c_estatus.metric("Estatus Actual", f"{color_estatus} {estatus_actual}")
-                
-                c_fecha_ult, c_fecha_prox, c_val = st.columns(3)
-                
-                fecha_ult_str = str(equipo.get('Fecha de verificación', 'N/A')).strip()
-                fecha_prox_str = str(equipo.get('Fecha de próxima verificación', 'N/A')).strip()
-                
-                c_fecha_ult.metric("Última Medición", fecha_ult_str)
-                c_fecha_prox.metric("Próxima Medición", fecha_prox_str)
-                
-                val_previo = equipo.get('Valor de verificación', 0)
-                
-                if es_ion:
-                    if pd.notna(val_previo) and val_previo != 0 and str(val_previo).strip() != '':
-                        try: c_val.metric("Tiempo de Descarga", f"{float(val_previo):.2f} s")
-                        except ValueError: c_val.metric("Tiempo de Descarga", str(val_previo))
-                    else:
-                        c_val.metric("Tiempo de Descarga", "N/A")
+                hacer_medicion = st.checkbox(texto_checkbox, value=bool(valor_ocr_detectado))
+
+                if hacer_medicion:
+                    with st.form("form_upd"):
+                        todas_l = sorted(list(set(df_mob_local['Línea'].dropna().tolist() + df_ion_local['Línea'].dropna().tolist())))
+                        linea_act = str(equipo.get('Línea', '')).strip()
+                        nueva_l = st.selectbox("Cambiar Ubicación (opcional):", options=todas_l, index=todas_l.index(linea_act) if linea_act in todas_l else 0)
                         
-                    c_bal, _, _ = st.columns(3)
-                    bal_previo = equipo.get('Balance', 0)
-                    if pd.notna(bal_previo) and str(bal_previo).strip() != '':
-                        try: c_bal.metric("Balance Registrado", f"{float(bal_previo):.2f} V")
-                        except ValueError: c_bal.metric("Balance Registrado", str(bal_previo))
-                    else:
-                        c_bal.metric("Balance Registrado", "N/A")
-                else:
-                    if pd.notna(val_previo) and val_previo != 0 and str(val_previo).strip() != '':
-                        try: c_val.metric("Resistencia Registrada", f"{float(val_previo):.2E} Ω")
-                        except ValueError: c_val.metric("Resistencia Registrada", str(val_previo))
-                    else:
-                        c_val.metric("Resistencia Registrada", "N/A")
-                
-                limite_raw = equipo.get('Maximo', 'N/A')
-                if pd.notna(limite_raw) and str(limite_raw).strip() != 'N/A' and str(limite_raw).strip() != '':
-                    try:
-                        limite_str = f"{float(limite_raw):.2f} V/s" if es_ion else f"{float(limite_raw):.2E} Ω"
-                    except ValueError:
-                        limite_str = str(limite_raw)
-                else:
-                    limite_str = "N/A"
-                    
-                st.markdown(f"**Límite S20.20-2021 Permitido:** {limite_str}")
-                st.divider()
-
-                if st.session_state.modo_lectura:
-                    st.warning("👁️ **Estás en Modo Consulta.** No tienes permisos para actualizar los registros.")
-                else:
-                    hacer_medicion = st.checkbox("✅ Realizar nueva medición y actualizar", value=bool(valor_ocr_detectado))
-                    
-                    if hacer_medicion:
-                        with st.form("form_actualizacion"):
-                            # --- SELECCIÓN DE LÍNEA ---
-                            todas_lineas_escaner = set()
-                            for df_temp in [df_piso_local, df_mob_local, df_ion_local]:
-                                if df_temp is not None and 'Línea' in df_temp.columns:
-                                    todas_lineas_escaner.update([str(x).strip() for x in df_temp['Línea'].dropna() if str(x).strip() != ''])
-                            lineas_disponibles_escaner = sorted(list(todas_lineas_escaner))
+                        if es_ion:
+                            v_act = st.number_input("Tiempo de Descarga (s)", value=None, format="%.2f")
+                            b_act = st.number_input("Balance (V)", value=None, format="%.2f")
+                        else:
+                            st.caption("Resistencia (Ohms)")
+                            c1, c2, c3 = st.columns([2,1,2])
+                            n_base = c1.number_input("Base", value=None, format="%.2f")
+                            c2.markdown("<br><div style='text-align: center; font-weight: bold;'>x 10^</div>", unsafe_allow_html=True)
+                            n_exp = c3.number_input("Exp", value=None, step=1)
                             
-                            linea_actual = str(equipo.get('Línea', '')).strip()
-                            idx_linea_def = lineas_disponibles_escaner.index(linea_actual) if linea_actual in lineas_disponibles_escaner else 0
-                            
-                            nueva_linea_upd = st.selectbox("Línea / Ubicación (Modificar si el equipo fue reubicado)", options=lineas_disponibles_escaner, index=idx_linea_def)
-                            
-                            if es_ion:
-                                st.markdown("#### Captura de Mediciones Ionizador")
-                                c_form1, c_form2 = st.columns(2)
-                                v_act = c_form1.number_input("Tiempo de Descarga (Segundos)", value=None, format="%.2f")
-                                b_act = c_form2.number_input("Balance (V)", value=None, format="%.2f")
+                        f_med = st.date_input("Fecha Medición", datetime.today().date())
+                        
+                        texto_guardar_escaner = "Reactivar y Guardar" if estatus_actual_op == "NO OPERATIVO" else "Guardar"
+                        if st.form_submit_button(texto_guardar_escaner):
+                            if (not es_ion and (n_base is None or n_exp is None)) or (es_ion and (v_act is None or b_act is None)):
+                                st.error("⚠️ Ingresa los valores de medición antes de guardar.")
                             else:
-                                st.caption("Resistencia (Ohms)")
-                                def_val = float(valor_ocr_detectado) if valor_ocr_detectado else 0.0
-                                
-                                def_base = None
-                                def_exp = None
-                                if def_val != 0:
-                                    def_exp = int(math.floor(math.log10(abs(def_val))))
-                                    def_base = def_val / (10 ** def_exp)
-                                
-                                c_b, c_x, c_e = st.columns([2, 1, 2])
-                                base_upd = c_b.number_input("Número", value=def_base, format="%.2f")
-                                c_x.markdown("<div style='text-align: center; margin-top: 30px; font-weight: bold; font-size: 18px;'>x 10^</div>", unsafe_allow_html=True)
-                                exp_upd = c_e.number_input("Exponente", value=def_exp, step=1)
-                                
-                            fecha_hoy = datetime.today().date()
-                            nueva_fecha_valida = st.date_input("Fecha de medición", fecha_hoy)
-                            
-                            if st.form_submit_button("Guardar en servidor"):
-                                # Validación de campos vacíos
-                                if (not es_ion and (base_upd is None or exp_upd is None)) or (es_ion and (v_act is None or b_act is None)):
-                                    st.error("⚠️ Por favor, ingresa los valores de medición antes de guardar.")
-                                else:
-                                    with st.spinner("Guardando en base de datos y archivo histórico..."):
-                                        if not es_ion:
-                                            nuevo_valor_final = base_upd * (10 ** exp_upd)
-                                        else:
-                                            nuevo_valor_final = v_act
+                                with st.spinner("Procesando..."):
+                                    if not es_ion:
+                                        v_act_final = n_base * (10**n_exp)
+                                    else:
+                                        v_act_final = v_act
 
-                                        freq = str(equipo.get('Frecuencia de verificación', 'Anual'))
-                                        proxy = calcular_proxima_fecha(nueva_fecha_valida, freq)
-                                        
-                                        import gspread
-                                        sec = dict(st.secrets["connections"]["gsheets"])
-                                        gc_gspread = gspread.service_account_from_dict(sec)
-                                        
-                                        if pd.notna(val_previo) and str(val_previo).strip() != '':
-                                            try:
-                                                ws_hist = gc_gspread.open_by_url(sec["spreadsheet"]).worksheet("HISTORIAL")
-                                                fila_historial = [
-                                                    id_limpio,                                  
-                                                    hoja_activa,                                
-                                                    equipo.get('Línea', ''),                    
-                                                    str(val_previo),                            
-                                                    str(equipo.get('Balance', '')),             
-                                                    str(equipo.get('Fecha de verificación', '')),
-                                                    str(equipo.get('Auditor', '')),             
-                                                    datetime.now().strftime("%d-%b-%Y %H:%M")   
-                                                ]
-                                                ws_hist.append_row(fila_historial, value_input_option="USER_ENTERED")
-                                            except Exception as e:
-                                                pass
+                                    import gspread
+                                    sec = dict(st.secrets["connections"]["gsheets"])
+                                    gc = gspread.service_account_from_dict(sec)
+                                    
+                                    # Historial
+                                    try:
+                                        wh = gc.open_by_url(sec["spreadsheet"]).worksheet("HISTORIAL")
+                                        wh.append_row([id_limpio, hoja_activa, equipo.get('Línea',''), str(equipo.get('Valor de verificación','')), str(equipo.get('Balance','')), str(equipo.get('Fecha de verificación','')), str(equipo.get('Auditor','')), datetime.now().strftime("%d-%b-%Y %H:%M")])
+                                    except: pass
+                                    
+                                    # Update
+                                    ws = gc.open_by_url(sec["spreadsheet"]).worksheet(hoja_activa)
+                                    r_idx = ws.col_values(df.columns.get_loc('Id de producto') + 1).index(id_limpio) + 1
+                                    
+                                    ws.update_cell(r_idx, df.columns.get_loc('Línea') + 1, nueva_l)
+                                    ws.update_cell(r_idx, df.columns.get_loc('Valor de verificación') + 1, float(v_act_final))
+                                    ws.update_cell(r_idx, df.columns.get_loc('Fecha de verificación') + 1, f_med.strftime("%d-%b-%Y"))
+                                    ws.update_cell(r_idx, df.columns.get_loc('Fecha de próxima verificación') + 1, calcular_proxima_fecha(f_med, equipo.get('Frecuencia de verificación','Anual')).strftime("%d-%b-%Y"))
+                                    ws.update_cell(r_idx, df.columns.get_loc('Estatus de verificación') + 1, "VIGENTE")
+                                    
+                                    # Si estaba dado de baja, se fuerza a OPERATIVO nuevamente
+                                    if estatus_actual_op == "NO OPERATIVO":
+                                        try: ws.update_cell(r_idx, df.columns.get_loc('Estatus operativo') + 1, "OPERATIVO")
+                                        except: pass
 
-                                        ws = gc_gspread.open_by_url(sec["spreadsheet"]).worksheet(hoja_activa)
-                                        
-                                        try:
-                                            id_idx = df_actual.columns.get_loc('Id de producto')
-                                            linea_idx = df_actual.columns.get_loc('Línea')
-                                            val_idx = df_actual.columns.get_loc('Valor de verificación')
-                                            f_idx = df_actual.columns.get_loc('Fecha de verificación')
-                                            fp_idx = df_actual.columns.get_loc('Fecha de próxima verificación')
-                                            st_idx = df_actual.columns.get_loc('Estatus de verificación')
-                                            aud_idx = df_actual.columns.get_loc('Auditor') 
-                                        except KeyError as e:
-                                            st.error(f"Falta columna {e}")
-                                            st.stop()
-                                        
-                                        ids_gsheets = ws.col_values(id_idx + 1)
-                                        ids_gsheets_limpios = [str(v).strip().upper() for v in ids_gsheets]
-                                        
-                                        try:
-                                            r_idx = ids_gsheets_limpios.index(id_limpio) + 1
-                                        except ValueError:
-                                            st.error("No se pudo encontrar el campo en servidor para actualizar.")
-                                            st.stop()
-                                        
-                                        ws.update_cell(r_idx, linea_idx + 1, nueva_linea_upd)
-                                        ws.update_cell(r_idx, val_idx + 1, float(nuevo_valor_final))
-                                        ws.update_cell(r_idx, f_idx + 1, nueva_fecha_valida.strftime("%d-%b-%Y"))
-                                        ws.update_cell(r_idx, fp_idx + 1, proxy.strftime("%d-%b-%Y"))
-                                        ws.update_cell(r_idx, st_idx + 1, 'VIGENTE')
-                                        
-                                        try:
-                                            ws.update_cell(r_idx, aud_idx + 1, st.session_state.usuario_nombre)
-                                        except:
-                                            ws.update_cell(r_idx, 18, st.session_state.usuario_nombre)
-                                            
-                                        if es_ion:
-                                            try:
-                                                bal_idx = df_actual.columns.get_loc('Balance')
-                                                ws.update_cell(r_idx, bal_idx + 1, float(b_act))
-                                            except KeyError:
-                                                ws.update_cell(r_idx, 19, float(b_act))
+                                    try: ws.update_cell(r_idx, df.columns.get_loc('Auditor') + 1, st.session_state.usuario_nombre)
+                                    except: ws.update_cell(r_idx, 18, st.session_state.usuario_nombre) 
+                                    
+                                    if es_ion:
+                                        try: ws.update_cell(r_idx, df.columns.get_loc('Balance') + 1, float(b_act))
+                                        except: ws.update_cell(r_idx, 19, float(b_act))
 
-                                    st.success("💾 ¡Guardado correctamente con trazabilidad histórica!")
-                                    st.cache_data.clear()
-                                    limpiar_url_escaneo()
-                                    st.rerun()
+                                    st.success("Guardado"); st.cache_data.clear(); limpiar_url_escaneo(); st.rerun()
             else:
-                st.error(f"❌ El ID '{id_escaneado_url}' no se encontró en la base de datos.")
+                st.error("No encontrado.")
+            
