@@ -227,10 +227,10 @@ else:
                     with col2:
                         st.caption("Valor de medición inicial (Opcional - Ohms)")
                         c_b, c_x, c_e = st.columns([2, 1, 2])
-                        base_alta = c_b.number_input("Número", value=None, format="%.2f")
+                        base_alta = c_b.number_input("Número", value=0.0, format="%.2f")
                         c_x.markdown("<div style='text-align: center; margin-top: 30px; font-weight: bold; font-size: 18px;'>x 10^</div>", unsafe_allow_html=True)
-                        exp_alta = c_e.number_input("Exponente", value=None, step=1)
-                        valor_alta = (base_alta * (10 ** exp_alta)) if base_alta is not None and exp_alta is not None else None
+                        exp_alta = c_e.number_input("Exponente", value=0, step=1, format="%d")
+                        valor_alta = base_alta * (10 ** exp_alta) if base_alta != 0 else 0.0
                     
                     fabricante_opc = col1.selectbox("Fabricante", options=["BCS", "Otro", "N/A"])
                     fabricante_final = fabricante_opc
@@ -244,14 +244,14 @@ else:
                     
                 else:
                     nuevo_tipo = col1.selectbox("Tipo / Clasificación", options=["Ventilador", "Barra", "Pistola"])
-                    valor_alta = col2.number_input("Tiempo de descarga inicial (Seg)", value=None, format="%.2f")
+                    valor_alta = col2.number_input("Tiempo de descarga inicial (Seg)", value=0.0, format="%.2f")
                     
                     fabricante_opc = col1.selectbox("Fabricante", options=["SMC", "Panasonic", "Keyence", "SIMCO", "Otro"])
                     fabricante_final = fabricante_opc
                     if fabricante_opc == "Otro":
                         fabricante_final = col1.text_input("Especifique Fabricante")
                         
-                    balance_alta = col2.number_input("Balance Inicial (V)", value=None, format="%.2f")
+                    balance_alta = col2.number_input("Balance Inicial (V)", value=0.0, format="%.2f")
                     frecuencia_alta = "Trimestral"
                     nuevo_minimo = 0.00
                     limite_alta = "10.00"
@@ -283,8 +283,6 @@ else:
                                 unidad_medida = "Segundos" if tipo_alta == "Ionizador" else "Ohms"
                                 metodo = "CPM" if tipo_alta == "Ionizador" else "RTG"
                                 
-                                val_guardar = float(valor_alta) if valor_alta is not None else ""
-                                
                                 nueva_fila = [
                                     nueva_linea,                                     
                                     nuevo_id,                                        
@@ -294,27 +292,26 @@ else:
                                     float(nuevo_minimo),                             
                                     float(limite_alta) if "E" in limite_alta.upper() else limite_alta, 
                                     unidad_medida,                                          
-                                    val_guardar,      
+                                    float(valor_alta) if valor_alta > 0 else "",      
                                     unidad_medida,                                          
                                     metodo,                                           
-                                    fecha_hoy.strftime("%d-%b-%Y") if val_guardar != "" else "", 
-                                    proxima.strftime("%d-%b-%Y") if val_guardar != "" else "",   
+                                    fecha_hoy.strftime("%d-%b-%Y") if valor_alta > 0 else "", 
+                                    proxima.strftime("%d-%b-%Y") if valor_alta > 0 else "",   
                                     frecuencia_alta,                                 
-                                    "Vigente" if val_guardar != "" and fecha_hoy < proxima else "", 
+                                    "Vigente" if valor_alta > 0 and fecha_hoy < proxima else "", 
                                     "Operativo",                                     
                                     comentarios,                                     
                                     st.session_state.usuario_nombre                  
                                 ]
                                 
                                 if tipo_alta == "Ionizador":
-                                    bal_guardar = float(balance_alta) if balance_alta is not None else ""
                                     if 'Balance' in df_target_alta.columns:
                                         bal_idx = df_target_alta.columns.get_loc('Balance')
                                         while len(nueva_fila) <= bal_idx:
                                             nueva_fila.append("")
-                                        nueva_fila[bal_idx] = bal_guardar
+                                        nueva_fila[bal_idx] = float(balance_alta)
                                     else:
-                                        nueva_fila.append(bal_guardar)
+                                        nueva_fila.append(float(balance_alta))
                                 
                                 ws.append_row(nueva_fila, value_input_option="USER_ENTERED")
                                 
@@ -332,97 +329,36 @@ else:
                 html_code_baja = """
                 <script src="https://unpkg.com/html5-qrcode"></script>
                 <div id="reader_baja" style="width:100%; max-width:500px; margin:auto; border-radius:10px; overflow:hidden; border: 2px solid #ddd; background-color: #f9f9f9;"></div>
-                
-                <div style="text-align:center; margin-top:10px; display:flex; justify-content:center; gap:5px; flex-wrap:wrap;">
-                    <button type="button" id="cam_wide_baja" style="padding:10px; background:#28a745; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">📸 LENTE ESTÁNDAR</button>
-                    <button type="button" id="cam_cycle_baja" style="padding:10px; background:#555; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">🔄 OTRA CÁMARA</button>
-                </div>
-                <div style="text-align:center; margin-top:10px; display:flex; justify-content:center; gap:5px;">
-                    <button type="button" id="zoom_1x_baja" style="padding:10px 20px; background:#0052cc; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">🔍 1X (NORMAL)</button>
-                    <button type="button" id="zoom_3x_baja" style="padding:10px 20px; background:#666; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">🔍 3X (CURVO)</button>
-                </div>
-                <p id="cam-status-baja" style="text-align:center; color:#666; font-size: 14px; margin-top: 10px;">Buscando cámaras...</p>
-                
+                <p id="cam-status-baja" style="text-align:center; color:#666; font-size: 14px;">Iniciando cámara trasera...</p>
                 <script>
-                let html5QrCodeBaja;
-                let rearCamsBaja = [];
-                let currentIdxBaja = 0;
-                let wideIdBaja = null;
-
-                function applyZoomBaja(scale) {
-                    const vid = document.querySelector("#reader_baja video");
-                    if (vid) {
-                        vid.style.transform = `scale(${scale})`;
-                        vid.style.transformOrigin = "center center";
-                    }
-                    document.getElementById('zoom_1x_baja').style.background = (scale === 1) ? "#0052cc" : "#666";
-                    document.getElementById('zoom_3x_baja').style.background = (scale === 3) ? "#0052cc" : "#666";
-                }
-
-                function startScannerBaja(camId) {
-                    if(!html5QrCodeBaja) html5QrCodeBaja = new Html5Qrcode("reader_baja");
-                    if (html5QrCodeBaja.isScanning) {
-                        html5QrCodeBaja.stop().then(() => { runScanBaja(camId); }).catch(e => console.log(e));
-                    } else {
-                        runScanBaja(camId);
-                    }
-                }
-
-                function runScanBaja(camId) {
-                    html5QrCodeBaja.start(
-                        camId, { fps: 15, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 },
-                        (decodedText) => {
-                            html5QrCodeBaja.stop();
-                            const url = new URL(window.parent.location.href);
-                            url.searchParams.set("qr_baja", decodedText);
-                            window.parent.history.replaceState({}, "", url);
-                            window.parent.location.reload();
-                        }, (err) => {} 
-                    ).then(() => { 
-                        let activeCam = rearCamsBaja.find(c => c.id === camId);
-                        document.getElementById("cam-status-baja").innerText = "Lente activo: " + (activeCam ? activeCam.label : "Cámara");
-                        applyZoomBaja(1);
-                    }).catch(err => {
-                        document.getElementById("cam-status-baja").innerText = "Error iniciando lente. Intenta 'Otra Cámara'.";
-                    });
-                }
-
                 Html5Qrcode.getCameras().then(devices => {
                     if (devices && devices.length) {
-                        rearCamsBaja = devices.filter(c => c.label.toLowerCase().includes('back') || c.label.toLowerCase().includes('trasera') || c.label.toLowerCase().includes('environment'));
-                        if(rearCamsBaja.length === 0) rearCamsBaja = devices;
-
-                        // Buscar la cámara WIDE original (evitar la ULTRAWIDE)
-                        wideIdBaja = rearCamsBaja[0].id;
-                        for (let c of rearCamsBaja) {
-                            let lbl = c.label.toLowerCase();
-                            if (lbl.includes('wide') && !lbl.includes('ultra')) {
-                                wideIdBaja = c.id; break;
+                        let selectedCameraId = devices[0].id; 
+                        let rearCams = devices.filter(c => c.label.toLowerCase().includes('back') || c.label.toLowerCase().includes('trasera'));
+                        if (rearCams.length > 0) {
+                            selectedCameraId = rearCams[0].id; 
+                            for (let cam of rearCams) {
+                                if (cam.label.toLowerCase().includes('ultra') || cam.label.toLowerCase().includes('macro')) {
+                                    selectedCameraId = cam.id; break;
+                                }
                             }
                         }
-
-                        currentIdxBaja = rearCamsBaja.findIndex(c => c.id === wideIdBaja);
-                        if(currentIdxBaja === -1) currentIdxBaja = 0;
-
-                        startScannerBaja(wideIdBaja);
-
-                        document.getElementById('cam_wide_baja').addEventListener('click', () => {
-                            currentIdxBaja = rearCamsBaja.findIndex(c => c.id === wideIdBaja);
-                            startScannerBaja(wideIdBaja);
-                        });
-
-                        document.getElementById('cam_cycle_baja').addEventListener('click', () => {
-                            currentIdxBaja = (currentIdxBaja + 1) % rearCamsBaja.length;
-                            startScannerBaja(rearCamsBaja[currentIdxBaja].id);
-                        });
-
-                        document.getElementById('zoom_1x_baja').addEventListener('click', () => applyZoomBaja(1));
-                        document.getElementById('zoom_3x_baja').addEventListener('click', () => applyZoomBaja(3));
+                        const html5QrCode = new Html5Qrcode("reader_baja");
+                        html5QrCode.start(
+                            selectedCameraId, { fps: 15, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 },
+                            (decodedText) => {
+                                html5QrCode.stop();
+                                const url = new URL(window.parent.location.href);
+                                url.searchParams.set("qr_baja", decodedText);
+                                window.parent.history.replaceState({}, "", url);
+                                window.parent.location.reload();
+                            }, (err) => {} 
+                        ).then(() => { setTimeout(() => { document.getElementById("cam-status-baja").style.display = 'none'; }, 1500); });
                     }
-                }).catch(err => { document.getElementById("cam-status-baja").innerText = "Permisos de cámara denegados."; });
+                }).catch(err => { document.getElementById("cam-status-baja").innerText = "Otorga permisos de cámara."; });
                 </script>
                 """
-                components.html(html_code_baja, height=750) 
+                components.html(html_code_baja, height=650) 
                 
                 id_manual_baja = st.text_input("Ingresa el ID manual a eliminar:", key="input_manual_baja")
                 if id_manual_baja:
@@ -572,98 +508,38 @@ else:
             st.markdown("### 📷 Apunta al Código QR")
             html_code_qr = """
             <script src="https://unpkg.com/html5-qrcode"></script>
-            <div id="reader_main" style="width:100%; max-width:500px; margin:auto; border-radius:10px; overflow:hidden; border: 2px solid #0052cc; background-color: #f9f9f9;"></div>
-            
-            <div style="text-align:center; margin-top:10px; display:flex; justify-content:center; gap:5px; flex-wrap:wrap;">
-                <button type="button" id="cam_wide_main" style="padding:10px; background:#28a745; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">📸 LENTE ESTÁNDAR</button>
-                <button type="button" id="cam_cycle_main" style="padding:10px; background:#555; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">🔄 OTRA CÁMARA</button>
-            </div>
-            <div style="text-align:center; margin-top:10px; display:flex; justify-content:center; gap:5px;">
-                <button type="button" id="zoom_1x_main" style="padding:10px 20px; background:#0052cc; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">🔍 1X (NORMAL)</button>
-                <button type="button" id="zoom_3x_main" style="padding:10px 20px; background:#666; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">🔍 3X (CURVO)</button>
-            </div>
-            <p id="cam-status-main" style="text-align:center; color:#666; font-size: 14px; margin-top: 10px;">Buscando cámaras...</p>
-            
+            <div id="reader" style="width:100%; max-width:500px; margin:auto; border-radius:10px; overflow:hidden; border: 2px solid #ddd; background-color: #f9f9f9;"></div>
+            <p id="cam-status" style="text-align:center; color:#666; font-size: 14px;">Iniciando cámara trasera...</p>
             <script>
-            let html5QrCodeMain;
-            let rearCamsMain = [];
-            let currentIdxMain = 0;
-            let wideIdMain = null;
-
-            function applyZoomMain(scale) {
-                const vid = document.querySelector("#reader_main video");
-                if (vid) {
-                    vid.style.transform = `scale(${scale})`;
-                    vid.style.transformOrigin = "center center";
-                }
-                document.getElementById('zoom_1x_main').style.background = (scale === 1) ? "#0052cc" : "#666";
-                document.getElementById('zoom_3x_main').style.background = (scale === 3) ? "#0052cc" : "#666";
-            }
-
-            function startScannerMain(camId) {
-                if(!html5QrCodeMain) html5QrCodeMain = new Html5Qrcode("reader_main");
-                if (html5QrCodeMain.isScanning) {
-                    html5QrCodeMain.stop().then(() => { runScanMain(camId); }).catch(e => console.log(e));
-                } else {
-                    runScanMain(camId);
-                }
-            }
-
-            function runScanMain(camId) {
-                html5QrCodeMain.start(
-                    camId, { fps: 15, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 },
-                    (decodedText) => {
-                        html5QrCodeMain.stop();
-                        const url = new URL(window.parent.location.href);
-                        url.searchParams.set("qr_id", decodedText);
-                        window.parent.history.replaceState({}, "", url);
-                        window.parent.location.reload();
-                    }, (err) => {} 
-                ).then(() => { 
-                    let activeCam = rearCamsMain.find(c => c.id === camId);
-                    document.getElementById("cam-status-main").innerText = "Lente activo: " + (activeCam ? activeCam.label : "Cámara");
-                    applyZoomMain(1);
-                }).catch(err => {
-                    document.getElementById("cam-status-main").innerText = "Error iniciando lente. Intenta 'Otra Cámara'.";
-                });
-            }
-
             Html5Qrcode.getCameras().then(devices => {
                 if (devices && devices.length) {
-                    rearCamsMain = devices.filter(c => c.label.toLowerCase().includes('back') || c.label.toLowerCase().includes('trasera') || c.label.toLowerCase().includes('environment'));
-                    if(rearCamsMain.length === 0) rearCamsMain = devices;
-
-                    // Buscar la cámara WIDE original (evitar la ULTRAWIDE)
-                    wideIdMain = rearCamsMain[0].id;
-                    for (let c of rearCamsMain) {
-                        let lbl = c.label.toLowerCase();
-                        if (lbl.includes('wide') && !lbl.includes('ultra')) {
-                            wideIdMain = c.id; break;
+                    let selectedCameraId = devices[0].id; 
+                    let rearCams = devices.filter(c => c.label.toLowerCase().includes('back') || c.label.toLowerCase().includes('trasera'));
+                    if (rearCams.length > 0) {
+                        selectedCameraId = rearCams[0].id; 
+                        for (let cam of rearCams) {
+                            if (cam.label.toLowerCase().includes('ultra') || cam.label.toLowerCase().includes('macro')) {
+                                selectedCameraId = cam.id; break;
+                            }
                         }
                     }
-
-                    currentIdxMain = rearCamsMain.findIndex(c => c.id === wideIdMain);
-                    if(currentIdxMain === -1) currentIdxMain = 0;
-
-                    startScannerMain(wideIdMain);
-
-                    document.getElementById('cam_wide_main').addEventListener('click', () => {
-                        currentIdxMain = rearCamsMain.findIndex(c => c.id === wideIdMain);
-                        startScannerMain(wideIdMain);
-                    });
-
-                    document.getElementById('cam_cycle_main').addEventListener('click', () => {
-                        currentIdxMain = (currentIdxMain + 1) % rearCamsMain.length;
-                        startScannerMain(rearCamsMain[currentIdxMain].id);
-                    });
-
-                    document.getElementById('zoom_1x_main').addEventListener('click', () => applyZoomMain(1));
-                    document.getElementById('zoom_3x_main').addEventListener('click', () => applyZoomMain(3));
+                    const html5QrCode = new Html5Qrcode("reader");
+                    html5QrCode.start(
+                        selectedCameraId, { fps: 15, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 },
+                        (decodedText) => {
+                            html5QrCode.stop();
+                            const url = new URL(window.parent.location.href);
+                            url.searchParams.set("qr_id", decodedText);
+                            url.searchParams.delete("ocr_val");
+                            window.parent.history.replaceState({}, "", url);
+                            window.parent.location.reload();
+                        }, (err) => {} 
+                    ).then(() => { setTimeout(() => { document.getElementById("cam-status").style.display = 'none'; }, 1500); });
                 }
-            }).catch(err => { document.getElementById("cam-status-main").innerText = "Permisos de cámara denegados."; });
+            }).catch(err => { document.getElementById("cam-status").innerText = "Otorga permisos de cámara."; });
             </script>
             """
-            components.html(html_code_qr, height=750) 
+            components.html(html_code_qr, height=650) 
             
             id_manual = st.text_input("O ingresa el ID manual:", key="input_manual")
             if id_manual:
@@ -696,8 +572,13 @@ else:
                 equipo = df_actual.loc[idx]
                 
                 estatus_actual_op = str(equipo.get('Estatus operativo', '')).strip().upper()
+                
+                # --- NUEVA LÓGICA DE REACTIVACIÓN ---
                 if estatus_actual_op == "NO OPERATIVO":
-                    st.error("⚠️ Este equipo se encuentra dado de BAJA (No Operativo).")
+                    st.warning("⚠️ EQUIPO DADO DE BAJA. Al ingresar una nueva medición, el equipo se REACTIVARÁ automáticamente.")
+                    texto_checkbox = "✅ REACTIVAR equipo y registrar nueva medición"
+                else:
+                    texto_checkbox = "✅ Realizar nueva medición y actualizar"
                 
                 st.markdown(f"### 📊 Detalles del Equipo ({hoja_activa})")
                 
@@ -755,10 +636,125 @@ else:
                 if st.session_state.modo_lectura:
                     st.warning("👁️ **Estás en Modo Consulta.** No tienes permisos para actualizar los registros.")
                 else:
-                    hacer_medicion = st.checkbox("✅ Realizar nueva medición y actualizar", value=bool(valor_ocr_detectado))
+                    hacer_medicion = st.checkbox(texto_checkbox, value=bool(valor_ocr_detectado))
                     
                     if hacer_medicion:
+                        if not es_ion:
+                            st.markdown("### 📷 Captura Automática del Medidor (BETA)")
+                            if not valor_ocr_detectado:
+                                html_code_ocr = """
+                                <script src="https://unpkg.com/tesseract.js@v4.0.3/dist/tesseract.min.js"></script>
+                                <div id="ocr_scanner" style="width:100%; max-width:600px; margin:auto; border-radius:10px; overflow:hidden; border: 2px solid #0052cc; background-color: #111; padding: 10px; text-align: center; color: white;">
+                                    <div id="cam_container" style="position: relative; width: 100%; padding-bottom: 75%; overflow: hidden; border-radius: 8px; background: #000;">
+                                        <video id="ocr_video" autoplay playsinline muted style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover;"></video>
+                                        <div id="lcd_screen" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 90%; height: 45%; border: 2px solid rgba(0,255,0,0.5); pointer-events: none;">
+                                            <div id="box-ohms" style="position: absolute; top: 10%; left: 5%; width: 90%; height: 80%; border: 3px solid #00ff00;">
+                                                <span style="position:absolute; top:-22px; left:0; font-size:12px; color:#00ff00; font-weight:bold;">ENFOQUE RESISTENCIA</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <p id="ocr_status" style="margin: 15px 0; font-size: 14px; color: #aaa;">Iniciando cámara trasera...</p>
+                                    <button id="ocr_btn" style="width: 100%; padding: 18px; font-size: 18px; font-weight: bold; background-color: #0052cc; color: white; border: none; border-radius: 8px;">📸 LEER MEDICIÓN</button>
+                                </div>
+                                <script>
+                                    const video = document.getElementById('ocr_video');
+                                    const btn = document.getElementById('ocr_btn');
+                                    const status = document.getElementById('ocr_status');
+                                    let camStream = null;
+
+                                    async function setupCamera() {
+                                        try {
+                                            let tempStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+                                            const devices = await navigator.mediaDevices.enumerateDevices();
+                                            const cameras = devices.filter(d => d.kind === 'videoinput');
+                                            let selectedId = null;
+                                            const rearCams = cameras.filter(c => c.label.toLowerCase().includes('back') || c.label.toLowerCase().includes('trasera'));
+                                            
+                                            if (rearCams.length > 0) {
+                                                selectedId = rearCams[0].id; 
+                                                status.innerText = "Alinea y lee.";
+                                                for (const cam of rearCams) {
+                                                    if (cam.label.toLowerCase().includes('ultra') || cam.label.toLowerCase().includes('macro')) {
+                                                        selectedId = cam.id; break;
+                                                    }
+                                                }
+                                            }
+                                            tempStream.getTracks().forEach(t => t.stop());
+                                            const constraints = selectedId ? { video: { deviceId: { exact: selectedId }, focusMode: 'continuous' } } : { video: { facingMode: 'environment', focusMode: 'continuous' } };
+                                            camStream = await navigator.mediaDevices.getUserMedia(constraints);
+                                            video.srcObject = camStream;
+                                        } catch (e) { status.innerText = "Error de cámara"; }
+                                    }
+                                    setupCamera();
+
+                                    btn.addEventListener('click', async () => {
+                                        btn.disabled = true;
+                                        status.innerText = "⏳ ANALIZANDO...";
+                                        
+                                        const box = document.getElementById('box-ohms');
+                                        const container = document.getElementById('cam_container');
+                                        const rectBox = box.getBoundingClientRect();
+                                        const rectCont = container.getBoundingClientRect();
+                                        const relX = (rectBox.left - rectCont.left) / rectCont.width;
+                                        const relY = (rectBox.top - rectCont.top) / rectCont.height;
+                                        const relW = rectBox.width / rectCont.width;
+                                        const relH = rectBox.height / rectCont.height;
+                                        const cropX = video.videoWidth * relX;
+                                        const cropY = video.videoHeight * relY;
+                                        const cropW = video.videoWidth * relW;
+                                        const cropH = video.videoHeight * relH;
+
+                                        const canvas = document.createElement('canvas');
+                                        canvas.width = cropW * 2; canvas.height = cropH * 2;
+                                        const ctx = canvas.getContext('2d');
+                                        ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, canvas.width, canvas.height);
+                                        
+                                        const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                                        const data = imgData.data;
+                                        for (let i=0; i<data.length; i+=4) {
+                                            const avg = (data[i] + data[i+1] + data[i+2]) / 3;
+                                            data[i] = data[i+1] = data[i+2] = avg >= 130 ? 255 : 0; 
+                                        }
+                                        ctx.putImageData(imgData, 0, 0);
+                                        
+                                        try {
+                                            const worker = await Tesseract.createWorker();
+                                            await worker.loadLanguage('eng');
+                                            await worker.initialize('eng');
+                                            await worker.setParameters({ tessedit_char_whitelist: '0123456789.xX*Ee^ ' });
+                                            const { data: { text } } = await worker.recognize(canvas);
+                                            await worker.terminate();
+
+                                            let cleaned = text.replace(/\\s+/g, '');
+                                            const match = cleaned.match(/(\\d+\\.\\d{1,2}).*?10.*?(\\d{1,2})/);
+
+                                            if (match) {
+                                                const finalValue = parseFloat(match[1]) * Math.pow(10, parseInt(match[2]));
+                                                camStream.getTracks().forEach(t => t.stop());
+                                                const url = new URL(window.parent.location.href);
+                                                url.searchParams.set("ocr_val", finalValue);
+                                                window.parent.history.replaceState({}, "", url);
+                                                window.parent.location.reload();
+                                            } else {
+                                                status.innerText = "❌ Exponente no claro.";
+                                                status.style.color = "#ff4b4b";
+                                                btn.disabled = false;
+                                            }
+                                        } catch (err) { btn.disabled = false; }
+                                    });
+                                </script>
+                                """
+                                components.html(html_code_ocr, height=700)
+                            else:
+                                st.success("✅ **Resistencia capturada:**")
+                                st.metric("Nuevo Valor", f"{float(valor_ocr_detectado):.2E} Ω")
+                                if st.button("🔄 Descartar captura"):
+                                    limpiar_url_escaneo()
+                                    st.rerun()
+
                         with st.form("form_actualizacion"):
+                            def_val = float(valor_ocr_detectado) if valor_ocr_detectado else 0.0
+                            
                             # --- SELECCIÓN DE LÍNEA ---
                             todas_lineas_escaner = set()
                             for df_temp in [df_piso_local, df_mob_local, df_ion_local]:
@@ -774,14 +770,18 @@ else:
                             if es_ion:
                                 st.markdown("#### Captura de Mediciones Ionizador")
                                 c_form1, c_form2 = st.columns(2)
-                                v_act = c_form1.number_input("Tiempo de Descarga (Segundos)", value=None, format="%.2f")
-                                b_act = c_form2.number_input("Balance (V)", value=None, format="%.2f")
-                            else:
-                                st.caption("Resistencia (Ohms)")
-                                def_val = float(valor_ocr_detectado) if valor_ocr_detectado else 0.0
+                                nuevo_valor_final = c_form1.number_input("Tiempo de Descarga (Segundos)", value=0.0, format="%.2f")
                                 
-                                def_base = None
-                                def_exp = None
+                                bal_def = equipo.get('Balance', 0.0)
+                                try: bal_def = float(bal_def)
+                                except: bal_def = 0.0
+                                nuevo_balance = c_form2.number_input("Balance (V)", value=bal_def, format="%.2f")
+                            else:
+                                # --- MEJORA UX: División del campo de Notación Científica en ACTUALIZACIÓN ---
+                                st.caption("Resistencia (Ohms)")
+                                
+                                def_base = 0.0
+                                def_exp = 0
                                 if def_val != 0:
                                     def_exp = int(math.floor(math.log10(abs(def_val))))
                                     def_base = def_val / (10 ** def_exp)
@@ -789,90 +789,90 @@ else:
                                 c_b, c_x, c_e = st.columns([2, 1, 2])
                                 base_upd = c_b.number_input("Número", value=def_base, format="%.2f")
                                 c_x.markdown("<div style='text-align: center; margin-top: 30px; font-weight: bold; font-size: 18px;'>x 10^</div>", unsafe_allow_html=True)
-                                exp_upd = c_e.number_input("Exponente", value=def_exp, step=1)
+                                exp_upd = c_e.number_input("Exponente", value=def_exp, step=1, format="%d")
+                                nuevo_valor_final = base_upd * (10 ** exp_upd) if base_upd != 0 else 0.0
                                 
                             fecha_hoy = datetime.today().date()
                             nueva_fecha_valida = st.date_input("Fecha de medición", fecha_hoy)
                             
                             if st.form_submit_button("Guardar en servidor"):
-                                # Validación de campos vacíos
-                                if (not es_ion and (base_upd is None or exp_upd is None)) or (es_ion and (v_act is None or b_act is None)):
-                                    st.error("⚠️ Por favor, ingresa los valores de medición antes de guardar.")
-                                else:
-                                    with st.spinner("Guardando en base de datos y archivo histórico..."):
-                                        if not es_ion:
-                                            nuevo_valor_final = base_upd * (10 ** exp_upd)
-                                        else:
-                                            nuevo_valor_final = v_act
+                                with st.spinner("Guardando en base de datos y archivo histórico..."):
+                                    freq = str(equipo.get('Frecuencia de verificación', 'Anual'))
+                                    proxy = calcular_proxima_fecha(nueva_fecha_valida, freq)
+                                    
+                                    import gspread
+                                    sec = dict(st.secrets["connections"]["gsheets"])
+                                    gc_gspread = gspread.service_account_from_dict(sec)
+                                    
+                                    if pd.notna(val_previo) and str(val_previo).strip() != '':
+                                        try:
+                                            ws_hist = gc_gspread.open_by_url(sec["spreadsheet"]).worksheet("HISTORIAL")
+                                            fila_historial = [
+                                                id_limpio,                                  
+                                                hoja_activa,                                
+                                                equipo.get('Línea', ''),                    
+                                                str(val_previo),                            
+                                                str(equipo.get('Balance', '')),             
+                                                str(equipo.get('Fecha de verificación', '')),
+                                                str(equipo.get('Auditor', '')),             
+                                                datetime.now().strftime("%d-%b-%Y %H:%M")   
+                                            ]
+                                            ws_hist.append_row(fila_historial, value_input_option="USER_ENTERED")
+                                        except Exception as e:
+                                            pass
 
-                                        freq = str(equipo.get('Frecuencia de verificación', 'Anual'))
-                                        proxy = calcular_proxima_fecha(nueva_fecha_valida, freq)
-                                        
-                                        import gspread
-                                        sec = dict(st.secrets["connections"]["gsheets"])
-                                        gc_gspread = gspread.service_account_from_dict(sec)
-                                        
-                                        if pd.notna(val_previo) and str(val_previo).strip() != '':
-                                            try:
-                                                ws_hist = gc_gspread.open_by_url(sec["spreadsheet"]).worksheet("HISTORIAL")
-                                                fila_historial = [
-                                                    id_limpio,                                  
-                                                    hoja_activa,                                
-                                                    equipo.get('Línea', ''),                    
-                                                    str(val_previo),                            
-                                                    str(equipo.get('Balance', '')),             
-                                                    str(equipo.get('Fecha de verificación', '')),
-                                                    str(equipo.get('Auditor', '')),             
-                                                    datetime.now().strftime("%d-%b-%Y %H:%M")   
-                                                ]
-                                                ws_hist.append_row(fila_historial, value_input_option="USER_ENTERED")
-                                            except Exception as e:
-                                                pass
+                                    ws = gc_gspread.open_by_url(sec["spreadsheet"]).worksheet(hoja_activa)
+                                    
+                                    try:
+                                        id_idx = df_actual.columns.get_loc('Id de producto')
+                                        linea_idx = df_actual.columns.get_loc('Línea')
+                                        val_idx = df_actual.columns.get_loc('Valor de verificación')
+                                        f_idx = df_actual.columns.get_loc('Fecha de verificación')
+                                        fp_idx = df_actual.columns.get_loc('Fecha de próxima verificación')
+                                        st_idx = df_actual.columns.get_loc('Estatus de verificación')
+                                        aud_idx = df_actual.columns.get_loc('Auditor') 
+                                    except KeyError as e:
+                                        st.error(f"Falta columna {e}")
+                                        st.stop()
+                                    
+                                    ids_gsheets = ws.col_values(id_idx + 1)
+                                    ids_gsheets_limpios = [str(v).strip().upper() for v in ids_gsheets]
+                                    
+                                    try:
+                                        r_idx = ids_gsheets_limpios.index(id_limpio) + 1
+                                    except ValueError:
+                                        st.error("No se pudo encontrar el campo en servidor para actualizar.")
+                                        st.stop()
+                                    
+                                    ws.update_cell(r_idx, linea_idx + 1, nueva_linea_upd)
+                                    ws.update_cell(r_idx, val_idx + 1, float(nuevo_valor_final))
+                                    ws.update_cell(r_idx, f_idx + 1, nueva_fecha_valida.strftime("%d-%b-%Y"))
+                                    ws.update_cell(r_idx, fp_idx + 1, proxy.strftime("%d-%b-%Y"))
+                                    ws.update_cell(r_idx, st_idx + 1, 'VIGENTE')
+                                    
+                                    # --- EJECUCIÓN DE REACTIVACIÓN (Alta de Baja) ---
+                                    if estatus_actual_op == "NO OPERATIVO":
+                                        try:
+                                            est_op_idx = df_actual.columns.get_loc('Estatus operativo')
+                                            ws.update_cell(r_idx, est_op_idx + 1, "OPERATIVO")
+                                        except Exception:
+                                            pass
 
-                                        ws = gc_gspread.open_by_url(sec["spreadsheet"]).worksheet(hoja_activa)
-                                        
+                                    if es_ion:
                                         try:
-                                            id_idx = df_actual.columns.get_loc('Id de producto')
-                                            linea_idx = df_actual.columns.get_loc('Línea')
-                                            val_idx = df_actual.columns.get_loc('Valor de verificación')
-                                            f_idx = df_actual.columns.get_loc('Fecha de verificación')
-                                            fp_idx = df_actual.columns.get_loc('Fecha de próxima verificación')
-                                            st_idx = df_actual.columns.get_loc('Estatus de verificación')
-                                            aud_idx = df_actual.columns.get_loc('Auditor') 
-                                        except KeyError as e:
-                                            st.error(f"Falta columna {e}")
-                                            st.stop()
-                                        
-                                        ids_gsheets = ws.col_values(id_idx + 1)
-                                        ids_gsheets_limpios = [str(v).strip().upper() for v in ids_gsheets]
-                                        
-                                        try:
-                                            r_idx = ids_gsheets_limpios.index(id_limpio) + 1
-                                        except ValueError:
-                                            st.error("No se pudo encontrar el campo en servidor para actualizar.")
-                                            st.stop()
-                                        
-                                        ws.update_cell(r_idx, linea_idx + 1, nueva_linea_upd)
-                                        ws.update_cell(r_idx, val_idx + 1, float(nuevo_valor_final))
-                                        ws.update_cell(r_idx, f_idx + 1, nueva_fecha_valida.strftime("%d-%b-%Y"))
-                                        ws.update_cell(r_idx, fp_idx + 1, proxy.strftime("%d-%b-%Y"))
-                                        ws.update_cell(r_idx, st_idx + 1, 'VIGENTE')
-                                        
-                                        try:
-                                            ws.update_cell(r_idx, aud_idx + 1, st.session_state.usuario_nombre)
-                                        except:
-                                            ws.update_cell(r_idx, 18, st.session_state.usuario_nombre)
+                                            bal_idx = df_actual.columns.get_loc('Balance')
+                                            ws.update_cell(r_idx, bal_idx + 1, float(nuevo_balance))
+                                        except KeyError:
+                                            ws.update_cell(r_idx, 19, float(nuevo_balance))
                                             
-                                        if es_ion:
-                                            try:
-                                                bal_idx = df_actual.columns.get_loc('Balance')
-                                                ws.update_cell(r_idx, bal_idx + 1, float(b_act))
-                                            except KeyError:
-                                                ws.update_cell(r_idx, 19, float(b_act))
+                                    try:
+                                        ws.update_cell(r_idx, aud_idx + 1, st.session_state.usuario_nombre)
+                                    except:
+                                        ws.update_cell(r_idx, 18, st.session_state.usuario_nombre)
 
-                                    st.success("💾 ¡Guardado correctamente con trazabilidad histórica!")
-                                    st.cache_data.clear()
-                                    limpiar_url_escaneo()
-                                    st.rerun()
+                                st.success("💾 ¡Guardado correctamente con trazabilidad histórica!")
+                                st.cache_data.clear()
+                                limpiar_url_escaneo()
+                                st.rerun()
             else:
                 st.error(f"❌ El ID '{id_escaneado_url}' no se encontró en la base de datos.")
