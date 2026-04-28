@@ -10,6 +10,8 @@ from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
 from streamlit_gsheets import GSheetsConnection
 import streamlit.components.v1 as components
+import csv
+import io
 
 # Configuración de página
 st.set_page_config(page_title="Control ESD BCS-AIS", layout="wide")
@@ -34,6 +36,52 @@ def limpiar_url_escaneo():
     if "qr_baja" in st.query_params:
         del st.query_params["qr_baja"]
 
+import csv
+import io
+
+def procesar_csv_walking_test(uploaded_file):
+    # Leer el archivo decodificando los bytes a string
+    content = uploaded_file.getvalue().decode('utf-8').splitlines()
+    reader = csv.reader(content)
+    
+    extracted = {
+        "Date": "", "Line": "", "Equipment ID": "", 
+        "Temperature": "", "Humidity": ""
+    }
+    results = []
+
+    for row in reader:
+        row_clean = [str(x).strip() for x in row]
+        if not row_clean: continue
+
+        for i, cell in enumerate(row_clean):
+            # Extraer Metadata
+            if "Execution Date:" in cell:
+                extracted["Date"] = cell.replace("Execution Date:", "").replace("_", "").strip()
+            elif cell == "Line:" and i + 1 < len(row_clean):
+                extracted["Line"] = row_clean[i+1]
+            elif cell == "ID:" and i + 1 < len(row_clean):
+                extracted["Equipment ID"] = row_clean[i+1]
+            elif cell == "Temperature:" and i + 1 < len(row_clean):
+                extracted["Temperature"] = row_clean[i+1]
+            elif cell == "Humidity:" and i + 1 < len(row_clean):
+                extracted["Humidity"] = row_clean[i+1]
+            
+            # Extraer los Resultados de los 6 pasos
+            elif cell in ["1+", "2+", "3+", "1-", "2-", "3-"] and i == 0:
+                if len(row_clean) >= 6:
+                    try:
+                        results.append({
+                            "Paso": cell,
+                            "Límite Sup (V)": float(row_clean[1]),
+                            "Límite Inf (V)": float(row_clean[2]),
+                            "Resultado (V)": float(row_clean[3]),
+                            "Calzado/Elemento": row_clean[5]
+                        })
+                    except ValueError:
+                        pass # Ignorar si hay algún error de formato en los números
+
+    return extracted, pd.DataFrame(results)
 # ==========================================
 # SEGURIDAD Y ACCESO (POR URL)
 # ==========================================
@@ -143,7 +191,8 @@ else:
         st.session_state.vista_actual = "Alta"
 
     if not st.session_state.modo_lectura:
-        c_nav1, c_nav2, c_nav3 = st.columns(3)
+        # Cambiamos a 4 columnas
+        c_nav1, c_nav2, c_nav3, c_nav4 = st.columns(4)
         with c_nav1:
             if st.button("🗺️ Mapa y Reportes", use_container_width=True, type="primary" if st.session_state.vista_actual == "Mapa" else "secondary"):
                 st.session_state.vista_actual = "Mapa"
@@ -155,8 +204,13 @@ else:
                 limpiar_url_escaneo()
                 st.rerun()
         with c_nav3:
-            if st.button("🆕 Alta/Baja Equipos", use_container_width=True, type="primary" if st.session_state.vista_actual == "Alta" else "secondary"):
+            if st.button("🆕 Alta/Baja", use_container_width=True, type="primary" if st.session_state.vista_actual == "Alta" else "secondary"):
                 st.session_state.vista_actual = "Alta"
+                limpiar_url_escaneo()
+                st.rerun()
+        with c_nav4:
+            if st.button("🚶‍♂️ Walking Test", use_container_width=True, type="primary" if st.session_state.vista_actual == "Walking_Test" else "secondary"):
+                st.session_state.vista_actual = "Walking_Test"
                 limpiar_url_escaneo()
                 st.rerun()
     else:
@@ -894,3 +948,83 @@ else:
                                 st.rerun()
             else:
                 st.error(f"❌ El ID '{id_escaneado_url}' no se encontró en la base de datos.")
+# ==========================================
+    # VISTA 3: WALKING TEST
+    # ==========================================
+    elif st.session_state.vista_actual == "Walking_Test":
+        st.markdown("### 🚶‍♂️ Registro de Walking Test (Generación de Voltaje Corporal)")
+        st.info("Sube el archivo .csv generado por el Body Voltage Meter para extraer las lecturas.")
+        
+        uploaded_file = st.file_uploader("Selecciona el archivo CSV exportado", type=['csv'])
+        
+        if uploaded_file is not None:
+            metadata, df_resultados = procesar_csv_walking_test(uploaded_file)
+            
+            if not df_resultados.empty:
+                st.success("✅ Archivo procesado correctamente.")
+                
+                col_m1, col_m2, col_m3 = st.columns(3)
+                col_m1.metric("Línea/Área Detectada", metadata["Line"] if metadata["Line"] else "No definida")
+                col_m2.metric("Temperatura", f"{metadata['Temperature']} °C")
+                col_m3.metric("Humedad", f"{float(metadata['Humidity']) * 100:.1f} %" if metadata['Humidity'] else "N/A")
+                
+                st.markdown("#### Resultados de la Prueba")
+                
+                # Evaluar Pasa/Falla basado en límite estricto de < 100V absoluto
+                df_resultados['Pasa S20.20'] = df_resultados['Resultado (V)'].apply(lambda x: "✅ PASS" if abs(x) < 100 else "❌ FAIL")
+                
+                st.dataframe(df_resultados, use_container_width=True, hide_index=True)
+                
+                max_v = df_resultados['Resultado (V)'].max()
+                min_v = df_resultados['Resultado (V)'].min()
+                abs_max = max(abs(max_v), abs(min_v))
+                
+                if abs_max < 100:
+                    st.success(f"**Veredicto Final:** APROBADO (Pico Máximo Absoluto: {abs_max} V)")
+                    estatus_final = "APROBADO"
+                else:
+                    st.error(f"**Veredicto Final:** REPROBADO (Pico Máximo Absoluto: {abs_max} V excedió el límite de 100V)")
+                    estatus_final = "REPROBADO"
+
+                # Formulario para guardar en Google Sheets
+                if not st.session_state.modo_lectura:
+                    st.divider()
+                    with st.form("guardar_walking_test"):
+                        st.markdown("**Confirmar y Guardar en Base de Datos**")
+                        linea_conf = st.text_input("Confirmar Línea/Área", value=metadata["Line"])
+                        operador = st.text_input("ID/Nombre de persona evaluada (Opcional)")
+                        
+                        if st.form_submit_button("Guardar Registro de Walking Test", type="primary"):
+                            with st.spinner("Guardando en el servidor..."):
+                                import gspread
+                                sec = dict(st.secrets["connections"]["gsheets"])
+                                gc_gspread = gspread.service_account_from_dict(sec)
+                                
+                                # Nos aseguramos de que exista la hoja
+                                try:
+                                    ws_wlk = gc_gspread.open_by_url(sec["spreadsheet"]).worksheet("WALKING_TEST")
+                                except gspread.exceptions.WorksheetNotFound:
+                                    # Si no existe, la crea con los encabezados
+                                    sht = gc_gspread.open_by_url(sec["spreadsheet"])
+                                    ws_wlk = sht.add_worksheet(title="WALKING_TEST", rows="1000", cols="15")
+                                    ws_wlk.append_row(["Fecha de Ejecución", "Línea/Área", "Auditor", "Persona Evaluada", "Temperatura", "Humedad", "Pico Max (+) (V)", "Pico Max (-) (V)", "Veredicto S20.20"])
+                                
+                                # Preparamos fila a insertar
+                                fila_wlk = [
+                                    metadata["Date"],
+                                    linea_conf,
+                                    st.session_state.usuario_nombre,
+                                    operador,
+                                    metadata["Temperature"],
+                                    metadata["Humidity"],
+                                    str(max_v),
+                                    str(min_v),
+                                    estatus_final
+                                ]
+                                
+                                ws_wlk.append_row(fila_wlk, value_input_option="USER_ENTERED")
+                            
+                            st.success(f"💾 Registro de {linea_conf} guardado exitosamente.")
+                            st.balloons()
+            else:
+                st.error("No se pudieron extraer los resultados. Verifica que el formato del CSV sea el del equipo Desco.")
