@@ -41,11 +41,21 @@ import io
 
 def procesar_excel_walking_test(uploaded_file):
     try:
-        # Envolvemos los bytes en io.BytesIO para que pandas lo lea como un archivo real
-        archivo_en_memoria = io.BytesIO(uploaded_file.getvalue())
-        df_raw = pd.read_excel(archivo_en_memoria, header=None)
+        # Detectar la extensión del archivo para forzar el motor correcto
+        nombre_archivo = uploaded_file.name.lower()
+        if nombre_archivo.endswith('.xls'):
+            motor = 'xlrd'
+        elif nombre_archivo.endswith('.xlsx'):
+            motor = 'openpyxl'
+        else:
+            motor = None # Dejar que pandas intente adivinar
+            
+        # Leer el Excel especificando el motor manualmente
+        df_raw = pd.read_excel(uploaded_file, header=None, engine=motor)
+        
     except Exception as e:
         st.error(f"Error al leer el archivo Excel: {e}")
+        st.info("💡 Tip: Si el error menciona dependencias, asegúrate de tener instalados 'xlrd' y 'openpyxl' en tu entorno o requirements.txt.")
         return {}, pd.DataFrame()
 
     # Rellenar valores nulos (NaN) con texto vacío para evitar errores de búsqueda
@@ -90,7 +100,7 @@ def procesar_excel_walking_test(uploaded_file):
                             "Calzado/Elemento": row_clean[5]
                         })
                     except ValueError:
-                        pass 
+                        pass # Ignorar si la celda no contiene un número válido
 
     return extracted, pd.DataFrame(results)
 # ==========================================
