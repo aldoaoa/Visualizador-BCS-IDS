@@ -41,8 +41,9 @@ import io
 
 def procesar_excel_walking_test(uploaded_file):
     try:
-        # Leer el Excel sin encabezados para tratarlo como una cuadrícula pura
-        df_raw = pd.read_excel(uploaded_file, header=None)
+        # Envolvemos los bytes en io.BytesIO para que pandas lo lea como un archivo real
+        archivo_en_memoria = io.BytesIO(uploaded_file.getvalue())
+        df_raw = pd.read_excel(archivo_en_memoria, header=None)
     except Exception as e:
         st.error(f"Error al leer el archivo Excel: {e}")
         return {}, pd.DataFrame()
@@ -78,7 +79,6 @@ def procesar_excel_walking_test(uploaded_file):
                 extracted["Humidity"] = row_clean[i+1]
             
             # --- Extraer Resultados de los 6 pasos ---
-            # Buscamos las etiquetas 1+, 2+, etc. en la primera columna (índice 0)
             elif cell in ["1+", "2+", "3+", "1-", "2-", "3-"] and i == 0:
                 if len(row_clean) >= 6:
                     try:
@@ -90,7 +90,7 @@ def procesar_excel_walking_test(uploaded_file):
                             "Calzado/Elemento": row_clean[5]
                         })
                     except ValueError:
-                        pass # Ignorar si la celda no contiene un número válido
+                        pass 
 
     return extracted, pd.DataFrame(results)
 # ==========================================
