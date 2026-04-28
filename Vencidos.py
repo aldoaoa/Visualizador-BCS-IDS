@@ -39,10 +39,16 @@ def limpiar_url_escaneo():
 import csv
 import io
 
-def procesar_csv_walking_test(uploaded_file):
-    # Leer el archivo decodificando los bytes a string
-    content = uploaded_file.getvalue().decode('utf-8').splitlines()
-    reader = csv.reader(content)
+def procesar_excel_walking_test(uploaded_file):
+    try:
+        # Leer el Excel sin encabezados para tratarlo como una cuadrícula pura
+        df_raw = pd.read_excel(uploaded_file, header=None)
+    except Exception as e:
+        st.error(f"Error al leer el archivo Excel: {e}")
+        return {}, pd.DataFrame()
+
+    # Rellenar valores nulos (NaN) con texto vacío para evitar errores de búsqueda
+    df_raw = df_raw.fillna("")
     
     extracted = {
         "Date": "", "Line": "", "Equipment ID": "", 
@@ -50,12 +56,16 @@ def procesar_csv_walking_test(uploaded_file):
     }
     results = []
 
-    for row in reader:
-        row_clean = [str(x).strip() for x in row]
-        if not row_clean: continue
+    # Iterar sobre las filas del Excel
+    for index, row in df_raw.iterrows():
+        # Convertir toda la fila a texto limpio
+        row_clean = [str(x).strip() for x in row.tolist()]
+        
+        # Si toda la fila está vacía, saltarla
+        if not any(row_clean): continue
 
         for i, cell in enumerate(row_clean):
-            # Extraer Metadata
+            # --- Extraer Metadata ---
             if "Execution Date:" in cell:
                 extracted["Date"] = cell.replace("Execution Date:", "").replace("_", "").strip()
             elif cell == "Line:" and i + 1 < len(row_clean):
@@ -67,7 +77,8 @@ def procesar_csv_walking_test(uploaded_file):
             elif cell == "Humidity:" and i + 1 < len(row_clean):
                 extracted["Humidity"] = row_clean[i+1]
             
-            # Extraer los Resultados de los 6 pasos
+            # --- Extraer Resultados de los 6 pasos ---
+            # Buscamos las etiquetas 1+, 2+, etc. en la primera columna (índice 0)
             elif cell in ["1+", "2+", "3+", "1-", "2-", "3-"] and i == 0:
                 if len(row_clean) >= 6:
                     try:
@@ -79,7 +90,7 @@ def procesar_csv_walking_test(uploaded_file):
                             "Calzado/Elemento": row_clean[5]
                         })
                     except ValueError:
-                        pass # Ignorar si hay algún error de formato en los números
+                        pass # Ignorar si la celda no contiene un número válido
 
     return extracted, pd.DataFrame(results)
 # ==========================================
@@ -953,12 +964,14 @@ else:
     # ==========================================
     elif st.session_state.vista_actual == "Walking_Test":
         st.markdown("### 🚶‍♂️ Registro de Walking Test (Generación de Voltaje Corporal)")
-        st.info("Sube el archivo .csv generado por el Body Voltage Meter para extraer las lecturas.")
+        st.info("Sube el archivo Excel (.xls o .xlsx) generado por el Body Voltage Meter para extraer las lecturas.")
         
-        uploaded_file = st.file_uploader("Selecciona el archivo CSV exportado", type=['csv'])
+        # --- CAMBIO AQUÍ: Aceptar xls y xlsx ---
+        uploaded_file = st.file_uploader("Selecciona el reporte Excel exportado", type=['xls', 'xlsx'])
         
         if uploaded_file is not None:
-            metadata, df_resultados = procesar_csv_walking_test(uploaded_file)
+            # --- CAMBIO AQUÍ: Llamar a la nueva función ---
+            metadata, df_resultados = procesar_excel_walking_test(uploaded_file)
             
             if not df_resultados.empty:
                 st.success("✅ Archivo procesado correctamente.")
@@ -1000,16 +1013,13 @@ else:
                                 sec = dict(st.secrets["connections"]["gsheets"])
                                 gc_gspread = gspread.service_account_from_dict(sec)
                                 
-                                # Nos aseguramos de que exista la hoja
                                 try:
                                     ws_wlk = gc_gspread.open_by_url(sec["spreadsheet"]).worksheet("WALKING_TEST")
                                 except gspread.exceptions.WorksheetNotFound:
-                                    # Si no existe, la crea con los encabezados
                                     sht = gc_gspread.open_by_url(sec["spreadsheet"])
                                     ws_wlk = sht.add_worksheet(title="WALKING_TEST", rows="1000", cols="15")
                                     ws_wlk.append_row(["Fecha de Ejecución", "Línea/Área", "Auditor", "Persona Evaluada", "Temperatura", "Humedad", "Pico Max (+) (V)", "Pico Max (-) (V)", "Veredicto S20.20"])
                                 
-                                # Preparamos fila a insertar
                                 fila_wlk = [
                                     metadata["Date"],
                                     linea_conf,
@@ -1027,4 +1037,4 @@ else:
                             st.success(f"💾 Registro de {linea_conf} guardado exitosamente.")
                             st.balloons()
             else:
-                st.error("No se pudieron extraer los resultados. Verifica que el formato del CSV sea el del equipo Desco.")
+                st.error("No se pudieron extraer los resultados. Verifica que el archivo sea el reporte original generado por el equipo.")
