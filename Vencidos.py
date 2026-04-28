@@ -39,40 +39,27 @@ def limpiar_url_escaneo():
 import csv
 import io
 
-def procesar_excel_walking_test(uploaded_file):
+def procesar_archivo_walking_test(uploaded_file):
     try:
-        # Detectar la extensión del archivo para forzar el motor correcto
-        nombre_archivo = uploaded_file.name.lower()
-        if nombre_archivo.endswith('.xls'):
-            motor = 'xlrd'
-        elif nombre_archivo.endswith('.xlsx'):
-            motor = 'openpyxl'
-        else:
-            motor = None # Dejar que pandas intente adivinar
-            
-        # Leer el Excel especificando el motor manualmente
-        df_raw = pd.read_excel(uploaded_file, header=None, engine=motor)
-        
+        # Obligamos a leer los bytes como texto plano, ignorando caracteres inválidos
+        # Esto desencripta el falso .xls que genera el equipo
+        content = uploaded_file.getvalue().decode('utf-8', errors='ignore').splitlines()
+        reader = csv.reader(content)
     except Exception as e:
-        st.error(f"Error al leer el archivo Excel: {e}")
-        st.info("💡 Tip: Si el error menciona dependencias, asegúrate de tener instalados 'xlrd' y 'openpyxl' en tu entorno o requirements.txt.")
+        st.error(f"Error al decodificar el archivo del equipo: {e}")
         return {}, pd.DataFrame()
 
-    # Rellenar valores nulos (NaN) con texto vacío para evitar errores de búsqueda
-    df_raw = df_raw.fillna("")
-    
     extracted = {
         "Date": "", "Line": "", "Equipment ID": "", 
         "Temperature": "", "Humidity": ""
     }
     results = []
 
-    # Iterar sobre las filas del Excel
-    for index, row in df_raw.iterrows():
-        # Convertir toda la fila a texto limpio
-        row_clean = [str(x).strip() for x in row.tolist()]
+    for row in reader:
+        # Limpiamos los espacios en blanco de cada celda
+        row_clean = [str(x).strip() for x in row]
         
-        # Si toda la fila está vacía, saltarla
+        # Si la fila está vacía, saltamos a la siguiente
         if not any(row_clean): continue
 
         for i, cell in enumerate(row_clean):
@@ -100,7 +87,7 @@ def procesar_excel_walking_test(uploaded_file):
                             "Calzado/Elemento": row_clean[5]
                         })
                     except ValueError:
-                        pass # Ignorar si la celda no contiene un número válido
+                        pass # Ignorar celdas que no puedan convertirse a número
 
     return extracted, pd.DataFrame(results)
 # ==========================================
@@ -974,14 +961,14 @@ else:
     # ==========================================
     elif st.session_state.vista_actual == "Walking_Test":
         st.markdown("### 🚶‍♂️ Registro de Walking Test (Generación de Voltaje Corporal)")
-        st.info("Sube el archivo Excel (.xls o .xlsx) generado por el Body Voltage Meter para extraer las lecturas.")
+        st.info("Sube el archivo exportado (.xls o .csv) por el equipo Desco.")
         
-        # --- CAMBIO AQUÍ: Aceptar xls y xlsx ---
-        uploaded_file = st.file_uploader("Selecciona el reporte Excel exportado", type=['xls', 'xlsx'])
+        # Permitimos ambos formatos
+        uploaded_file = st.file_uploader("Selecciona el reporte exportado", type=['xls', 'csv', 'xlsx'])
         
         if uploaded_file is not None:
-            # --- CAMBIO AQUÍ: Llamar a la nueva función ---
-            metadata, df_resultados = procesar_excel_walking_test(uploaded_file)
+            # Llamamos a nuestra función que lee todo como texto puro
+            metadata, df_resultados = procesar_archivo_walking_test(uploaded_file)
             
             if not df_resultados.empty:
                 st.success("✅ Archivo procesado correctamente.")
