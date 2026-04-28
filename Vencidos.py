@@ -41,10 +41,28 @@ import io
 
 def procesar_archivo_walking_test(uploaded_file):
     try:
-        # Obligamos a leer los bytes como texto plano, ignorando caracteres inválidos
-        # Esto desencripta el falso .xls que genera el equipo
-        content = uploaded_file.getvalue().decode('utf-8', errors='ignore').splitlines()
-        reader = csv.reader(content)
+        raw_bytes = uploaded_file.getvalue()
+        
+        # 1. El truco industrial: Decodificar el "falso .xls" manejando UTF-16
+        try:
+            # Intentar decodificar como UTF-16 (común en equipos de medición)
+            texto = raw_bytes.decode('utf-16')
+        except UnicodeDecodeError:
+            try:
+                # Si falla, intentar el estándar UTF-8
+                texto = raw_bytes.decode('utf-8')
+            except UnicodeDecodeError:
+                # Último recurso para sistemas legados
+                texto = raw_bytes.decode('latin1')
+        
+        content = texto.splitlines()
+        
+        # 2. Detección automática de delimitador (Tabulación vs Coma)
+        if len(content) > 0 and '\t' in content[0]:
+            reader = csv.reader(content, delimiter='\t')
+        else:
+            reader = csv.reader(content, delimiter=',')
+            
     except Exception as e:
         st.error(f"Error al decodificar el archivo del equipo: {e}")
         return {}, pd.DataFrame()
@@ -56,10 +74,8 @@ def procesar_archivo_walking_test(uploaded_file):
     results = []
 
     for row in reader:
-        # Limpiamos los espacios en blanco de cada celda
+        # Limpiamos los espacios de cada celda
         row_clean = [str(x).strip() for x in row]
-        
-        # Si la fila está vacía, saltamos a la siguiente
         if not any(row_clean): continue
 
         for i, cell in enumerate(row_clean):
@@ -76,18 +92,20 @@ def procesar_archivo_walking_test(uploaded_file):
                 extracted["Humidity"] = row_clean[i+1]
             
             # --- Extraer Resultados de los 6 pasos ---
-            elif cell in ["1+", "2+", "3+", "1-", "2-", "3-"] and i == 0:
-                if len(row_clean) >= 6:
+            # Buscamos la etiqueta de los pasos sin forzar que esté en la columna 0
+            elif cell in ["1+", "2+", "3+", "1-", "2-", "3-"]:
+                # Validamos que haya suficientes columnas por delante para extraer los voltajes
+                if len(row_clean) >= i + 4: 
                     try:
                         results.append({
                             "Paso": cell,
-                            "Límite Sup (V)": float(row_clean[1]),
-                            "Límite Inf (V)": float(row_clean[2]),
-                            "Resultado (V)": float(row_clean[3]),
-                            "Calzado/Elemento": row_clean[5]
+                            "Límite Sup (V)": float(row_clean[i+1]),
+                            "Límite Inf (V)": float(row_clean[i+2]),
+                            "Resultado (V)": float(row_clean[i+3]),
+                            "Calzado/Elemento": row_clean[i+5] if len(row_clean) > i+5 else ""
                         })
                     except ValueError:
-                        pass # Ignorar celdas que no puedan convertirse a número
+                        pass # Ignoramos si hay texto donde debería ir un número
 
     return extracted, pd.DataFrame(results)
 # ==========================================
