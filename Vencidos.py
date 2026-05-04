@@ -939,10 +939,18 @@ else:
                     if linea_reporte != "Todas":
                         df_rep = df_rep[df_rep['Línea'].astype(str).str.strip() == linea_reporte]
                     
+                    # Convertimos a numérico y ordenamos descendente por cantidad de eventos
+                    col_eventos = 'Detección (Cantidad)' if 'Detección (Cantidad)' in df_rep.columns else 'Detección'
+                    df_rep[col_eventos] = pd.to_numeric(df_rep[col_eventos], errors='coerce').fillna(0)
+                    df_rep = df_rep.sort_values(by=col_eventos, ascending=False)
+                    
                     for i, row in enumerate(df_rep.to_dict('records'), 1):
                         op = str(row.get('Id de Operación', 'N/A'))
-                        eventos = row.get('Detección (Cantidad)', 0)
-                        vmax = row.get('Voltaje máximo', 0.0)
+                        eventos = int(row.get(col_eventos, 0))
+                        
+                        # Buscamos la columna de voltaje (soporta variaciones de nombre)
+                        vmax = row.get('Voltaje máximo de descarga', row.get('Voltaje máximo', 0.0))
+                        
                         estatus = str(row.get('Estatus de verificación', '')).upper()
                         notas = str(row.get('Notas', ''))
                         if notas == "nan": notas = ""
@@ -959,7 +967,6 @@ else:
                             <td class="border border-gray-800 p-1 text-center">{vmax}V</td>
                             <td class="border border-gray-800 p-1 text-center font-bold {color_estatus}">{pass_fail}</td>
                             <td class="border border-gray-800 p-1">{notas}</td>
-                            <td class="no-print border border-gray-800 p-1 text-center text-gray-400">✅</td>
                         </tr>
                         """
                 
@@ -1000,8 +1007,8 @@ else:
             </button>
         </div>
         <div class="border-2 border-gray-800 mb-6 flex flex-col md:flex-row text-sm print-border">
-            <div class="p-4 border-b-2 md:border-b-0 md:border-r-2 border-gray-800 flex items-center justify-center w-full md:w-1/4 font-bold text-xl text-center">
-                [LOGO EMPRESA]
+            <div class="p-4 border-b-2 md:border-b-0 md:border-r-2 border-gray-800 flex items-center justify-center w-full md:w-1/4">
+                <img src="https://github.com/aldoaoa/Visualizador-BCS-IDS/blob/main/BCS%20LOGO.png?raw=true" alt="Logo BCS" class="max-h-20 object-contain">
             </div>
             <div class="p-4 flex-1 border-b-2 md:border-b-0 md:border-r-2 border-gray-800 text-center flex flex-col justify-center">
                 <h1 class="text-lg font-bold uppercase">Registro de Estudio de Eventos ESD (Event Meter)</h1>
@@ -1019,22 +1026,21 @@ else:
                 <div class="flex items-center"><label class="w-32 font-bold">Auditor:</label> <input type="text" value="{{AUDITOR}}"></div>
             </div>
             <div class="space-y-2">
-                <div class="flex items-center"><label class="w-40 font-bold">Equipo Utilizado:</label> <input type="text" placeholder="Ej. EM Aware"></div>
-                <div class="flex items-center"><label class="w-40 font-bold">No. de Serie:</label> <input type="text"></div>
+                <div class="flex items-center"><label class="w-40 font-bold">Equipo Utilizado:</label> <input type="text" value="SCS EM EYE" readonly></div>
+                <div class="flex items-center"><label class="w-40 font-bold">No. de Serie:</label> <input type="text" value="2451005" readonly></div>
             </div>
         </div>
         <div class="overflow-x-auto mb-8">
             <table class="w-full text-sm border-collapse border border-gray-800 print-border">
                 <thead>
                     <tr class="bg-gray-200">
-                        <th class="border border-gray-800 p-2 text-center">No.</th>
-                        <th class="border border-gray-800 p-2">Operación / Estación</th>
-                        <th class="border border-gray-800 p-2 text-center">Tiempo</th>
-                        <th class="border border-gray-800 p-2 text-center">Eventos</th>
-                        <th class="border border-gray-800 p-2 text-center">Voltaje Máx.</th>
-                        <th class="border border-gray-800 p-2 text-center">Resultado</th>
-                        <th class="border border-gray-800 p-2">Observaciones</th>
-                        <th class="no-print border border-gray-800 p-2 text-center">Datos</th>
+                        <th class="border border-gray-800 p-2 text-center w-10">No.</th>
+                        <th class="border border-gray-800 p-2 text-left">Operación / Estación</th>
+                        <th class="border border-gray-800 p-2 text-center w-24">Tiempo (m)</th>
+                        <th class="border border-gray-800 p-2 text-center w-24">Eventos</th>
+                        <th class="border border-gray-800 p-2 text-center w-24">Voltaje Máx.</th>
+                        <th class="border border-gray-800 p-2 text-center w-24">Resultado</th>
+                        <th class="border border-gray-800 p-2 text-left">Observaciones</th>
                     </tr>
                 </thead>
                 <tbody>
