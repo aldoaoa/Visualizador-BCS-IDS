@@ -143,7 +143,7 @@ else:
         st.session_state.vista_actual = "Alta"
 
     if not st.session_state.modo_lectura:
-        c_nav1, c_nav2, c_nav3 = st.columns(3)
+        c_nav1, c_nav2, c_nav3, c_nav4 = st.columns(4)
         with c_nav1:
             if st.button("🗺️ Mapa y Reportes", use_container_width=True, type="primary" if st.session_state.vista_actual == "Mapa" else "secondary"):
                 st.session_state.vista_actual = "Mapa"
@@ -155,8 +155,13 @@ else:
                 limpiar_url_escaneo()
                 st.rerun()
         with c_nav3:
-            if st.button("🆕 Alta/Baja Equipos", use_container_width=True, type="primary" if st.session_state.vista_actual == "Alta" else "secondary"):
+            if st.button("🆕 Alta/Baja", use_container_width=True, type="primary" if st.session_state.vista_actual == "Alta" else "secondary"):
                 st.session_state.vista_actual = "Alta"
+                limpiar_url_escaneo()
+                st.rerun()
+        with c_nav4:
+            if st.button("⚡ Event Meter", use_container_width=True, type="primary" if st.session_state.vista_actual == "Event Meter" else "secondary"):
+                st.session_state.vista_actual = "Event Meter"
                 limpiar_url_escaneo()
                 st.rerun()
     else:
@@ -904,3 +909,138 @@ else:
                                 st.rerun()
             else:
                 st.error(f"❌ El ID '{id_escaneado_url}' no se encontró en la base de datos.")
+# ==========================================
+    # VISTA 3: EVENT METER
+    # ==========================================
+    elif st.session_state.vista_actual == "Event Meter" and not st.session_state.modo_lectura:
+        st.markdown("### ⚡ Estudio de Event Meter (PCBA)")
+        st.info("Mide descargas electrostáticas y transitorios durante la operación normal de la maquinaria/proceso.")
+
+        # --- SECCIÓN DEL TEMPORIZADOR ---
+        modo_tiempo = st.radio("Temporizador de Estudio (5 minutos)", ["⏱️ Usar Cronómetro Integrado", "⏭️ Omitir (Ya cronometrado)"], horizontal=True)
+
+        if modo_tiempo == "⏱️ Usar Cronómetro Integrado":
+            # Temporizador en HTML/JS para no bloquear Streamlit
+            html_timer = """
+            <div style="text-align:center; padding: 15px; border: 2px dashed #0052cc; border-radius: 10px; background-color: #f0f7ff;">
+                <div id="timer_display" style="font-size: 50px; font-weight: bold; font-family: monospace; color: #0052cc; margin-bottom: 10px;">05:00</div>
+                <button onclick="startTimer()" style="padding: 10px 20px; font-size: 16px; font-weight:bold; cursor: pointer; background-color: #28a745; color: white; border: none; border-radius: 5px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">▶ Iniciar</button>
+                <button onclick="stopTimer()" style="padding: 10px 20px; font-size: 16px; font-weight:bold; cursor: pointer; background-color: #dc3545; color: white; border: none; border-radius: 5px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-left: 10px;">⏹ Detener / Reset</button>
+            </div>
+            <script>
+                let timeLeft = 300; // 5 minutos en segundos
+                let timerId = null;
+
+                function updateDisplay() {
+                    let m = Math.floor(timeLeft / 60).toString().padStart(2, '0');
+                    let s = (timeLeft % 60).toString().padStart(2, '0');
+                    let display = document.getElementById('timer_display');
+                    display.innerText = m + ":" + s;
+                    
+                    if (timeLeft <= 0) {
+                        display.style.color = "#dc3545";
+                        display.innerText = "¡TIEMPO TERMINADO!";
+                        clearInterval(timerId);
+                        timerId = null;
+                    } else if (timeLeft <= 60) {
+                        display.style.color = "#ffc107"; // Advertencia en el último minuto
+                    } else {
+                        display.style.color = "#0052cc";
+                    }
+                }
+
+                function startTimer() {
+                    if (!timerId && timeLeft > 0) {
+                        timerId = setInterval(() => {
+                            timeLeft--;
+                            updateDisplay();
+                        }, 1000);
+                    }
+                }
+
+                function stopTimer() {
+                    clearInterval(timerId);
+                    timerId = null;
+                    timeLeft = 300; // Resetear
+                    updateDisplay();
+                }
+            </script>
+            """
+            components.html(html_timer, height=200)
+
+        st.divider()
+
+        # --- FORMULARIO DE CAPTURA ---
+        with st.form("form_event_meter_captura"):
+            col1, col2 = st.columns(2)
+            
+            # Puedes extraer las líneas dinámicamente o dejarlas predefinidas
+            linea_em = col1.selectbox("Línea", options=["Audio TLA", "SMT", "Ensamble Final", "Otra"])
+            if linea_em == "Otra":
+                linea_em = col1.text_input("Especifique Línea")
+                
+            id_operacion = col2.text_input("ID de Operación (Ej: OP50-AUDIO)")
+            
+            tipo_contacto = col1.selectbox("Tipo de contacto", options=["Maquinaria", "EOLT", "AOI", "Herramienta Manual", "Humano", "Otro"])
+            if tipo_contacto == "Otro":
+                tipo_contacto = col1.text_input("Especifique Tipo de Contacto")
+
+            st.markdown("#### ⚡ Resultados de Detección")
+            col_d1, col_d2 = st.columns(2)
+            
+            # Usando el truco de value=None para capturas limpias
+            deteccion_eventos = col_d1.number_input("Cantidad de Eventos Detectados", min_value=0, step=1, value=None, placeholder="0")
+            deteccion_eventos = deteccion_eventos if deteccion_eventos is not None else 0
+            
+            voltaje_max = col_d2.number_input("Voltaje máximo de descarga (V)", min_value=0.0, max_value=999.0, step=0.1, value=None, placeholder="0.0")
+            voltaje_max = voltaje_max if voltaje_max is not None else 0.0
+
+            notas_em = st.text_area("Notas / Observaciones")
+
+            # Campos calculados o estandarizados
+            limite_maximo_v = 50.0  # Límite típico S20.20 para modelos cargados, ajústalo según tu especificación
+            estatus_verificacion = "APROBADO" if voltaje_max <= limite_maximo_v else "RECHAZADO"
+            fecha_hoy = datetime.today().date()
+            frecuencia_em = "Semestral" # Frecuencia por defecto
+            proxima_fecha = calcular_proxima_fecha(fecha_hoy, frecuencia_em)
+
+            submit_em = st.form_submit_button("💾 Guardar Registro de Event Meter", use_container_width=True)
+
+            if submit_em:
+                if not id_operacion:
+                    st.error("⚠️ El campo 'ID de Operación' es obligatorio.")
+                else:
+                    with st.spinner("Guardando en la hoja EVENT_METER..."):
+                        import gspread
+                        sec = dict(st.secrets["connections"]["gsheets"])
+                        gc_em = gspread.service_account_from_dict(sec)
+                        
+                        # IMPORTANTE: Asegúrate de crear una pestaña llamada "EVENT_METER" en tu Google Sheets
+                        try:
+                            ws_em = gc_em.open_by_url(sec["spreadsheet"]).worksheet("EVENT_METER")
+                        except gspread.exceptions.WorksheetNotFound:
+                            st.error("❌ No se encontró la pestaña 'EVENT_METER' en Google Sheets. Por favor créala primero con los encabezados adecuados.")
+                            st.stop()
+                        
+                        fila_em = [
+                            linea_em,                                       # Línea
+                            id_operacion.upper(),                           # Id de Operación
+                            tipo_contacto,                                  # Tipo de contacto
+                            int(deteccion_eventos),                         # Detección (Cantidad)
+                            float(voltaje_max) if deteccion_eventos > 0 else 0.0, # Voltaje máximo
+                            st.session_state.usuario_nombre,                # Auditor
+                            limite_maximo_v,                                # Maximo
+                            "Volts",                                        # Unidad de aceptabilidad
+                            "Event Meter",                                  # Método
+                            fecha_hoy.strftime("%d-%b-%Y"),                 # Fecha de verificación
+                            proxima_fecha.strftime("%d-%b-%Y"),             # Fecha de próxima verificación
+                            frecuencia_em,                                  # Frecuencia de verificación
+                            estatus_verificacion,                           # Estatus de verificación
+                            "OPERATIVO",                                    # Estatus operativo
+                            notas_em                                        # Notas
+                        ]
+                        
+                        ws_em.append_row(fila_em, value_input_option="USER_ENTERED")
+                        
+                    st.success(f"✅ ¡Estudio de {id_operacion} registrado exitosamente! Estatus: {estatus_verificacion}")
+                    st.balloons()
