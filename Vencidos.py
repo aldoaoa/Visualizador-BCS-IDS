@@ -794,7 +794,7 @@ else:
                                 st.caption("Resistencia (Ohms)")
                                 def_val = float(valor_ocr_detectado) if valor_ocr_detectado else 0.0
                                 
-                                def_base = 0
+                                def_base = 0.0
                                 def_exp = 0
                                 if def_val != 0:
                                     def_exp = int(math.floor(math.log10(abs(def_val))))
