@@ -792,7 +792,7 @@ else:
                                 nuevo_balance = c_form2.number_input("Balance (V)", value=bal_def, format="%.2f")
                             else:
                                 st.caption("Resistencia (Ohms)")
-                                def_val = float(valor_ocr_detectado) if valor_ocr_detectado else 0
+                                def_val = float(valor_ocr_detectado) if valor_ocr_detectado else 0.0
                                 
                                 def_base = 0
                                 def_exp = 0
@@ -804,7 +804,7 @@ else:
                                 base_upd = c_b.number_input("Número", value=def_base, format="%.2f")
                                 c_x.markdown("<div style='text-align: center; margin-top: 30px; font-weight: bold; font-size: 18px;'>x 10^</div>", unsafe_allow_html=True)
                                 exp_upd = c_e.number_input("Exponente", value=def_exp, step=1, format="%d")
-                                nuevo_valor_final = base_upd * (10 ** exp_upd) if base_upd != 0 else 0
+                                nuevo_valor_final = base_upd * (10 ** exp_upd) if base_upd != 0 else 0.0
                                 
                             fecha_hoy = datetime.today().date()
                             nueva_fecha_valida = st.date_input("Fecha de medición", fecha_hoy)
