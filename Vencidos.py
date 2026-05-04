@@ -101,14 +101,16 @@ else:
 
     @st.cache_data(ttl=2, max_entries=1) 
     def cargar_datos_cloud():
-        df_piso, df_mob, df_ion = None, None, None
+        df_piso, df_mob, df_ion, df_em = None, None, None, None
         try: df_piso = conn.read(worksheet="PISO", header=4)
         except: pass
         try: df_mob = conn.read(worksheet="MOBILIARIO", header=4)
         except: pass
         try: df_ion = conn.read(worksheet="IONIZADORES", header=4)
         except: pass
-        return df_piso, df_mob, df_ion
+        try: df_em = conn.read(worksheet="EVENT_METER") # Cambia el header=4 si tus encabezados no están en la fila 1
+        except: pass
+        return df_piso, df_mob, df_ion, df_em
 
     def calcular_proxima_fecha(fecha_actual, frecuencia):
         frecuencia = str(frecuencia).strip().lower()
@@ -120,7 +122,11 @@ else:
 
     st.title("Sistema de Gestión ESD BCS-AIS Querétaro")
     
-    df_piso_local, df_mob_local, df_ion_local = cargar_datos_cloud()
+    df_piso_local, df_mob_local, df_ion_local, df_em_local = cargar_datos_cloud()
+    
+    # Fallback de seguridad por si la pestaña está vacía al inicio
+    if df_em_local is None:
+        df_em_local = pd.DataFrame(columns=['Línea', 'Id de Operación'])
 
     if df_mob_local is None:
         st.error("Falla al conectar con el servidor.")
@@ -971,15 +977,42 @@ else:
         st.divider()
 
         # --- FORMULARIO DE CAPTURA ---
+        st.divider()
+        st.markdown("#### 📍 Ubicación y Operación")
+        c_loc1, c_loc2 = st.columns(2)
+
+        # --- LÓGICA DINÁMICA DE SELECCIÓN (AFUERA DEL FORM) ---
+        lineas_existentes = []
+        if df_em_local is not None and 'Línea' in df_em_local.columns:
+            lineas_existentes = sorted([str(x).strip() for x in df_em_local['Línea'].dropna().unique() if str(x).strip() != ''])
+        
+        if not lineas_existentes:
+            lineas_existentes = ["Sin registros"]
+
+        linea_seleccionada = c_loc1.selectbox("Línea", options=lineas_existentes)
+        
+        # Checkbox para capturar opciones nuevas
+        nueva_op_check = c_loc2.checkbox("➕ Registrar nueva Operación o Línea")
+
+        if nueva_op_check:
+            linea_final = c_loc1.text_input("Ingresa Nueva Línea", value=linea_seleccionada if linea_seleccionada != "Sin registros" else "")
+            id_operacion_final = c_loc2.text_input("Ingresa Nuevo ID de Operación (Ej: OP50-AUDIO)")
+        else:
+            linea_final = linea_seleccionada
+            ops_existentes = []
+            if df_em_local is not None and 'Id de Operación' in df_em_local.columns and 'Línea' in df_em_local.columns:
+                # Filtramos las operaciones correspondientes a la línea seleccionada
+                ops_filtradas = df_em_local[df_em_local['Línea'].astype(str).str.strip() == linea_seleccionada]
+                ops_existentes = sorted([str(x).strip() for x in ops_filtradas['Id de Operación'].dropna().unique() if str(x).strip() != ''])
+            
+            if not ops_existentes:
+                id_operacion_final = c_loc2.selectbox("ID de Operación", options=["(Sin operaciones previas)"])
+            else:
+                id_operacion_final = c_loc2.selectbox("Selecciona ID de Operación", options=ops_existentes)
+
+        # --- FORMULARIO DE CAPTURA (Mediciones) ---
         with st.form("form_event_meter_captura"):
             col1, col2 = st.columns(2)
-            
-            # Puedes extraer las líneas dinámicamente o dejarlas predefinidas
-            linea_em = col1.selectbox("Línea", options=["Audio TLA", "SMT", "Ensamble Final", "Otra"])
-            if linea_em == "Otra":
-                linea_em = col1.text_input("Especifique Línea")
-                
-            id_operacion = col2.text_input("ID de Operación (Ej: OP50-AUDIO)")
             
             tipo_contacto = col1.selectbox("Tipo de contacto", options=["Maquinaria", "EOLT", "AOI", "Herramienta Manual", "Humano", "Otro"])
             if tipo_contacto == "Otro":
@@ -988,7 +1021,6 @@ else:
             st.markdown("#### ⚡ Resultados de Detección")
             col_d1, col_d2 = st.columns(2)
             
-            # Usando el truco de value=None para capturas limpias
             deteccion_eventos = col_d1.number_input("Cantidad de Eventos Detectados", min_value=0, step=1, value=None, placeholder="0")
             deteccion_eventos = deteccion_eventos if deteccion_eventos is not None else 0
             
@@ -997,34 +1029,32 @@ else:
 
             notas_em = st.text_area("Notas / Observaciones")
 
-            # Campos calculados o estandarizados
-            limite_maximo_v = 50.0  # Límite típico S20.20 para modelos cargados, ajústalo según tu especificación
+            limite_maximo_v = 50.0  
             estatus_verificacion = "APROBADO" if voltaje_max <= limite_maximo_v else "RECHAZADO"
             fecha_hoy = datetime.today().date()
-            frecuencia_em = "Semestral" # Frecuencia por defecto
+            frecuencia_em = "Semestral" 
             proxima_fecha = calcular_proxima_fecha(fecha_hoy, frecuencia_em)
 
             submit_em = st.form_submit_button("💾 Guardar Registro de Event Meter", use_container_width=True)
 
             if submit_em:
-                if not id_operacion:
-                    st.error("⚠️ El campo 'ID de Operación' es obligatorio.")
+                if not id_operacion_final or id_operacion_final == "(Sin operaciones previas)":
+                    st.error("⚠️ Debes proporcionar un ID de Operación válido.")
                 else:
                     with st.spinner("Guardando en la hoja EVENT_METER..."):
                         import gspread
                         sec = dict(st.secrets["connections"]["gsheets"])
                         gc_em = gspread.service_account_from_dict(sec)
                         
-                        # IMPORTANTE: Asegúrate de crear una pestaña llamada "EVENT_METER" en tu Google Sheets
                         try:
                             ws_em = gc_em.open_by_url(sec["spreadsheet"]).worksheet("EVENT_METER")
                         except gspread.exceptions.WorksheetNotFound:
-                            st.error("❌ No se encontró la pestaña 'EVENT_METER' en Google Sheets. Por favor créala primero con los encabezados adecuados.")
+                            st.error("❌ No se encontró la pestaña 'EVENT_METER'.")
                             st.stop()
                         
                         fila_em = [
-                            linea_em,                                       # Línea
-                            id_operacion.upper(),                           # Id de Operación
+                            linea_final,                                    # Línea
+                            id_operacion_final.upper(),                     # Id de Operación
                             tipo_contacto,                                  # Tipo de contacto
                             int(deteccion_eventos),                         # Detección (Cantidad)
                             float(voltaje_max) if deteccion_eventos > 0 else 0.0, # Voltaje máximo
@@ -1042,5 +1072,6 @@ else:
                         
                         ws_em.append_row(fila_em, value_input_option="USER_ENTERED")
                         
-                    st.success(f"✅ ¡Estudio de {id_operacion} registrado exitosamente! Estatus: {estatus_verificacion}")
+                    st.success(f"✅ ¡Estudio de {id_operacion_final} registrado exitosamente! Estatus: {estatus_verificacion}")
+                    st.cache_data.clear() # Limpiamos la caché para que la nueva operación aparezca en la lista inmediatamente
                     st.balloons()
