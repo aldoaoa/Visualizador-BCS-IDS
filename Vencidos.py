@@ -784,27 +784,37 @@ else:
                             if es_ion:
                                 st.markdown("#### Captura de Mediciones Ionizador")
                                 c_form1, c_form2 = st.columns(2)
-                                v_act = c_form1.number_input("Tiempo de Descarga (Segundos)", value=0.0, format="%.2f")
-                                
+    
+                                v_act = c_form1.number_input("Tiempo de Descarga (Segundos)", value=None, format="%.2f", placeholder="0.00")
+                                v_act = v_act if v_act is not None else 0.0
+    
                                 bal_def = equipo.get('Balance', 0.0)
                                 try: bal_def = float(bal_def)
                                 except: bal_def = 0.0
-                                nuevo_balance = c_form2.number_input("Balance (V)", value=bal_def, format="%.2f")
+    
+                                # Usamos el bal_def como placeholder para que el usuario sepa cuál era el anterior
+                                nuevo_balance = c_form2.number_input("Balance (V)", value=None, format="%.2f", placeholder=str(bal_def))
+                                # Si lo dejan en blanco, conservamos el balance anterior
+                                nuevo_balance = nuevo_balance if nuevo_balance is not None else bal_def
                             else:
                                 st.caption("Resistencia (Ohms)")
                                 def_val = float(valor_ocr_detectado) if valor_ocr_detectado else 0.0
-                                
+    
                                 def_base = 0.0
                                 def_exp = 0
                                 if def_val != 0:
                                     def_exp = int(math.floor(math.log10(abs(def_val))))
                                     def_base = def_val / (10 ** def_exp)
-                                
+    
                                 c_b, c_x, c_e = st.columns([2, 1, 2])
-                                base_upd = c_b.number_input("Número", value=def_base, format="%.2f")
+                                base_upd = c_b.number_input("Número", value=None, format="%.2f", placeholder=f"{def_base:.2f}")
                                 c_x.markdown("<div style='text-align: center; margin-top: 30px; font-weight: bold; font-size: 18px;'>x 10^</div>", unsafe_allow_html=True)
-                                exp_upd = c_e.number_input("Exponente", value=def_exp, step=1, format="%d")
-                                nuevo_valor_final = base_upd * (10 ** exp_upd) if base_upd != 0 else 0.0
+                                exp_upd = c_e.number_input("Exponente", value=None, step=1, format="%d", placeholder=str(def_exp))
+    
+    # Si se dejan en blanco, mantenemos el valor extraído del OCR o del historial
+    base_upd = base_upd if base_upd is not None else def_base
+    exp_upd = exp_upd if exp_upd is not None else def_exp
+    nuevo_valor_final = base_upd * (10 ** exp_upd) if base_upd != 0 else 0.0
                                 
                             fecha_hoy = datetime.today().date()
                             nueva_fecha_valida = st.date_input("Fecha de medición", fecha_hoy)
