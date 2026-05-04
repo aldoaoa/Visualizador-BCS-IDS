@@ -784,7 +784,7 @@ else:
                             if es_ion:
                                 st.markdown("#### Captura de Mediciones Ionizador")
                                 c_form1, c_form2 = st.columns(2)
-                                v_act = c_form1.number_input("Tiempo de Descarga (Segundos)", value=None, format="%.2f")
+                                v_act = c_form1.number_input("Tiempo de Descarga (Segundos)", value=0.0, format="%.2f")
                                 
                                 bal_def = equipo.get('Balance', 0.0)
                                 try: bal_def = float(bal_def)
@@ -792,7 +792,7 @@ else:
                                 nuevo_balance = c_form2.number_input("Balance (V)", value=bal_def, format="%.2f")
                             else:
                                 st.caption("Resistencia (Ohms)")
-                                def_val = float(valor_ocr_detectado) if valor_ocr_detectado else None
+                                def_val = float(valor_ocr_detectado) if valor_ocr_detectado else 0.0
                                 
                                 def_base = None
                                 def_exp = None
