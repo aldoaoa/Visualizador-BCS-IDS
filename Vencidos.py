@@ -1029,7 +1029,7 @@ else:
 
             notas_em = st.text_area("Notas / Observaciones")
 
-            limite_maximo_v = 50.0  
+            limite_maximo_v = 100.0  
             estatus_verificacion = "APROBADO" if voltaje_max <= limite_maximo_v else "RECHAZADO"
             fecha_hoy = datetime.today().date()
             frecuencia_em = "Semestral" 
