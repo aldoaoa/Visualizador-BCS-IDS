@@ -918,9 +918,148 @@ else:
 # ==========================================
     # VISTA 3: EVENT METER
     # ==========================================
-    elif st.session_state.vista_actual == "Event Meter" and not st.session_state.modo_lectura:
+        elif st.session_state.vista_actual == "Event Meter" and not st.session_state.modo_lectura:
         st.markdown("### ⚡ Estudio de Event Meter (PCBA)")
         st.info("Mide descargas electrostáticas y transitorios durante la operación normal de la maquinaria/proceso.")
+
+        # --- SECCIÓN: GENERADOR DE REPORTE ANSI/ESD S20.20 ---
+        with st.expander("📄 Generar Reporte Oficial ANSI/ESD S20.20", expanded=False):
+            st.write("Genera el formato pre-llenado listo para imprimir en PDF con los registros actuales de tu base de datos.")
+            
+            lineas_reporte = ["Todas"]
+            if df_em_local is not None and 'Línea' in df_em_local.columns:
+                lineas_reporte += sorted([str(x).strip() for x in df_em_local['Línea'].dropna().unique() if str(x).strip() != ''])
+            
+            linea_reporte = st.selectbox("Seleccionar Línea para el Reporte", options=lineas_reporte)
+            
+            if st.button("Generar Reporte HTML", use_container_width=True):
+                html_rows = ""
+                if df_em_local is not None and not df_em_local.empty:
+                    df_rep = df_em_local.copy()
+                    if linea_reporte != "Todas":
+                        df_rep = df_rep[df_rep['Línea'].astype(str).str.strip() == linea_reporte]
+                    
+                    for i, row in enumerate(df_rep.to_dict('records'), 1):
+                        op = str(row.get('Id de Operación', 'N/A'))
+                        eventos = row.get('Detección (Cantidad)', 0)
+                        vmax = row.get('Voltaje máximo', 0.0)
+                        estatus = str(row.get('Estatus de verificación', '')).upper()
+                        notas = str(row.get('Notas', ''))
+                        if notas == "nan": notas = ""
+                        
+                        color_estatus = "text-green-600" if "APROBADO" in estatus else "text-red-600"
+                        pass_fail = "PASA" if "APROBADO" in estatus else "FALLA"
+                        
+                        html_rows += f"""
+                        <tr>
+                            <td class="border border-gray-800 p-1 text-center font-bold text-gray-600">{i}</td>
+                            <td class="border border-gray-800 p-1">{op}</td>
+                            <td class="border border-gray-800 p-1 text-center font-bold">5</td>
+                            <td class="border border-gray-800 p-1 text-center">{eventos}</td>
+                            <td class="border border-gray-800 p-1 text-center">{vmax}V</td>
+                            <td class="border border-gray-800 p-1 text-center font-bold {color_estatus}">{pass_fail}</td>
+                            <td class="border border-gray-800 p-1">{notas}</td>
+                            <td class="no-print border border-gray-800 p-1 text-center text-gray-400">✅</td>
+                        </tr>
+                        """
+                
+                if html_rows == "":
+                    st.warning("No hay registros guardados para esta línea.")
+                else:
+                    fecha_hoy_str = datetime.today().strftime("%Y-%m-%d")
+                    auditor_name = st.session_state.usuario_nombre if st.session_state.usuario_nombre else ""
+                    
+                    html_template = """<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reporte Event Meter - {{LINEA}}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @media print {
+            body { background-color: white; padding: 0; }
+            .no-print { display: none !important; }
+            .print-border { border: 1px solid #000; }
+            .shadow-lg { box-shadow: none; }
+            input, textarea { border: none !important; resize: none; background: transparent; }
+            input::placeholder, textarea::placeholder { color: transparent; }
+        }
+        input, textarea {
+            width: 100%; background-color: #f9fafb; border: 1px solid #e5e7eb;
+            border-radius: 0.25rem; padding: 0.25rem 0.5rem; font-size: 0.875rem;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 p-4 md:p-8 text-gray-800 font-sans">
+    <div class="max-w-5xl mx-auto bg-white p-8 shadow-lg print:shadow-none print:p-0">
+        <div class="flex justify-end space-x-4 mb-6 no-print">
+            <button onclick="window.print()" class="bg-gray-800 text-white px-4 py-2 rounded shadow hover:bg-gray-900 transition flex items-center">
+                <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path></svg>
+                Imprimir / Guardar PDF
+            </button>
+        </div>
+        <div class="border-2 border-gray-800 mb-6 flex flex-col md:flex-row text-sm print-border">
+            <div class="p-4 border-b-2 md:border-b-0 md:border-r-2 border-gray-800 flex items-center justify-center w-full md:w-1/4 font-bold text-xl text-center">
+                [LOGO EMPRESA]
+            </div>
+            <div class="p-4 flex-1 border-b-2 md:border-b-0 md:border-r-2 border-gray-800 text-center flex flex-col justify-center">
+                <h1 class="text-lg font-bold uppercase">Registro de Estudio de Eventos ESD (Event Meter)</h1>
+                <p class="text-gray-600 font-semibold">Norma de Referencia: ANSI/ESD S20.20</p>
+            </div>
+            <div class="p-2 w-full md:w-1/4 flex flex-col justify-center text-xs space-y-1">
+                <div class="flex justify-between"><span class="font-bold">Código:</span> <span>F-ESD-001</span></div>
+                <div class="flex justify-between"><span class="font-bold">Límite Permitido:</span> <span class="font-bold text-red-600">< 100V</span></div>
+            </div>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6 text-sm">
+            <div class="space-y-2">
+                <div class="flex items-center"><label class="w-32 font-bold">Fecha:</label> <input type="date" value="{{FECHA}}"></div>
+                <div class="flex items-center"><label class="w-32 font-bold">Línea/Área:</label> <input type="text" value="{{LINEA}}"></div>
+                <div class="flex items-center"><label class="w-32 font-bold">Auditor:</label> <input type="text" value="{{AUDITOR}}"></div>
+            </div>
+            <div class="space-y-2">
+                <div class="flex items-center"><label class="w-40 font-bold">Equipo Utilizado:</label> <input type="text" placeholder="Ej. EM Aware"></div>
+                <div class="flex items-center"><label class="w-40 font-bold">No. de Serie:</label> <input type="text"></div>
+            </div>
+        </div>
+        <div class="overflow-x-auto mb-8">
+            <table class="w-full text-sm border-collapse border border-gray-800 print-border">
+                <thead>
+                    <tr class="bg-gray-200">
+                        <th class="border border-gray-800 p-2 text-center">No.</th>
+                        <th class="border border-gray-800 p-2">Operación / Estación</th>
+                        <th class="border border-gray-800 p-2 text-center">Tiempo</th>
+                        <th class="border border-gray-800 p-2 text-center">Eventos</th>
+                        <th class="border border-gray-800 p-2 text-center">Voltaje Máx.</th>
+                        <th class="border border-gray-800 p-2 text-center">Resultado</th>
+                        <th class="border border-gray-800 p-2">Observaciones</th>
+                        <th class="no-print border border-gray-800 p-2 text-center">Datos</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{ROWS}}
+                </tbody>
+            </table>
+        </div>
+        <div class="grid grid-cols-2 gap-8 mt-12 text-sm text-center">
+            <div><div class="border-b border-gray-800 w-3/4 mx-auto mb-2 h-8"></div><p class="font-bold">Realizado por</p></div>
+            <div><div class="border-b border-gray-800 w-3/4 mx-auto mb-2 h-8"></div><p class="font-bold">Revisado / Aprobado por</p></div>
+        </div>
+    </div>
+</body>
+</html>"""
+                    html_template = html_template.replace("{{FECHA}}", fecha_hoy_str)
+                    html_template = html_template.replace("{{LINEA}}", linea_reporte)
+                    html_template = html_template.replace("{{AUDITOR}}", auditor_name)
+                    html_template = html_template.replace("{{ROWS}}", html_rows)
+
+                    b64_html = base64.b64encode(html_template.encode('utf-8')).decode('utf-8')
+                    nombre_archivo = f"Reporte_EventMeter_{linea_reporte.replace(' ', '_')}.html"
+                    
+                    st.success("✅ Formato generado correctamente.")
+                    href = f'<a href="data:text/html;base64,{b64_html}" download="{nombre_archivo}" target="_blank" style="display: block; text-align: center; padding: 10px 20px; background-color: #2563eb; color: white; text-decoration: none; border-radius: 5px; font-weight: bold; margin-top: 10px;">📥 Descargar Reporte (Abre el archivo para Imprimir/Guardar PDF)</a>'
+                    st.markdown(href, unsafe_allow_html=True)
 
         # --- SECCIÓN DEL TEMPORIZADOR ---
         modo_tiempo = st.radio("Temporizador de Estudio (5 minutos)", ["⏱️ Usar Cronómetro Integrado", "⏭️ Omitir (Ya cronometrado)"], horizontal=True)
