@@ -918,7 +918,7 @@ else:
 # ==========================================
     # VISTA 3: EVENT METER
     # ==========================================
-        elif st.session_state.vista_actual == "Event Meter" and not st.session_state.modo_lectura:
+    elif st.session_state.vista_actual == "Event Meter" and not st.session_state.modo_lectura:
         st.markdown("### ⚡ Estudio de Event Meter (PCBA)")
         st.info("Mide descargas electrostáticas y transitorios durante la operación normal de la maquinaria/proceso.")
 
