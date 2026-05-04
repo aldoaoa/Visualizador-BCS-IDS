@@ -792,7 +792,7 @@ else:
                                 nuevo_balance = c_form2.number_input("Balance (V)", value=bal_def, format="%.2f")
                             else:
                                 st.caption("Resistencia (Ohms)")
-                                def_val = float(valor_ocr_detectado) if valor_ocr_detectado else None
+                                def_val = float(valor_ocr_detectado) if valor_ocr_detectado else 0
                                 
                                 def_base = None
                                 def_exp = None
