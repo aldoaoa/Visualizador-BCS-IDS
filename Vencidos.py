@@ -10,6 +10,9 @@ from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
 from streamlit_gsheets import GSheetsConnection
 import streamlit.components.v1 as components
+import fitz  # PyMuPDF
+import re
+import io
 
 # Configuración de página
 st.set_page_config(page_title="Control ESD BCS-AIS", layout="wide")
@@ -149,7 +152,7 @@ else:
         st.session_state.vista_actual = "Alta"
 
     if not st.session_state.modo_lectura:
-        c_nav1, c_nav2, c_nav3, c_nav4 = st.columns(4)
+        c_nav1, c_nav2, c_nav3, c_nav4, c_nav5 = st.columns(5)
         with c_nav1:
             if st.button("🗺️ Mapa y Reportes", use_container_width=True, type="primary" if st.session_state.vista_actual == "Mapa" else "secondary"):
                 st.session_state.vista_actual = "Mapa"
@@ -168,6 +171,11 @@ else:
         with c_nav4:
             if st.button("⚡ Event Meter", use_container_width=True, type="primary" if st.session_state.vista_actual == "Event Meter" else "secondary"):
                 st.session_state.vista_actual = "Event Meter"
+                limpiar_url_escaneo()
+                st.rerun()
+        with c_nav5:
+            if st.button("🚶‍♂️ Walking Test", use_container_width=True, type="primary" if st.session_state.vista_actual == "Walking Test" else "secondary"):
+                st.session_state.vista_actual = "Walking Test"
                 limpiar_url_escaneo()
                 st.rerun()
     else:
@@ -1220,3 +1228,76 @@ else:
                     st.success(f"✅ ¡Estudio de {id_operacion_final} registrado exitosamente! Estatus: {estatus_verificacion}")
                     st.cache_data.clear() # Limpiamos la caché para que la nueva operación aparezca en la lista inmediatamente
                     st.balloons()
+# ==========================================
+    # VISTA 4: WALKING TEST
+    # ==========================================
+    elif st.session_state.vista_actual == "Walking Test" and not st.session_state.modo_lectura:
+        st.markdown("### 🚶‍♂️ Análisis de Walking Test")
+        st.info("Sube uno o varios archivos PDF generados por el equipo de medición para extraer los datos automáticamente.")
+
+        archivos_pdf = st.file_uploader("Selecciona los archivos PDF", type=["pdf"], accept_multiple_files=True)
+
+        if archivos_pdf:
+            st.markdown("#### Resultados Extraídos")
+            
+            for archivo in archivos_pdf:
+                with st.expander(f"📄 Reporte: {archivo.name}", expanded=True):
+                    try:
+                        # Leer el PDF con PyMuPDF
+                        doc = fitz.open(stream=archivo.read(), filetype="pdf")
+                        pagina = doc[0] # Tomamos la primera página
+                        texto = pagina.get_text()
+
+                        # --- EXTRACCIÓN DE TEXTO CON EXPRESIONES REGULARES ---
+                        # Buscamos la humedad (ej. 44.5%RH)
+                        hum_match = re.search(r"(\d+(?:\.\d+)?)%RH", texto, re.IGNORECASE)
+                        humedad = f"{hum_match.group(1)} %" if hum_match else "N/D"
+
+                        # Buscamos la temperatura (ej. 21.5°C o variaciones por codificación)
+                        temp_match = re.search(r"(\d+(?:\.\d+)?)\s*[°º]?C", texto, re.IGNORECASE)
+                        temperatura = f"{temp_match.group(1)} °C" if temp_match else "N/D"
+
+                        # Buscamos la fecha y hora (ej. 24/03/26 20:26)
+                        fecha_hora_match = re.search(r"(\d{2}/\d{2}/\d{2})\s+(\d{2}:\d{2})", texto)
+                        fecha = fecha_hora_match.group(1) if fecha_hora_match else "N/D"
+                        hora = fecha_hora_match.group(2) if fecha_hora_match else "N/D"
+
+                        # Buscamos los picos y valles omitiendo el promedio (Arithmetic mean)
+                        peaks_match = re.search(r"5 highest peaks:\s*(.*?)(?:\(Arithmetic|\n|$)", texto, re.IGNORECASE)
+                        picos = peaks_match.group(1).strip() if peaks_match else "N/D"
+
+                        valleys_match = re.search(r"5 highest valleys:\s*(.*?)(?:\(Arithmetic|\n|$)", texto, re.IGNORECASE)
+                        valles = valleys_match.group(1).strip() if valleys_match else "N/D"
+
+                        # --- EXTRACCIÓN DE LA GRÁFICA ---
+                        imagen_grafica = None
+                        imagenes_pdf = pagina.get_images(full=True)
+                        if imagenes_pdf:
+                            # Asumimos que la gráfica es la imagen principal/primera del reporte
+                            xref = imagenes_pdf[0][0]
+                            base_image = doc.extract_image(xref)
+                            image_bytes = base_image["image"]
+                            imagen_grafica = Image.open(io.BytesIO(image_bytes))
+
+                        # --- RENDERIZADO EN PANTALLA ---
+                        col_datos1, col_datos2 = st.columns(2)
+                        
+                        with col_datos1:
+                            st.metric("📅 Fecha", fecha)
+                            st.metric("🌡️ Temperatura", temperatura)
+                            st.markdown(f"**📈 5 Highest Peaks:**<br><span style='color:#dc3545'>{picos}</span>", unsafe_allow_html=True)
+                            
+                        with col_datos2:
+                            st.metric("🕒 Hora", hora)
+                            st.metric("💧 Humedad", humedad)
+                            st.markdown(f"**📉 5 Highest Valleys:**<br><span style='color:#0052cc'>{valles}</span>", unsafe_allow_html=True)
+
+                        st.divider()
+                        if imagen_grafica:
+                            st.markdown("**Gráfica de Voltaje Corporal:**")
+                            st.image(imagen_grafica, use_container_width=True)
+                        else:
+                            st.warning("No se detectó ninguna gráfica incrustada en este documento.")
+
+                    except Exception as e:
+                        st.error(f"Ocurrió un error al procesar el archivo {archivo.name}: {e}")
