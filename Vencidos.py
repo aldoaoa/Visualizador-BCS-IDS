@@ -13,6 +13,7 @@ import streamlit.components.v1 as components
 import fitz  # PyMuPDF
 import re
 import io
+import pytesseract
 
 # Configuración de página
 st.set_page_config(page_title="Control ESD BCS-AIS", layout="wide")
@@ -1235,7 +1236,7 @@ else:
     # ==========================================
     elif st.session_state.vista_actual == "Walking Test" and not st.session_state.modo_lectura:
         st.markdown("### 🚶‍♂️ Análisis de Walking Test")
-        st.info("Sube uno o varios archivos PDF generados por el equipo de medición para extraer los datos automáticamente y generar un reporte consolidado.")
+        st.info("Sube uno o varios archivos PDF generados por el equipo de medición para extraer los datos automáticamente vía OCR y generar un reporte consolidado.")
 
         archivos_pdf = st.file_uploader("Selecciona los archivos PDF", type=["pdf"], accept_multiple_files=True)
 
@@ -1248,58 +1249,69 @@ else:
             for archivo in archivos_pdf:
                 with st.expander(f"📄 Reporte: {archivo.name}", expanded=True):
                     try:
-                        # Leer el PDF con PyMuPDF
+                        # 1. Leer el PDF con PyMuPDF
                         doc = fitz.open(stream=archivo.read(), filetype="pdf")
-                        pagina = doc[0] # Tomamos la primera página
-                        texto = pagina.get_text()
+                        pagina = doc[0] 
 
-                        # --- EXTRACCIÓN DE TEXTO CON EXPRESIONES REGULARES ---
-                        # Buscamos la humedad (ej. 44.5%RH)
-                        hum_match = re.search(r"(\d+(?:\.\d+)?)%RH", texto, re.IGNORECASE)
-                        humedad = f"{hum_match.group(1)} %" if hum_match else "N/D"
+                        imagen_grafica = None
+                        texto_ocr = ""
+                        img_b64 = "" # Inicializamos la variable para el reporte HTML
 
-                        # Buscamos la temperatura (ej. 21.5°C o variaciones por codificación)
-                        temp_match = re.search(r"(\d+(?:\.\d+)?)\s*[°º]?C", texto, re.IGNORECASE)
-                        temperatura = f"{temp_match.group(1)} °C" if temp_match else "N/D"
+                        # 2. Extraer la imagen principal del PDF
+                        imagenes_pdf = pagina.get_images(full=True)
+                        if imagenes_pdf:
+                            xref = imagenes_pdf[0][0]
+                            base_image = doc.extract_image(xref)
+                            image_bytes = base_image["image"]
+                            imagen_grafica = Image.open(io.BytesIO(image_bytes))
 
-                        # Buscamos la fecha y hora (ej. 24/03/26 20:26)
-                        fecha_hora_match = re.search(r"(\d{2}/\d{2}/\d{2})\s+(\d{2}:\d{2})", texto)
+                            # 3. Aplicar OCR a la imagen extraída
+                            with st.spinner("Analizando imagen con OCR..."):
+                                # Asumiendo que pytesseract ya está importado al inicio de tu app
+                                import pytesseract 
+                                texto_ocr = pytesseract.image_to_string(imagen_grafica)
+                            
+                            # Convertir imagen a Base64 para incrustar en el reporte HTML final
+                            buffered = io.BytesIO()
+                            imagen_grafica.save(buffered, format="PNG")
+                            img_b64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
+                        else:
+                            st.warning("No se detectó ninguna imagen/gráfica en este PDF para analizar.")
+                            continue
+
+                        # 4. EXTRACCIÓN DE DATOS DESDE EL TEXTO OCR
+                        # Buscamos fecha y hora (ej. 24/03/26 20:26)
+                        fecha_hora_match = re.search(r"(\d{2}/\d{2}/\d{2})\s+(\d{2}:\d{2})", texto_ocr)
                         fecha = fecha_hora_match.group(1) if fecha_hora_match else "N/D"
                         hora = fecha_hora_match.group(2) if fecha_hora_match else "N/D"
 
-                        # Buscamos los picos y valles omitiendo el promedio (Arithmetic mean)
-                        peaks_match = re.search(r"5 highest peaks:\s*(.*?)(?:\(Arithmetic|\n|$)", texto, re.IGNORECASE)
+                        # Buscamos humedad (hacemos tolerante el % y los espacios)
+                        hum_match = re.search(r"(\d{1,3}(?:\.\d+)?)\s*%?\s*RH", texto_ocr, re.IGNORECASE)
+                        humedad = f"{hum_match.group(1)} %" if hum_match else "N/D"
+
+                        # Buscamos temperatura (tolerante a fallos de OCR en el símbolo de grados)
+                        temp_match = re.search(r"(\d{1,3}(?:\.\d+)?)\s*[^C]*C", texto_ocr, re.IGNORECASE)
+                        temperatura = f"{temp_match.group(1)} °C" if temp_match else "N/D"
+
+                        # Buscamos picos (Cortamos hasta donde diga Arithmetic o haya un salto de línea)
+                        peaks_match = re.search(r"highest peaks:\s*(.*?)(?:\(|Arithmetic|\n|$)", texto_ocr, re.IGNORECASE)
                         picos = peaks_match.group(1).strip() if peaks_match else "N/D"
 
-                        valleys_match = re.search(r"5 highest valleys:\s*(.*?)(?:\(Arithmetic|\n|$)", texto, re.IGNORECASE)
+                        # Buscamos valles
+                        valleys_match = re.search(r"highest valleys:\s*(.*?)(?:\(|Arithmetic|\n|$)", texto_ocr, re.IGNORECASE)
                         valles = valleys_match.group(1).strip() if valleys_match else "N/D"
 
-                        # --- PROCESAMIENTO DE PICOS PARA EL REPORTE ---
+                        # --- PROCESAMIENTO MATEMÁTICO DE PICOS PARA EL REPORTE ---
                         max_p = 0.0
                         min_v = 0.0
                         try:
+                            # Extraer todos los números flotantes de las cadenas de picos y valles
                             p_vals = [float(x) for x in re.findall(r"[-+]?\d*\.\d+|\d+", picos)]
                             v_vals = [float(x) for x in re.findall(r"[-+]?\d*\.\d+|\d+", valles)]
                             if p_vals: max_p = max(p_vals)
                             if v_vals: min_v = min(v_vals)
                         except:
                             pass
-
-                        # --- EXTRACCIÓN Y CODIFICACIÓN DE LA GRÁFICA ---
-                        imagen_grafica = None
-                        img_b64 = ""
-                        imagenes_pdf = pagina.get_images(full=True)
-                        if imagenes_pdf:
-                            # Asumimos que la gráfica es la imagen principal/primera del reporte
-                            xref = imagenes_pdf[0][0]
-                            base_image = doc.extract_image(xref)
-                            image_bytes = base_image["image"]
-                            imagen_grafica = Image.open(io.BytesIO(image_bytes))
-                            
-                            # Convertir a Base64 para incrustar en HTML
-                            buffered = io.BytesIO()
-                            imagen_grafica.save(buffered, format="PNG")
-                            img_b64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
 
                         # --- RENDERIZADO EN PANTALLA ---
                         col_datos1, col_datos2 = st.columns(2)
@@ -1315,13 +1327,10 @@ else:
                             st.markdown(f"**📉 5 Highest Valleys:**<br><span style='color:#0052cc'>{valles}</span>", unsafe_allow_html=True)
 
                         st.divider()
-                        if imagen_grafica:
-                            st.markdown("**Gráfica de Voltaje Corporal:**")
-                            st.image(imagen_grafica, use_container_width=True)
-                        else:
-                            st.warning("No se detectó ninguna gráfica incrustada en este documento.")
+                        st.markdown("**Gráfica Extraída:**")
+                        st.image(imagen_grafica, use_container_width=True)
 
-                        # Guardamos los datos para el reporte final
+                        # Guardamos los datos empaquetados para el reporte final consolidado
                         datos_extraidos_wt.append({
                             "archivo": archivo.name,
                             "fecha": fecha,
@@ -1334,12 +1343,12 @@ else:
 
                     except Exception as e:
                         st.error(f"Ocurrió un error al procesar el archivo {archivo.name}: {e}")
-            
+
             # --- SECCIÓN: GENERADOR DE REPORTE CONSOLIDADO ---
             if datos_extraidos_wt:
                 st.divider()
                 st.markdown("### 📄 Generar Reporte Oficial Consolidado")
-                st.write("Completa la información general para generar un solo reporte con todas las ubicaciones procesadas.")
+                st.write("Completa la información general para generar un solo reporte con todas las ubicaciones procesadas vía OCR.")
                 
                 with st.form("form_reporte_wt"):
                     col_g1, col_g2, col_g3 = st.columns(3)
@@ -1366,7 +1375,7 @@ else:
                     submit_reporte = st.form_submit_button("Generar Reporte Consolidado en PDF/HTML", use_container_width=True)
                     
                     if submit_reporte:
-                        # Extraer fecha, temp y hum del primer documento como datos generales
+                        # Extraer fecha, temp y hum del primer documento como datos generales (si falló el OCR usa fecha actual)
                         fecha_gen = datos_extraidos_wt[0]['fecha'] if datos_extraidos_wt[0]['fecha'] != "N/D" else datetime.today().strftime("%d/%m/%Y")
                         temp_gen = datos_extraidos_wt[0]['temp']
                         hum_gen = datos_extraidos_wt[0]['hum']
@@ -1375,7 +1384,7 @@ else:
                         for idx, block in enumerate(bloques_ubicaciones, 1):
                             data = block['datos']
                             
-                            # Lógica de aprobación (Límite < 100V)
+                            # Lógica de aprobación (Límite < 100V) - Considera el pico máximo y mínimo
                             if data['max_p'] < 100 and abs(data['min_v']) < 100:
                                 res_class = "result-pass"
                                 res_text = "CUMPLE (PASS)"
@@ -1488,4 +1497,3 @@ else:
                         st.success("✅ ¡Reporte consolidado generado exitosamente!")
                         href = f'<a href="data:text/html;base64,{b64_html}" download="{nombre_archivo}" target="_blank" style="display: block; text-align: center; padding: 15px; background-color: #003366; color: white; text-decoration: none; border-radius: 8px; font-weight: bold; margin-top: 10px; font-size: 16px;">📥 Descargar Reporte Completo (Abrir para imprimir PDF)</a>'
                         st.markdown(href, unsafe_allow_html=True)
-                        st.balloons()
