@@ -5,3 +5,4 @@ st-gsheets-connection
 streamlit-cookies-controller
 xlrd
 PyMuPDF
+pytesseract
