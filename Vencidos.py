@@ -1410,9 +1410,9 @@ else:
                                         <td style="border: 1px solid #ccc; padding: 10px; text-align: left;">Sí</td>
                                     </tr>
                                     <tr>
-                                        <th style="border: 1px solid #ccc; padding: 10px; text-align: left; background-color: #f4f7f6;">Pico Positivo (+):</th>
-                                        <td style="border: 1px solid #ccc; padding: 10px; text-align: left;">+ {data['max_p']} V</td>
-                                        <th style="border: 1px solid #ccc; padding: 10px; text-align: left; background-color: #f4f7f6;">Pico Negativo (-):</th>
+                                        <th style="border: 1px solid #ccc; padding: 10px; text-align: left; background-color: #f4f7f6;">Cresta:</th>
+                                        <td style="border: 1px solid #ccc; padding: 10px; text-align: left;">{data['max_p']} V</td>
+                                        <th style="border: 1px solid #ccc; padding: 10px; text-align: left; background-color: #f4f7f6;">Valle:</th>
                                         <td style="border: 1px solid #ccc; padding: 10px; text-align: left;">{data['min_v']} V</td>
                                     </tr>
                                 </table>
