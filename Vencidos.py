@@ -1228,17 +1228,22 @@ else:
                     st.success(f"✅ ¡Estudio de {id_operacion_final} registrado exitosamente! Estatus: {estatus_verificacion}")
                     st.cache_data.clear() # Limpiamos la caché para que la nueva operación aparezca en la lista inmediatamente
                     st.balloons()
-# ==========================================
+
+# ... existing code ...
+    # ==========================================
     # VISTA 4: WALKING TEST
     # ==========================================
     elif st.session_state.vista_actual == "Walking Test" and not st.session_state.modo_lectura:
         st.markdown("### 🚶‍♂️ Análisis de Walking Test")
-        st.info("Sube uno o varios archivos PDF generados por el equipo de medición para extraer los datos automáticamente.")
+        st.info("Sube uno o varios archivos PDF generados por el equipo de medición para extraer los datos automáticamente y generar un reporte consolidado.")
 
         archivos_pdf = st.file_uploader("Selecciona los archivos PDF", type=["pdf"], accept_multiple_files=True)
 
         if archivos_pdf:
             st.markdown("#### Resultados Extraídos")
+            
+            # Lista para guardar los datos de todas las ubicaciones y armar el reporte final
+            datos_extraidos_wt = [] 
             
             for archivo in archivos_pdf:
                 with st.expander(f"📄 Reporte: {archivo.name}", expanded=True):
@@ -1269,8 +1274,20 @@ else:
                         valleys_match = re.search(r"5 highest valleys:\s*(.*?)(?:\(Arithmetic|\n|$)", texto, re.IGNORECASE)
                         valles = valleys_match.group(1).strip() if valleys_match else "N/D"
 
-                        # --- EXTRACCIÓN DE LA GRÁFICA ---
+                        # --- PROCESAMIENTO DE PICOS PARA EL REPORTE ---
+                        max_p = 0.0
+                        min_v = 0.0
+                        try:
+                            p_vals = [float(x) for x in re.findall(r"[-+]?\d*\.\d+|\d+", picos)]
+                            v_vals = [float(x) for x in re.findall(r"[-+]?\d*\.\d+|\d+", valles)]
+                            if p_vals: max_p = max(p_vals)
+                            if v_vals: min_v = min(v_vals)
+                        except:
+                            pass
+
+                        # --- EXTRACCIÓN Y CODIFICACIÓN DE LA GRÁFICA ---
                         imagen_grafica = None
+                        img_b64 = ""
                         imagenes_pdf = pagina.get_images(full=True)
                         if imagenes_pdf:
                             # Asumimos que la gráfica es la imagen principal/primera del reporte
@@ -1278,6 +1295,11 @@ else:
                             base_image = doc.extract_image(xref)
                             image_bytes = base_image["image"]
                             imagen_grafica = Image.open(io.BytesIO(image_bytes))
+                            
+                            # Convertir a Base64 para incrustar en HTML
+                            buffered = io.BytesIO()
+                            imagen_grafica.save(buffered, format="PNG")
+                            img_b64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
 
                         # --- RENDERIZADO EN PANTALLA ---
                         col_datos1, col_datos2 = st.columns(2)
@@ -1299,5 +1321,171 @@ else:
                         else:
                             st.warning("No se detectó ninguna gráfica incrustada en este documento.")
 
+                        # Guardamos los datos para el reporte final
+                        datos_extraidos_wt.append({
+                            "archivo": archivo.name,
+                            "fecha": fecha,
+                            "temp": temperatura,
+                            "hum": humedad,
+                            "max_p": max_p,
+                            "min_v": min_v,
+                            "img_b64": img_b64
+                        })
+
                     except Exception as e:
                         st.error(f"Ocurrió un error al procesar el archivo {archivo.name}: {e}")
+            
+            # --- SECCIÓN: GENERADOR DE REPORTE CONSOLIDADO ---
+            if datos_extraidos_wt:
+                st.divider()
+                st.markdown("### 📄 Generar Reporte Oficial Consolidado")
+                st.write("Completa la información general para generar un solo reporte con todas las ubicaciones procesadas.")
+                
+                with st.form("form_reporte_wt"):
+                    col_g1, col_g2, col_g3 = st.columns(3)
+                    auditor_wt = col_g1.text_input("Auditor / Técnico", value=st.session_state.usuario_nombre if st.session_state.usuario_nombre else "")
+                    operador_wt = col_g2.text_input("Operador de Prueba")
+                    periodo_wt = col_g3.selectbox("Periodo de Evaluación", ["Semestre 1", "Semestre 2"])
+                    
+                    col_g4, col_g5 = st.columns(2)
+                    equipo_wt = col_g4.text_input("Equipo de Medición Utilizado", value="SCS WT5000 Electrómetro")
+                    calzado_wt = col_g5.text_input("Calzado ESD Utilizado", value="Taloneras y Zapatos ESD (Verificados)")
+                    
+                    st.markdown("#### Configuración de Ubicaciones")
+                    bloques_ubicaciones = []
+                    
+                    # Generar inputs dinámicos por cada PDF subido
+                    for i, dato in enumerate(datos_extraidos_wt):
+                        st.markdown(f"**Ubicación {i+1} (Archivo: {dato['archivo']})**")
+                        c_ub1, c_ub2 = st.columns(2)
+                        nombre_ub = c_ub1.text_input(f"Nombre de Línea/Área", value=dato['archivo'].replace(".pdf", ""), key=f"nombre_{i}")
+                        tipo_piso = c_ub2.selectbox(f"Tipo de Piso", ["Piso Epóxico ESD", "Loseta Vinílica Conductiva", "Tapete Antifatiga ESD", "Otro"], key=f"piso_{i}")
+                        bloques_ubicaciones.append({"nombre": nombre_ub, "piso": tipo_piso, "datos": dato})
+                        st.write("") # Espaciador
+
+                    submit_reporte = st.form_submit_button("Generar Reporte Consolidado en PDF/HTML", use_container_width=True)
+                    
+                    if submit_reporte:
+                        # Extraer fecha, temp y hum del primer documento como datos generales
+                        fecha_gen = datos_extraidos_wt[0]['fecha'] if datos_extraidos_wt[0]['fecha'] != "N/D" else datetime.today().strftime("%d/%m/%Y")
+                        temp_gen = datos_extraidos_wt[0]['temp']
+                        hum_gen = datos_extraidos_wt[0]['hum']
+
+                        html_ubicaciones = ""
+                        for idx, block in enumerate(bloques_ubicaciones, 1):
+                            data = block['datos']
+                            
+                            # Lógica de aprobación (Límite < 100V)
+                            if data['max_p'] < 100 and abs(data['min_v']) < 100:
+                                res_class = "result-pass"
+                                res_text = "CUMPLE (PASS)"
+                                res_color = "green"
+                                obs = "Ninguna anomalía. Los picos se mantuvieron por debajo del límite de 100V."
+                            else:
+                                res_class = "result-fail"
+                                res_text = "NO CUMPLE (FAIL)"
+                                res_color = "red"
+                                obs = "ATENCIÓN: Se superó el límite permitido de 100V. Se requiere limpieza o revisión del sistema calzado/piso."
+
+                            img_tag = f'<img src="data:image/png;base64,{data["img_b64"]}" alt="Gráfica">' if data['img_b64'] else '<i>Sin gráfica disponible</i>'
+
+                            # Bloque HTML para cada ubicación
+                            html_ubicaciones += f"""
+                            <div class="location-block" style="border: 2px solid #003366; border-radius: 6px; padding: 20px; margin-bottom: 30px; page-break-inside: avoid;">
+                                <div class="location-title" style="font-size: 18px; font-weight: bold; color: white; background-color: #003366; padding: 10px; margin: -20px -20px 20px -20px; border-top-left-radius: 4px; border-top-right-radius: 4px;">Ubicación {idx}: {block['nombre']}</div>
+                                <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 14px;">
+                                    <tr>
+                                        <th style="border: 1px solid #ccc; padding: 10px; text-align: left; background-color: #f4f7f6; width: 25%;">Tipo de Piso:</th>
+                                        <td style="border: 1px solid #ccc; padding: 10px; text-align: left;">{block['piso']}</td>
+                                        <th style="border: 1px solid #ccc; padding: 10px; text-align: left; background-color: #f4f7f6; width: 25%;">Limpieza previa:</th>
+                                        <td style="border: 1px solid #ccc; padding: 10px; text-align: left;">Sí</td>
+                                    </tr>
+                                    <tr>
+                                        <th style="border: 1px solid #ccc; padding: 10px; text-align: left; background-color: #f4f7f6;">Pico Positivo (+):</th>
+                                        <td style="border: 1px solid #ccc; padding: 10px; text-align: left;">+ {data['max_p']} V</td>
+                                        <th style="border: 1px solid #ccc; padding: 10px; text-align: left; background-color: #f4f7f6;">Pico Negativo (-):</th>
+                                        <td style="border: 1px solid #ccc; padding: 10px; text-align: left;">{data['min_v']} V</td>
+                                    </tr>
+                                </table>
+                                
+                                <div class="graph-placeholder" style="width: 100%; height: 250px; background-color: #fafafa; border: 2px dashed #aaa; display: flex; align-items: center; justify-content: center; color: #888; margin: 20px 0; overflow: hidden;">
+                                    {img_tag}
+                                </div>
+
+                                <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+                                    <tr>
+                                        <th style="border: 1px solid #ccc; padding: 10px; text-align: left; background-color: #f4f7f6; width: 20%;">Observaciones:</th>
+                                        <td style="border: 1px solid #ccc; padding: 10px; text-align: left;">{obs}</td>
+                                        <th style="border: 1px solid #ccc; padding: 10px; text-align: left; background-color: #f4f7f6; width: 20%;">Resultado Final:</th>
+                                        <td style="border: 1px solid #ccc; padding: 10px; text-align: left; color: {res_color}; font-weight: bold; font-size: 16px;">{res_text}</td>
+                                    </tr>
+                                </table>
+                            </div>
+                            """
+
+                        # Plantilla principal del reporte
+                        html_completo = f"""<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Reporte de Walking Test</title>
+    <style>
+        body {{ font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #333; margin: 0; padding: 20px; background-color: white; }}
+        .container {{ max-width: 900px; margin: 0 auto; padding: 20px; }}
+        header {{ text-align: center; border-bottom: 3px solid #003366; padding-bottom: 20px; margin-bottom: 30px; }}
+        h1 {{ color: #003366; margin: 0 0 10px 0; font-size: 24px; }}
+        h2 {{ font-size: 18px; color: #003366; border-bottom: 1px solid #ccc; padding-bottom: 5px; margin-top: 30px; }}
+        table {{ width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 14px; }}
+        th, td {{ border: 1px solid #ccc; padding: 10px; text-align: left; }}
+        th {{ background-color: #f4f7f6; font-weight: bold; width: 25%; }}
+        .signatures {{ display: flex; justify-content: space-between; margin-top: 50px; page-break-inside: avoid; }}
+        .signature-box {{ width: 45%; text-align: center; }}
+        .signature-line {{ border-top: 1px solid black; margin-top: 50px; padding-top: 5px; font-size: 14px; }}
+        img {{ max-width: 100%; max-height: 100%; object-fit: contain; }}
+        @media print {{ body {{ padding: 0; }} .no-print {{ display: none; }} }}
+    </style>
+</head>
+<body>
+<div class="container">
+    <header>
+        <h1>Reporte de Walking Test (Prueba de Caminado)</h1>
+        <p style="margin: 0; color: #666; font-size: 14px;">Evaluación de Sistema de Piso y Calzado ESD</p>
+        <p style="margin: 0; color: #666; font-size: 14px;"><strong>Estándares aplicables:</strong> ANSI/ESD S20.20 y ANSI/ESD STM97.2</p>
+    </header>
+
+    <h2>1. Información General y Condiciones Ambientales</h2>
+    <table>
+        <tr><th>Fecha de Prueba:</th><td>{fecha_gen}</td><th>Periodo:</th><td>{periodo_wt}</td></tr>
+        <tr><th>Auditor / Técnico:</th><td>{auditor_wt}</td><th>Operador de Prueba:</th><td>{operador_wt}</td></tr>
+        <tr><th>Temperatura (°C):</th><td>{temp_gen}</td><th>Humedad (HR %):</th><td>{hum_gen}</td></tr>
+    </table>
+
+    <h2>2. Equipo de Medición y Sistema Evaluado</h2>
+    <table>
+        <tr><th>Equipo Utilizado:</th><td>{equipo_wt}</td><th>Criterio de Aceptación:</th><td style="font-weight:bold; color:#003366;">&lt; 100 Voltios (Pico)</td></tr>
+        <tr><th>Calzado ESD:</th><td colspan="3">{calzado_wt}</td></tr>
+    </table>
+
+    <h2>3. Resultados por Ubicación</h2>
+    {html_ubicaciones}
+
+    <div class="signatures">
+        <div class="signature-box"><div class="signature-line"><strong>Realizado por:</strong><br>{auditor_wt}</div></div>
+        <div class="signature-box"><div class="signature-line"><strong>Revisado / Aprobado por:</strong><br>Coordinador ESD</div></div>
+    </div>
+</div>
+<script>
+    // Iniciar impresión automáticamente si es necesario
+    // window.onload = function() {{ window.print(); }}
+</script>
+</body>
+</html>"""
+
+                        # Botón de descarga
+                        b64_html = base64.b64encode(html_completo.encode('utf-8')).decode('utf-8')
+                        nombre_archivo = f"Walking_Test_{fecha_gen.replace('/', '-')}_{periodo_wt.replace(' ', '')}.html"
+                        
+                        st.success("✅ ¡Reporte consolidado generado exitosamente!")
+                        href = f'<a href="data:text/html;base64,{b64_html}" download="{nombre_archivo}" target="_blank" style="display: block; text-align: center; padding: 15px; background-color: #003366; color: white; text-decoration: none; border-radius: 8px; font-weight: bold; margin-top: 10px; font-size: 16px;">📥 Descargar Reporte Completo (Abrir para imprimir PDF)</a>'
+                        st.markdown(href, unsafe_allow_html=True)
+                        st.balloons()
