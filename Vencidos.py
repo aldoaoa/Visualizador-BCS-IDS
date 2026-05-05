@@ -1357,8 +1357,8 @@ else:
                     periodo_wt = col_g3.selectbox("Periodo de Evaluación", ["Semestre 1", "Semestre 2"])
                     
                     col_g4, col_g5 = st.columns(2)
-                    equipo_wt = col_g4.text_input("Equipo de Medición Utilizado", value="SCS WT5000 Electrómetro")
-                    calzado_wt = col_g5.text_input("Calzado ESD Utilizado", value="Taloneras y Zapatos ESD (Verificados)")
+                    equipo_wt = col_g4.text_input("Equipo de Medición Utilizado", value="DESCO 46006")
+                    calzado_wt = col_g5.text_input("Calzado ESD Utilizado", value="Zapato antiestático Workman")
                     
                     st.markdown("#### Configuración de Ubicaciones")
                     bloques_ubicaciones = []
