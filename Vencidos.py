@@ -1344,13 +1344,19 @@ else:
                     except Exception as e:
                         st.error(f"Ocurrió un error al procesar el archivo {archivo.name}: {e}")
 
-            # --- SECCIÓN: GENERADOR DE REPORTE CONSOLIDADO ---
+# --- SECCIÓN: GENERADOR DE REPORTE CONSOLIDADO ---
             if datos_extraidos_wt:
                 st.divider()
                 st.markdown("### 📄 Generar Reporte Oficial Consolidado")
                 st.write("Completa la información general para generar un solo reporte con todas las ubicaciones procesadas vía OCR.")
                 
+                # Pre-cargar datos del primer documento para el formulario
+                fecha_defecto = datos_extraidos_wt[0]['fecha'] if datos_extraidos_wt[0]['fecha'] != "N/D" else datetime.today().strftime("%d/%m/%Y")
+                temp_defecto = datos_extraidos_wt[0]['temp']
+                hum_defecto = datos_extraidos_wt[0]['hum']
+                
                 with st.form("form_reporte_wt"):
+                    st.markdown("#### Datos Generales")
                     col_g1, col_g2, col_g3 = st.columns(3)
                     auditor_wt = col_g1.text_input("Auditor / Técnico", value=st.session_state.usuario_nombre if st.session_state.usuario_nombre else "")
                     operador_wt = col_g2.text_input("Operador de Prueba")
@@ -1359,6 +1365,13 @@ else:
                     col_g4, col_g5 = st.columns(2)
                     equipo_wt = col_g4.text_input("Equipo de Medición Utilizado", value="DESCO 46006")
                     calzado_wt = col_g5.text_input("Calzado ESD Utilizado", value="Zapato antiestático Workman")
+                    
+                    # === SECCIÓN EDITABLE DE CONDICIONES AMBIENTALES ===
+                    st.markdown("#### 🌡️ Condiciones Ambientales (Autocompletadas por OCR, edítalas si es necesario)")
+                    col_amb1, col_amb2, col_amb3 = st.columns(3)
+                    fecha_gen = col_amb1.text_input("Fecha de Prueba", value=fecha_defecto)
+                    temp_gen = col_amb2.text_input("Temperatura", value=temp_defecto)
+                    hum_gen = col_amb3.text_input("Humedad", value=hum_defecto)
                     
                     st.markdown("#### Configuración de Ubicaciones")
                     bloques_ubicaciones = []
@@ -1375,11 +1388,6 @@ else:
                     submit_reporte = st.form_submit_button("Generar Reporte Consolidado en PDF/HTML", use_container_width=True)
                     
                     if submit_reporte:
-                        # Extraer fecha, temp y hum del primer documento como datos generales (si falló el OCR usa fecha actual)
-                        fecha_gen = datos_extraidos_wt[0]['fecha'] if datos_extraidos_wt[0]['fecha'] != "N/D" else datetime.today().strftime("%d/%m/%Y")
-                        temp_gen = datos_extraidos_wt[0]['temp']
-                        hum_gen = datos_extraidos_wt[0]['hum']
-
                         html_ubicaciones = ""
                         for idx, block in enumerate(bloques_ubicaciones, 1):
                             data = block['datos']
@@ -1466,7 +1474,7 @@ else:
     <table>
         <tr><th>Fecha de Prueba:</th><td>{fecha_gen}</td><th>Periodo:</th><td>{periodo_wt}</td></tr>
         <tr><th>Auditor / Técnico:</th><td>{auditor_wt}</td><th>Operador de Prueba:</th><td>{operador_wt}</td></tr>
-        <tr><th>Temperatura (°C):</th><td>{temp_gen}</td><th>Humedad (HR %):</th><td>{hum_gen}</td></tr>
+        <tr><th>Temperatura:</th><td>{temp_gen}</td><th>Humedad:</th><td>{hum_gen}</td></tr>
     </table>
 
     <h2>2. Equipo de Medición y Sistema Evaluado</h2>
@@ -1483,10 +1491,6 @@ else:
         <div class="signature-box"><div class="signature-line"><strong>Revisado / Aprobado por:</strong><br>Coordinador ESD</div></div>
     </div>
 </div>
-<script>
-    // Iniciar impresión automáticamente si es necesario
-    // window.onload = function() {{ window.print(); }}
-</script>
 </body>
 </html>"""
 
