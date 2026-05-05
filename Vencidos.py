@@ -1231,7 +1231,7 @@ else:
                     st.balloons()
 
 # ... existing code ...
-    # ==========================================
+# ==========================================
     # VISTA 4: WALKING TEST
     # ==========================================
     elif st.session_state.vista_actual == "Walking Test" and not st.session_state.modo_lectura:
@@ -1267,8 +1267,6 @@ else:
 
                             # 3. Aplicar OCR a la imagen extraída
                             with st.spinner("Analizando imagen con OCR..."):
-                                # Asumiendo que pytesseract ya está importado al inicio de tu app
-                                import pytesseract 
                                 texto_ocr = pytesseract.image_to_string(imagen_grafica)
                             
                             # Convertir imagen a Base64 para incrustar en el reporte HTML final
@@ -1280,36 +1278,38 @@ else:
                             continue
 
                         # 4. EXTRACCIÓN DE DATOS DESDE EL TEXTO OCR
-                        # Buscamos fecha y hora (ej. 24/03/26 20:26)
                         fecha_hora_match = re.search(r"(\d{2}/\d{2}/\d{2})\s+(\d{2}:\d{2})", texto_ocr)
                         fecha = fecha_hora_match.group(1) if fecha_hora_match else "N/D"
                         hora = fecha_hora_match.group(2) if fecha_hora_match else "N/D"
 
-                        # Buscamos humedad (hacemos tolerante el % y los espacios)
                         hum_match = re.search(r"(\d{1,3}(?:\.\d+)?)\s*%?\s*RH", texto_ocr, re.IGNORECASE)
                         humedad = f"{hum_match.group(1)} %" if hum_match else "N/D"
 
-                        # Buscamos temperatura (tolerante a fallos de OCR en el símbolo de grados)
                         temp_match = re.search(r"(\d{1,3}(?:\.\d+)?)\s*[^C]*C", texto_ocr, re.IGNORECASE)
                         temperatura = f"{temp_match.group(1)} °C" if temp_match else "N/D"
 
-                        # Buscamos picos (Cortamos hasta donde diga Arithmetic o haya un salto de línea)
                         peaks_match = re.search(r"highest peaks:\s*(.*?)(?:\(|Arithmetic|\n|$)", texto_ocr, re.IGNORECASE)
                         picos = peaks_match.group(1).strip() if peaks_match else "N/D"
 
-                        # Buscamos valles
                         valleys_match = re.search(r"highest valleys:\s*(.*?)(?:\(|Arithmetic|\n|$)", texto_ocr, re.IGNORECASE)
                         valles = valleys_match.group(1).strip() if valleys_match else "N/D"
 
-                        # --- PROCESAMIENTO MATEMÁTICO DE PICOS PARA EL REPORTE ---
-                        max_p = 0.0
-                        min_v = 0.0
+                        # --- PROCESAMIENTO MATEMÁTICO (MÁXIMO ABSOLUTO Y PROMEDIO DE PICOS) ---
+                        max_abs = 0.0
+                        promedio_picos = 0.0
                         try:
                             # Extraer todos los números flotantes de las cadenas de picos y valles
                             p_vals = [float(x) for x in re.findall(r"[-+]?\d*\.\d+|\d+", picos)]
                             v_vals = [float(x) for x in re.findall(r"[-+]?\d*\.\d+|\d+", valles)]
-                            if p_vals: max_p = max(p_vals)
-                            if v_vals: min_v = min(v_vals)
+                            
+                            todos_los_valores = p_vals + v_vals
+                            if todos_los_valores:
+                                # Buscamos la magnitud máxima sin importar el signo (Voltaje máximo absoluto)
+                                max_abs = max(abs(x) for x in todos_los_valores)
+                                
+                            if p_vals:
+                                # Promedio de los picos
+                                promedio_picos = sum(p_vals) / len(p_vals)
                         except:
                             pass
 
@@ -1319,38 +1319,37 @@ else:
                         with col_datos1:
                             st.metric("📅 Fecha", fecha)
                             st.metric("🌡️ Temperatura", temperatura)
-                            st.markdown(f"**📈 5 Highest Peaks:**<br><span style='color:#dc3545'>{picos}</span>", unsafe_allow_html=True)
+                            st.metric("⚡ Voltaje Máx (Absoluto)", f"{max_abs:.2f} V")
                             
                         with col_datos2:
                             st.metric("🕒 Hora", hora)
                             st.metric("💧 Humedad", humedad)
-                            st.markdown(f"**📉 5 Highest Valleys:**<br><span style='color:#0052cc'>{valles}</span>", unsafe_allow_html=True)
+                            st.metric("📊 Promedio Picos", f"{promedio_picos:.2f} V")
 
                         st.divider()
                         st.markdown("**Gráfica Extraída:**")
                         st.image(imagen_grafica, use_container_width=True)
 
-                        # Guardamos los datos empaquetados para el reporte final consolidado
+                        # Guardamos los datos actualizados para el reporte final consolidado
                         datos_extraidos_wt.append({
                             "archivo": archivo.name,
                             "fecha": fecha,
                             "temp": temperatura,
                             "hum": humedad,
-                            "max_p": max_p,
-                            "min_v": min_v,
+                            "max_abs": max_abs,
+                            "promedio_picos": promedio_picos,
                             "img_b64": img_b64
                         })
 
                     except Exception as e:
                         st.error(f"Ocurrió un error al procesar el archivo {archivo.name}: {e}")
 
-# --- SECCIÓN: GENERADOR DE REPORTE CONSOLIDADO ---
+            # --- SECCIÓN: GENERADOR DE REPORTE CONSOLIDADO ---
             if datos_extraidos_wt:
                 st.divider()
                 st.markdown("### 📄 Generar Reporte Oficial Consolidado")
-                st.write("Completa la información general para generar un solo reporte con todas las ubicaciones procesadas vía OCR.")
+                st.write("Completa la información general para generar un solo reporte con todas las ubicaciones procesadas.")
                 
-                # Pre-cargar datos del primer documento para el formulario
                 fecha_defecto = datos_extraidos_wt[0]['fecha'] if datos_extraidos_wt[0]['fecha'] != "N/D" else datetime.today().strftime("%d/%m/%Y")
                 temp_defecto = datos_extraidos_wt[0]['temp']
                 hum_defecto = datos_extraidos_wt[0]['hum']
@@ -1366,8 +1365,7 @@ else:
                     equipo_wt = col_g4.text_input("Equipo de Medición Utilizado", value="DESCO 46006")
                     calzado_wt = col_g5.text_input("Calzado ESD Utilizado", value="Zapato antiestático Workman")
                     
-                    # === SECCIÓN EDITABLE DE CONDICIONES AMBIENTALES ===
-                    st.markdown("#### 🌡️ Condiciones Ambientales (Autocompletadas por OCR, edítalas si es necesario)")
+                    st.markdown("#### 🌡️ Condiciones Ambientales (Edítalas si es necesario)")
                     col_amb1, col_amb2, col_amb3 = st.columns(3)
                     fecha_gen = col_amb1.text_input("Fecha de Prueba", value=fecha_defecto)
                     temp_gen = col_amb2.text_input("Temperatura", value=temp_defecto)
@@ -1376,14 +1374,13 @@ else:
                     st.markdown("#### Configuración de Ubicaciones")
                     bloques_ubicaciones = []
                     
-                    # Generar inputs dinámicos por cada PDF subido
                     for i, dato in enumerate(datos_extraidos_wt):
                         st.markdown(f"**Ubicación {i+1} (Archivo: {dato['archivo']})**")
                         c_ub1, c_ub2 = st.columns(2)
                         nombre_ub = c_ub1.text_input(f"Nombre de Línea/Área", value=dato['archivo'].replace(".pdf", ""), key=f"nombre_{i}")
                         tipo_piso = c_ub2.selectbox(f"Tipo de Piso", ["Piso Epóxico ESD", "Loseta Vinílica Conductiva", "Tapete Antifatiga ESD", "Otro"], key=f"piso_{i}")
                         bloques_ubicaciones.append({"nombre": nombre_ub, "piso": tipo_piso, "datos": dato})
-                        st.write("") # Espaciador
+                        st.write("") 
 
                     submit_reporte = st.form_submit_button("Generar Reporte Consolidado en PDF/HTML", use_container_width=True)
                     
@@ -1392,8 +1389,8 @@ else:
                         for idx, block in enumerate(bloques_ubicaciones, 1):
                             data = block['datos']
                             
-                            # Lógica de aprobación (Límite < 100V) - Considera el pico máximo y mínimo
-                            if data['max_p'] < 100 and abs(data['min_v']) < 100:
+                            # Lógica de aprobación actualizada (Límite S20.20 es < 100V de magnitud máxima)
+                            if data['max_abs'] < 100:
                                 res_class = "result-pass"
                                 res_text = "CUMPLE (PASS)"
                                 res_color = "green"
@@ -1402,7 +1399,7 @@ else:
                                 res_class = "result-fail"
                                 res_text = "NO CUMPLE (FAIL)"
                                 res_color = "red"
-                                obs = "ATENCIÓN: Se superó el límite permitido de 100V. Se requiere limpieza o revisión del sistema calzado/piso."
+                                obs = f"ATENCIÓN: Se registró un pico absoluto de {data['max_abs']:.2f}V, superando el límite permitido de 100V. Se requiere limpieza o revisión."
 
                             img_tag = f'<img src="data:image/png;base64,{data["img_b64"]}" alt="Gráfica">' if data['img_b64'] else '<i>Sin gráfica disponible</i>'
 
@@ -1418,10 +1415,10 @@ else:
                                         <td style="border: 1px solid #ccc; padding: 10px; text-align: left;">Sí</td>
                                     </tr>
                                     <tr>
-                                        <th style="border: 1px solid #ccc; padding: 10px; text-align: left; background-color: #f4f7f6;">Cresta:</th>
-                                        <td style="border: 1px solid #ccc; padding: 10px; text-align: left;">{data['max_p']} V</td>
-                                        <th style="border: 1px solid #ccc; padding: 10px; text-align: left; background-color: #f4f7f6;">Valle:</th>
-                                        <td style="border: 1px solid #ccc; padding: 10px; text-align: left;">{data['min_v']} V</td>
+                                        <th style="border: 1px solid #ccc; padding: 10px; text-align: left; background-color: #f4f7f6;">Voltaje Máx (Abs):</th>
+                                        <td style="border: 1px solid #ccc; padding: 10px; text-align: left; font-weight: bold;">{data['max_abs']:.2f} V</td>
+                                        <th style="border: 1px solid #ccc; padding: 10px; text-align: left; background-color: #f4f7f6;">Promedio de Picos:</th>
+                                        <td style="border: 1px solid #ccc; padding: 10px; text-align: left;">{data['promedio_picos']:.2f} V</td>
                                     </tr>
                                 </table>
                                 
@@ -1440,7 +1437,6 @@ else:
                             </div>
                             """
 
-                        # Plantilla principal del reporte
                         html_completo = f"""<!DOCTYPE html>
 <html lang="es">
 <head>
@@ -1479,7 +1475,7 @@ else:
 
     <h2>2. Equipo de Medición y Sistema Evaluado</h2>
     <table>
-        <tr><th>Equipo Utilizado:</th><td>{equipo_wt}</td><th>Criterio de Aceptación:</th><td style="font-weight:bold; color:#003366;">&lt; 100 Voltios (Pico)</td></tr>
+        <tr><th>Equipo Utilizado:</th><td>{equipo_wt}</td><th>Criterio de Aceptación:</th><td style="font-weight:bold; color:#003366;">&lt; 100 Voltios (Absoluto)</td></tr>
         <tr><th>Calzado ESD:</th><td colspan="3">{calzado_wt}</td></tr>
     </table>
 
@@ -1494,7 +1490,6 @@ else:
 </body>
 </html>"""
 
-                        # Botón de descarga
                         b64_html = base64.b64encode(html_completo.encode('utf-8')).decode('utf-8')
                         nombre_archivo = f"Walking_Test_{fecha_gen.replace('/', '-')}_{periodo_wt.replace(' ', '')}.html"
                         
