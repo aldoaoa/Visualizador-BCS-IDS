@@ -137,7 +137,7 @@ else:
         st.stop()
         
     if df_ion_local is None:
-        st.warning("⚠️ No se encontró la pestaña 'IONIZADORES' en Google Sheets. Por favor créala copiando los mismos encabezados que MOBILIARIO (en la fila 5) y agrégale la columna 'Balance'.")
+        st.warning("⚠️ No se encontró la DB 'IONIZADORES'.")
         df_ion_local = pd.DataFrame(columns=df_mob_local.columns.tolist() + ['Balance'])
 
     if "vista_actual" not in st.session_state:
@@ -528,7 +528,7 @@ else:
         if df_total.empty:
             st.warning(f"No hay datos registrados en la base de datos de {tipo_mapa}.")
         elif 'Estatus de verificación' not in df_total.columns:
-            st.warning(f"⚠️ La pestaña de {tipo_mapa} existe en Google Sheets, pero no tiene los encabezados correctos.")
+            st.warning(f"⚠️ La pestaña de {tipo_mapa} no tiene los encabezados correctos.")
         else:
             df_total['Estatus de verificación'] = df_total['Estatus de verificación'].astype(str).str.strip().str.upper()
             if 'Estatus operativo' in df_total.columns:
