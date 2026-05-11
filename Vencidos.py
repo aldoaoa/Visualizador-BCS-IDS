@@ -53,7 +53,199 @@ def procesar_imagen_b64(img_file):
         except Exception as e:
             return ""
     return ""
+def safe_str(val, default="N/D"):
+    """Evita errores de NaN al extraer de pandas."""
+    if pd.isna(val) or str(val).strip().lower() == 'nan' or str(val).strip() == '':
+        return default
+    return str(val).strip()
 
+def generar_html_reporte_esd(row, index):
+    """Genera el HTML imprimible en formato ANSI/ESD S20.20 para una fila específica."""
+    med1 = safe_str(row.get('Medición 1', ''), '')
+    med_extra = safe_str(row.get('Mediciones Extra', ''), '')
+    
+    # Juntar todas las mediciones para procesar tabla y promedio
+    mediciones = [med1] if med1 else []
+    if med_extra and med_extra != 'N/D':
+        mediciones.extend([m.strip() for m in med_extra.split(',') if m.strip()])
+    
+    valid_nums = []
+    for m in mediciones:
+        try:
+            valid_nums.append(float(m))
+        except:
+            pass
+            
+    promedio = sum(valid_nums) / len(valid_nums) if valid_nums else 0
+    promedio_str = f"{promedio:.2E}" if promedio > 0 else "N/A"
+    
+    html_rows = ""
+    for i, val in enumerate(mediciones, 1):
+        try:
+            val_num = float(val)
+            # Notación científica si el número es muy grande o muy pequeño
+            val_str = f"{val_num:.2E}" if val_num > 1000 or val_num < 0.01 else str(val)
+        except:
+            val_str = val
+            
+        html_rows += f"""
+        <tr class="border-b border-gray-200 hover:bg-blue-50 print:hover:bg-transparent text-center">
+            <td class="p-1 border-r border-gray-300 font-bold">{i}</td>
+            <td class="p-1 border-r border-gray-300">{safe_str(row.get('Referencia'))}</td>
+            <td class="p-1 border-r border-gray-300">{safe_str(row.get('Tolerancia'))}</td>
+            <td class="p-1 border-r border-gray-300 bg-yellow-50 print:bg-transparent font-mono font-bold">{val_str}</td>
+            <td class="p-1 border-r border-gray-300">{safe_str(row.get('Método'))}</td>
+            <td class="p-1 border-r border-gray-300">{safe_str(row.get('Unidad'))}</td>
+            <td class="p-1 border-r border-gray-300">{safe_str(row.get('Ubicación'))}</td>
+        </tr>
+        """
+        
+    img_b64 = safe_str(row.get('Imagen (Base64)'), '')
+    if img_b64 == 'N/D' or not img_b64:
+        img_tag = "<span class='text-gray-400 flex flex-col items-center'><br><br>Sin evidencia fotográfica</span>"
+    else:
+        img_tag = f'<img src="data:image/png;base64,{img_b64}" class="max-h-full max-w-full object-contain" />'
+        
+    fecha_ejecucion = safe_str(row.get('Fecha'))[:10]
+    año_actual = datetime.today().strftime("%y")
+    
+    # NOTA: Los corchetes del CSS deben ser dobles {{ }} por ser un F-String en Python
+    html = f"""<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Reporte de Validación S20.20</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @media print {{ body {{ -webkit-print-color-adjust: exact; }} }}
+    </style>
+</head>
+<body class="bg-gray-100 p-4 md:p-8 font-sans text-sm print:bg-white print:p-0">
+    <div class="max-w-5xl mx-auto mb-6 bg-white p-4 rounded-lg shadow flex justify-end print:hidden">
+        <button onclick="window.print()" class="bg-blue-600 text-white px-6 py-2 rounded font-bold shadow-sm">🖨️ Imprimir / Guardar PDF</button>
+    </div>
+    
+    <div class="max-w-5xl mx-auto bg-white shadow-xl print:shadow-none print:w-full">
+        <!-- Header -->
+        <div class="border-b-2 border-gray-800 p-6 flex items-start justify-between">
+            <div class="w-1/3">
+                <img src="https://github.com/aldoaoa/Visualizador-BCS-IDS/blob/main/BCS%20LOGO.png?raw=true" alt="BCS Logo" class="h-16 object-contain" />
+            </div>
+            <div class="w-1/3 text-center">
+                <h1 class="text-lg font-bold text-gray-800">FORMATO DE VALIDACIÓN DE PRODUCTO (ESD)</h1>
+                <p class="text-xs text-gray-600">ANSI/ESD S20.20-2021</p>
+            </div>
+            <div class="w-1/3 text-right text-sm">
+                <!-- Se construye el secuencial ascendente: BCS-PV-[Fila]-[Año] -->
+                <div class="font-bold text-red-700 text-lg mb-2">Reporte: BCS-PV-{index:03d}-{año_actual}</div>
+                <div class="flex justify-end gap-2 mb-1">
+                    <span class="font-bold">Fecha de Ejecución:</span><span>{fecha_ejecucion}</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="p-6 space-y-6">
+            <!-- Datos del Elemento -->
+            <div class="grid grid-cols-2 gap-6">
+                <div>
+                    <div class="bg-gray-800 text-white font-bold px-2 py-1 uppercase text-xs">Datos del Elemento de Control</div>
+                    <table class="w-full text-sm border-collapse border border-gray-300">
+                        <tr class="border-b border-gray-300"><td class="w-1/3 font-bold bg-gray-100 p-1 border-r border-gray-300">ID:</td><td class="p-1">{safe_str(row.get('ID Elemento'))}</td></tr>
+                        <tr class="border-b border-gray-300"><td class="w-1/3 font-bold bg-gray-100 p-1 border-r border-gray-300">Elemento:</td><td class="p-1">{safe_str(row.get('Elemento S20.20'))}</td></tr>
+                        <tr class="border-b border-gray-300"><td class="w-1/3 font-bold bg-gray-100 p-1 border-r border-gray-300">Fabricante:</td><td class="p-1">{safe_str(row.get('Fabricante Elem'))}</td></tr>
+                        <tr class="border-b border-gray-300"><td class="w-1/3 font-bold bg-gray-100 p-1 border-r border-gray-300">Modelo:</td><td class="p-1">{safe_str(row.get('Modelo Elem'))}</td></tr>
+                        <tr><td class="w-1/3 font-bold bg-gray-100 p-1 border-r border-gray-300">No. Serie:</td><td class="p-1">{safe_str(row.get('SN Elem'))}</td></tr>
+                    </table>
+                </div>
+                <div>
+                    <div class="bg-gray-800 text-white font-bold px-2 py-1 uppercase text-xs">Información General</div>
+                    <table class="w-full text-sm border-collapse border border-gray-300 h-full">
+                        <tr class="border-b border-gray-300"><td class="w-1/3 font-bold bg-gray-100 p-1 border-r border-gray-300">Temperatura:</td><td class="p-1">{safe_str(row.get('Temperatura'))}</td></tr>
+                        <tr class="border-b border-gray-300"><td class="w-1/3 font-bold bg-gray-100 p-1 border-r border-gray-300">Humedad:</td><td class="p-1">{safe_str(row.get('Humedad'))}</td></tr>
+                        <tr class="border-b border-gray-300"><td class="w-1/3 font-bold bg-gray-100 p-1 border-r border-gray-300">Ubicación:</td><td class="p-1">{safe_str(row.get('Ubicación'))}</td></tr>
+                        <tr><td class="w-1/3 font-bold bg-gray-100 p-1 border-r border-gray-300">Magnitud:</td><td class="p-1">{safe_str(row.get('Magnitud Medida'))}</td></tr>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Trazabilidad Equipo Medición -->
+            <div>
+                <div class="bg-gray-800 text-white font-bold px-2 py-1 uppercase text-xs">Trazabilidad (Equipo de Medición)</div>
+                <div class="grid grid-cols-2 border-l border-t border-gray-300">
+                    <div class="border-r border-b border-gray-300">
+                        <table class="w-full text-sm">
+                            <tr class="border-b border-gray-300"><td class="font-bold bg-gray-100 p-1 w-1/3 border-r border-gray-300">ID:</td><td class="p-1">{safe_str(row.get('ID Equipo'))}</td></tr>
+                            <tr class="border-b border-gray-300"><td class="font-bold bg-gray-100 p-1 border-r border-gray-300">Equipo:</td><td class="p-1">{safe_str(row.get('Tipo Equipo'))}</td></tr>
+                            <tr class="border-b border-gray-300"><td class="font-bold bg-gray-100 p-1 border-r border-gray-300">Reporte Cal.:</td><td class="p-1">{safe_str(row.get('Reporte Cal'))}</td></tr>
+                            <tr><td class="font-bold bg-gray-100 p-1 border-r border-gray-300">Resolución:</td><td class="p-1">{safe_str(row.get('Resolución'))}</td></tr>
+                        </table>
+                    </div>
+                    <div class="border-b border-gray-300">
+                        <table class="w-full text-sm">
+                            <tr class="border-b border-gray-300"><td class="font-bold bg-gray-100 p-1 w-1/3 border-r border-gray-300">Fabricante:</td><td class="p-1">{safe_str(row.get('Fabricante Eq'))}</td></tr>
+                            <tr class="border-b border-gray-300"><td class="font-bold bg-gray-100 p-1 border-r border-gray-300">Modelo:</td><td class="p-1">{safe_str(row.get('Modelo Eq'))}</td></tr>
+                            <tr class="border-b border-gray-300"><td class="font-bold bg-gray-100 p-1 border-r border-gray-300">No. Serie:</td><td class="p-1">{safe_str(row.get('SN Eq'))}</td></tr>
+                            <tr><td class="font-bold bg-gray-100 p-1 border-r border-gray-300">Vigencia Cal.:</td><td class="p-1">{safe_str(row.get('Fecha Prox Cal'))}</td></tr>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tabla de Resultados S20.20 -->
+            <div>
+                <div class="bg-gray-800 text-white font-bold px-2 py-1 uppercase text-xs">Resultados (ANSI/ESD S20.20)</div>
+                <table class="w-full text-sm border-collapse border border-gray-300 text-center">
+                    <tr class="bg-gray-100 border-b border-gray-300">
+                        <th class="p-2 border-r border-gray-300">No.</th>
+                        <th class="p-2 border-r border-gray-300">Referencia</th>
+                        <th class="p-2 border-r border-gray-300">Tolerancia</th>
+                        <th class="p-2 border-r border-gray-300">Resultado Obtenido</th>
+                        <th class="p-2 border-r border-gray-300">Método de Prueba</th>
+                        <th class="p-2 border-r border-gray-300">Unidad</th>
+                        <th class="p-2 border-r border-gray-300">Punto de Colocación</th>
+                    </tr>
+                    {html_rows}
+                    <tr class="border-t-2 border-gray-400 bg-gray-50">
+                        <td colspan="3" class="p-2 font-bold text-right border-r border-gray-300">Promedio / Final:</td>
+                        <td class="p-2 font-mono font-bold text-center border-r border-gray-300">{promedio_str}</td>
+                        <td colspan="3"></td>
+                    </tr>
+                </table>
+            </div>
+
+            <!-- Evidencia e Información Adicional -->
+            <div class="grid grid-cols-2 gap-6 h-64">
+                <div class="border border-gray-300 flex flex-col items-center justify-center bg-gray-50 overflow-hidden relative">
+                    <div class="absolute top-0 left-0 bg-gray-800 text-white font-bold px-2 py-1 uppercase text-xs w-full text-left z-10">Imagen del Producto / Evidencia</div>
+                    <div class="mt-8 flex-1 flex items-center justify-center p-2">
+                        {img_tag}
+                    </div>
+                </div>
+                <div class="border border-gray-300 flex flex-col relative">
+                    <div class="bg-gray-800 text-white font-bold px-2 py-1 uppercase text-xs w-full">Comentarios / Observaciones</div>
+                    <div class="p-2 text-sm">{safe_str(row.get('Notas'), 'Sin observaciones adicionales.')}</div>
+                    <div class="absolute bottom-2 right-2 text-lg font-bold text-gray-700">{safe_str(row.get('Resultado'))}</div>
+                </div>
+            </div>
+
+            <!-- Firmas -->
+            <div class="mt-12 mb-8 pt-8">
+                <div class="w-1/3 mx-auto text-center border-t border-gray-800 pt-2">
+                    <div class="font-bold uppercase text-sm mb-1">APROBADO Y CERTIFICADO POR:</div>
+                    <div class="text-center font-bold text-gray-700">{safe_str(row.get('Auditor'))}</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer Normativo -->
+        <div class="border-t border-gray-300 p-4 text-xs text-gray-500 flex justify-between bg-gray-50">
+            <div>Ref: E_310_3_001_QRO_SP</div>
+            <div>Formato: E_310_4_113_QRO_SP_Rev. A</div>
+        </div>
+    </div>
+</body>
+</html>"""
+    return html
 # ==========================================
 # SEGURIDAD Y ACCESO (POR URL)
 # ==========================================
@@ -1760,6 +1952,21 @@ else:
                                         st.error("Archivo de imagen corrupto.")
                                 else:
                                     st.warning("Sin imagen.")
+                            # -------- NUEVO: BOTÓN DE DESCARGA DE REPORTE --------
+                            st.divider()
+                            año_actual = datetime.today().strftime("%y")
+                            html_reporte = generar_html_reporte_esd(row, index)
+                            
+                            b64_html_rep = base64.b64encode(html_reporte.encode('utf-8')).decode('utf-8')
+                            nombre_archivo_rep = f"Reporte_ESD_{safe_str(row.get('ID Elemento'))}_{safe_str(row.get('Fecha')).replace(' ', '_').replace(':', '')}.html"
+                            
+                            st.markdown(
+                                f'<a href="data:text/html;base64,{b64_html_rep}" download="{nombre_archivo_rep}" '
+                                f'style="display: block; width: 100%; text-align: center; padding: 12px; '
+                                f'background-color: #2563eb; color: white; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 16px;">'
+                                f'📥 Descargar Reporte Completo (BCS-PV-{index:03d}-{año_actual})</a>', 
+                                unsafe_allow_html=True
+                            )        
                                     
             except Exception as e:
                 st.warning("La base de datos de validaciones aún no ha sido creada o hay un error de conexión.")
