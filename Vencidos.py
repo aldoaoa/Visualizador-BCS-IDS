@@ -1935,16 +1935,16 @@ else:
                             # Calcula la próxima fecha de validación con base en la frecuencia de la tabla
                             fecha_prox_val = calcular_proxima_fecha(fecha_hoy, info["frecuencia"]).strftime("%d-%b-%Y")
                             
-                           fila_validacion = [
-                                fecha_hoy_val, st.session_state.usuario_nombre, elemento_sel, id_elemento.upper(), tipo_material,
-                                fab_elem, mod_elem, sn_elem, temp, humedad,
-                                ubicacion, magnitud_med, id_equipo_sel, eq_data.get('tipo de equipo', 'N/D'), eq_data.get('número de reporte de calibración', 'N/D'),
-                                eq_data.get('resolución', 'N/D'), eq_data.get('fabricante', 'N/D'), eq_data.get('modelo', 'N/D'), eq_data.get('número de serie', 'N/D'), eq_data.get('fecha de calibración próxima', 'N/D'),
-                                float(referencia), tolerancia, float(medicion_1), mediciones_extra, unidad_med,
-                                metodo_med, modo_med, resultado_calc, fecha_prox_val, notas_val, img_b64
-                            ]
+                            fila_validacion = [
+                                 fecha_hoy_val, st.session_state.usuario_nombre, elemento_sel, id_elemento.upper(), tipo_material,
+                                 fab_elem, mod_elem, sn_elem, temp, humedad,
+                                 ubicacion, magnitud_med, id_equipo_sel, eq_data.get('tipo de equipo', 'N/D'), eq_data.get('número de reporte de calibración', 'N/D'),
+                                 eq_data.get('resolución', 'N/D'), eq_data.get('fabricante', 'N/D'), eq_data.get('modelo', 'N/D'), eq_data.get('número de serie', 'N/D'), eq_data.get('fecha de calibración próxima', 'N/D'),
+                                 float(referencia), tolerancia, float(medicion_1), mediciones_extra, unidad_med,
+                                 metodo_med, modo_med, resultado_calc, fecha_prox_val, notas_val, img_b64
+                             ]
                             
-                            ws_val.append_row(fila_validacion, value_input_option="USER_ENTERED")
+                             ws_val.append_row(fila_validacion, value_input_option="USER_ENTERED")
                             
                         st.success(f"✅ ¡Validación registrada! Resultado: **{resultado_calc}**")
                         st.cache_data.clear()
