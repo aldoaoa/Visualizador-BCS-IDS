@@ -53,6 +53,7 @@ def procesar_imagen_b64(img_file):
         except Exception as e:
             return ""
     return ""
+
 def safe_str(val, default="N/D"):
     """Evita errores de NaN al extraer de pandas."""
     if pd.isna(val) or str(val).strip().lower() == 'nan' or str(val).strip() == '':
@@ -126,7 +127,6 @@ def generar_html_reporte_esd(row, index):
     </div>
     
     <div class="max-w-5xl mx-auto bg-white shadow-xl print:shadow-none print:w-full">
-        <!-- Header -->
         <div class="border-b-2 border-gray-800 p-6 flex items-start justify-between">
             <div class="w-1/3">
                 <img src="https://github.com/aldoaoa/Visualizador-BCS-IDS/blob/main/BCS%20LOGO.png?raw=true" alt="BCS Logo" class="h-16 object-contain" />
@@ -136,7 +136,6 @@ def generar_html_reporte_esd(row, index):
                 <p class="text-xs text-gray-600">ANSI/ESD S20.20-2021</p>
             </div>
             <div class="w-1/3 text-right text-sm">
-                <!-- Se construye el secuencial ascendente: BCS-PV-[Fila]-[Año] -->
                 <div class="font-bold text-red-700 text-lg mb-2">Reporte: BCS-PV-{index:03d}-{año_actual}</div>
                 <div class="flex justify-end gap-2 mb-1">
                     <span class="font-bold">Fecha de Ejecución:</span><span>{fecha_ejecucion}</span>
@@ -145,7 +144,6 @@ def generar_html_reporte_esd(row, index):
         </div>
 
         <div class="p-6 space-y-6">
-            <!-- Datos del Elemento -->
             <div class="grid grid-cols-2 gap-6">
                 <div>
                     <div class="bg-gray-800 text-white font-bold px-2 py-1 uppercase text-xs">Datos del Elemento de Control</div>
@@ -168,7 +166,6 @@ def generar_html_reporte_esd(row, index):
                 </div>
             </div>
 
-            <!-- Trazabilidad Equipo Medición -->
             <div>
                 <div class="bg-gray-800 text-white font-bold px-2 py-1 uppercase text-xs">Trazabilidad (Equipo de Medición)</div>
                 <div class="grid grid-cols-2 border-l border-t border-gray-300">
@@ -191,7 +188,6 @@ def generar_html_reporte_esd(row, index):
                 </div>
             </div>
 
-            <!-- Tabla de Resultados S20.20 -->
             <div>
                 <div class="bg-gray-800 text-white font-bold px-2 py-1 uppercase text-xs">Resultados (ANSI/ESD S20.20)</div>
                 <table class="w-full text-sm border-collapse border border-gray-300 text-center">
@@ -213,7 +209,6 @@ def generar_html_reporte_esd(row, index):
                 </table>
             </div>
 
-            <!-- Evidencia e Información Adicional -->
             <div class="grid grid-cols-2 gap-6 h-64">
                 <div class="border border-gray-300 flex flex-col items-center justify-center bg-gray-50 overflow-hidden relative">
                     <div class="absolute top-0 left-0 bg-gray-800 text-white font-bold px-2 py-1 uppercase text-xs w-full text-left z-10">Imagen del Producto / Evidencia</div>
@@ -228,7 +223,6 @@ def generar_html_reporte_esd(row, index):
                 </div>
             </div>
 
-            <!-- Firmas -->
             <div class="mt-12 mb-8 pt-8">
                 <div class="w-1/3 mx-auto text-center border-t border-gray-800 pt-2">
                     <div class="font-bold uppercase text-sm mb-1">APROBADO Y CERTIFICADO POR:</div>
@@ -237,7 +231,6 @@ def generar_html_reporte_esd(row, index):
             </div>
         </div>
 
-        <!-- Footer Normativo -->
         <div class="border-t border-gray-300 p-4 text-xs text-gray-500 flex justify-between bg-gray-50">
             <div>Ref: B_010_3_002_QRO_SP</div>
             <div>B_010_4_018_QRO_SP_Rev. A Formato de Validación de producto.</div>
@@ -246,6 +239,7 @@ def generar_html_reporte_esd(row, index):
 </body>
 </html>"""
     return html
+
 # ==========================================
 # SEGURIDAD Y ACCESO (POR URL)
 # ==========================================
@@ -325,7 +319,7 @@ else:
         except: pass
         try: df_ion = conn.read(worksheet="IONIZADORES", header=4)
         except: pass
-        try: df_em = conn.read(worksheet="EVENT_METER") # Cambia el header=4 si tus encabezados no están en la fila 1
+        try: df_em = conn.read(worksheet="EVENT_METER")
         except: pass
         return df_piso, df_mob, df_ion, df_em
 
@@ -366,7 +360,7 @@ else:
         st.session_state.vista_actual = "Alta"
 
     if not st.session_state.modo_lectura:
-# --- INICIO ACTUALIZACIÓN MENÚ ---
+        # --- INICIO ACTUALIZACIÓN MENÚ ---
         c_nav1, c_nav2, c_nav3, c_nav4, c_nav5, c_nav6 = st.columns(6)
         with c_nav1:
             if st.button("🗺️ Mapa y Reportes", use_container_width=True, type="primary" if st.session_state.vista_actual == "Mapa" else "secondary"):
@@ -531,9 +525,9 @@ else:
                                     fabricante_final,                                
                                     float(nuevo_minimo),                             
                                     float(limite_alta) if "E" in limite_alta.upper() else limite_alta, 
-                                    unidad_medida,                                          
+                                    unidad_medida,                                         
                                     float(valor_alta) if valor_alta > 0 else "",      
-                                    unidad_medida,                                          
+                                    unidad_medida,                                         
                                     metodo,                                           
                                     fecha_hoy.strftime("%d-%b-%Y") if valor_alta > 0 else "", 
                                     proxima.strftime("%d-%b-%Y") if valor_alta > 0 else "",   
@@ -1137,10 +1131,10 @@ else:
                                         try:
                                             ws_hist = gc_gspread.open_by_url(sec["spreadsheet"]).worksheet("HISTORIAL")
                                             fila_historial = [
-                                                id_limpio,                                  
-                                                hoja_activa,                                
-                                                equipo.get('Línea', ''),                    
-                                                str(val_previo),                            
+                                                id_limpio,                                 
+                                                hoja_activa,                               
+                                                equipo.get('Línea', ''),                   
+                                                str(val_previo),                           
                                                 str(equipo.get('Balance', '')),             
                                                 str(equipo.get('Fecha de verificación', '')),
                                                 str(equipo.get('Auditor', '')),             
@@ -1212,7 +1206,8 @@ else:
                                 st.rerun()
             else:
                 st.error(f"❌ El ID '{id_escaneado_url}' no se encontró en la base de datos.")
-# ==========================================
+
+    # ==========================================
     # VISTA 3: EVENT METER
     # ==========================================
     elif st.session_state.vista_actual == "Event Meter" and not st.session_state.modo_lectura:
@@ -1518,8 +1513,7 @@ else:
                     st.cache_data.clear() # Limpiamos la caché para que la nueva operación aparezca en la lista inmediatamente
                     st.balloons()
 
-# ... existing code ...
-# ==========================================
+    # ==========================================
     # VISTA 4: WALKING TEST
     # ==========================================
     elif st.session_state.vista_actual == "Walking Test" and not st.session_state.modo_lectura:
@@ -1785,15 +1779,14 @@ else:
                         href = f'<a href="data:text/html;base64,{b64_html}" download="{nombre_archivo}" target="_blank" style="display: block; text-align: center; padding: 15px; background-color: #003366; color: white; text-decoration: none; border-radius: 8px; font-weight: bold; margin-top: 10px; font-size: 16px;">📥 Descargar Reporte Completo (Abrir para imprimir PDF)</a>'
                         st.markdown(href, unsafe_allow_html=True)
 
-# ==========================================
+    # ==========================================
     # VISTA 5: VALIDACIÓN ESD (SISTEMA INTEGRAL)
     # ==========================================
     elif st.session_state.vista_actual == "Validación" and not st.session_state.modo_lectura:
         st.markdown("### ✅ Validación Integral de Elementos de Control ESD")
         st.info("Registro de trazabilidad completa. Selecciona el equipo de medición primero para autocompletar su información.")
 
-        # Diccionario basado en la Tabla de Validación ESD
-# Diccionario actualizado conforme a la Tabla de Validación ESD
+        # Diccionario actualizado conforme a la Tabla de Validación ESD
         INFO_ELEMENTOS_ESD = {
             "Pulsera antiestática": {"limite": "RS < 3.5x10^7 ohms", "metodo": "ANSI/ESD TR53", "frecuencia": "Semestralmente"},
             "Calzado": {"limite": "RS < 1.0x10^9 ohms", "metodo": "ANSI/ESD TR53", "frecuencia": "Semestralmente"},
@@ -1822,6 +1815,7 @@ else:
             "Bolsas blindadas": {"limite": "Indicaciones visuales de daño", "metodo": "Inspección visual aleatoria", "frecuencia": "Trimestralmente"}
         }
         st.caption("*Nota: RS se refiere a la resistencia del sistema, incluyendo a la persona, pulsera, cable a tierra y calzado ESD. RTG se refiere a la resistencia a tierra.*")
+        
         # Cargar Base de Datos de Equipos
         try:
             df_equipos = conn.read(worksheet="EQUIPOS")
@@ -1936,15 +1930,15 @@ else:
                             fecha_prox_val = calcular_proxima_fecha(fecha_hoy, info["frecuencia"]).strftime("%d-%b-%Y")
                             
                             fila_validacion = [
-                                 fecha_hoy_val, st.session_state.usuario_nombre, elemento_sel, id_elemento.upper(), tipo_material,
-                                 fab_elem, mod_elem, sn_elem, temp, humedad,
-                                 ubicacion, magnitud_med, id_equipo_sel, eq_data.get('tipo de equipo', 'N/D'), eq_data.get('número de reporte de calibración', 'N/D'),
-                                 eq_data.get('resolución', 'N/D'), eq_data.get('fabricante', 'N/D'), eq_data.get('modelo', 'N/D'), eq_data.get('número de serie', 'N/D'), eq_data.get('fecha de calibración próxima', 'N/D'),
-                                 float(referencia), tolerancia, float(medicion_1), mediciones_extra, unidad_med,
-                                 metodo_med, modo_med, resultado_calc, fecha_prox_val, notas_val, img_b64
-                             ]
+                                fecha_hoy_val, st.session_state.usuario_nombre, elemento_sel, id_elemento.upper(), tipo_material,
+                                fab_elem, mod_elem, sn_elem, temp, humedad,
+                                ubicacion, magnitud_med, id_equipo_sel, eq_data.get('Tipo de equipo', 'N/D'), eq_data.get('Número de reporte de calibración', 'N/D'),
+                                eq_data.get('Resolución', 'N/D'), eq_data.get('Fabricante', 'N/D'), eq_data.get('Modelo', 'N/D'), eq_data.get('Número de serie', 'N/D'), eq_data.get('Fecha de calibración próxima', 'N/D'),
+                                float(referencia), tolerancia, float(medicion_1), mediciones_extra, unidad_med,
+                                metodo_med, modo_med, resultado_calc, fecha_prox_val, notas_val, img_b64
+                            ]
                             
-                             ws_val.append_row(fila_validacion, value_input_option="USER_ENTERED")
+                            ws_val.append_row(fila_validacion, value_input_option="USER_ENTERED")
                             
                         st.success(f"✅ ¡Validación registrada! Resultado: **{resultado_calc}**")
                         st.cache_data.clear()
