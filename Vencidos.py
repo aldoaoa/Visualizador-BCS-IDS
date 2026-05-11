@@ -1542,11 +1542,11 @@ else:
                         st.markdown(href, unsafe_allow_html=True)
 
 # ==========================================
-    # VISTA 5: VALIDACIÓN ESD (ACTUALIZADA)
+    # VISTA 5: VALIDACIÓN ESD (SISTEMA INTEGRAL)
     # ==========================================
     elif st.session_state.vista_actual == "Validación" and not st.session_state.modo_lectura:
-        st.markdown("### ✅ Validación de Elementos de Control ESD")
-        st.info("Registra y consulta las validaciones de los elementos de control conforme a la tabla oficial.")
+        st.markdown("### ✅ Validación Integral de Elementos de Control ESD")
+        st.info("Registro de trazabilidad completa. Selecciona el equipo de medición primero para autocompletar su información.")
 
         # Diccionario basado en la Tabla de Validación ESD
         INFO_ELEMENTOS_ESD = {
@@ -1577,65 +1577,94 @@ else:
             "Bolsas blindadas": {"limite": "Indicaciones visuales de daño", "metodo": "Inspección visual aleatoria", "frecuencia": "Trimestralmente"}
         }
 
-        # --- SISTEMA DE PESTAÑAS ---
-        tab_registro, tab_historial = st.tabs(["📝 Registrar Validación", "🖼️ Historial de Validaciones"])
+        # Cargar Base de Datos de Equipos
+        try:
+            df_equipos = conn.read(worksheet="Equipos")
+            lista_equipos = df_equipos["ID del equipo de medición"].dropna().unique().tolist()
+        except:
+            df_equipos = pd.DataFrame()
+            lista_equipos = ["Sin conexión a 'Equipos'"]
+
+        tab_registro, tab_historial = st.tabs(["📝 Registrar Validación", "🖼️ Visor de Registros"])
 
         # ==========================================
         # PESTAÑA 1: FORMULARIO DE CAPTURA
         # ==========================================
         with tab_registro:
-            col_v1, col_v2 = st.columns([1.5, 1])
-
-            with col_v1:
-                elemento_sel = st.selectbox("Elemento a validar:", options=list(INFO_ELEMENTOS_ESD.keys()))
-                info = INFO_ELEMENTOS_ESD[elemento_sel]
-                
-                st.markdown("#### 📋 Criterios de la Norma")
-                c_crit1, c_crit2, c_crit3 = st.columns(3)
-                c_crit1.metric("Límite Permitido", info["limite"])
-                c_crit2.metric("Método", info["metodo"])
-                c_crit3.metric("Frecuencia", info["frecuencia"])
-                st.caption("*Nota: RS = Resistencia del sistema. RTG = Resistencia a tierra.*")
+            st.markdown("#### 1. Selección de Parámetros Globales")
+            # Selectores dinámicos FUERA del form para permitir el autocompletado en tiempo real
+            c_dyn1, c_dyn2 = st.columns(2)
+            elemento_sel = c_dyn1.selectbox("Elemento S20.20 a validar:", options=list(INFO_ELEMENTOS_ESD.keys()))
+            info = INFO_ELEMENTOS_ESD[elemento_sel]
+            
+            id_equipo_sel = c_dyn2.selectbox("Seleccionar ID del Equipo de Medición:", options=lista_equipos)
+            
+            # Extracción de datos del equipo
+            eq_data = {k: "N/D" for k in ["tipo de equipo", "número de reporte de calibración", "resolución", "fabricante", "modelo", "número de serie", "fecha de calibración próxima"]}
+            if not df_equipos.empty and id_equipo_sel != "Sin conexión a 'Equipos'":
+                fila_eq = df_equipos[df_equipos["ID del equipo de medición"] == id_equipo_sel]
+                if not fila_eq.empty:
+                    eq_data = fila_eq.iloc[0].to_dict()
 
             with st.form("form_validacion_esd"):
-                st.markdown("#### 🛠️ Registro de Medición")
-                c_form1, c_form2, c_form3 = st.columns([1, 1, 1])
+                st.markdown("#### 2. Datos del Elemento a Validar")
+                c1, c2, c3 = st.columns(3)
+                id_elemento = c1.text_input("ID del Elemento", placeholder="Ej: SILLA-05")
+                tipo_material = c2.text_input("Tipo de Material", placeholder="Ej: Vinil, Acero")
+                magnitud_med = c3.text_input("Magnitud Medida", placeholder="Ej: Resistencia, Voltaje, Tiempo")
                 
-                lineas_disponibles = sorted([str(x).strip() for x in df_piso_local['Línea'].dropna().unique()]) if df_piso_local is not None and 'Línea' in df_piso_local.columns else ["SMT", "Ensamble", "Almacén", "Laboratorio"]
-                
-                linea_val = c_form1.selectbox("Línea / Área", options=lineas_disponibles)
-                id_especifico = c_form2.text_input("ID del Elemento (Opcional)")
-                id_dispositivo = c_form3.text_input("ID Dispositivo de Medición")
-                
-                c_res1, c_res2 = st.columns(2)
-                valor_medido = c_res1.text_input("Valor de medición obtenido", placeholder="Ej: 1.5x10^7 ohms o 15 V")
-                resultado_val = c_res2.radio("Resultado de Validación", ["CUMPLE (APROBADO)", "NO CUMPLE (RECHAZADO)"], horizontal=True)
-                
-                notas_val = st.text_area("Observaciones")
+                c4, c5, c6 = st.columns(3)
+                fab_elem = c4.text_input("Fabricante del Elemento")
+                mod_elem = c5.text_input("Modelo del Elemento")
+                sn_elem = c6.text_input("Número de Serie (Si aplica)")
 
-                st.markdown("#### 📸 Evidencia Fotográfica")
-                st.info("Puedes usar la cámara o subir un archivo. Si usas ambos, se dará prioridad a la cámara.")
+                st.markdown("#### 3. Condiciones Ambientales y Ubicación")
+                c7, c8, c9 = st.columns(3)
+                ubicacion = c7.text_input("Ubicación de Medición (Línea / Área)")
+                temp = c8.text_input("Temperatura", placeholder="Ej: 24.5 °C")
+                humedad = c9.text_input("Humedad Relativa", placeholder="Ej: 45 %")
+
+                st.markdown("#### 4. Detalles del Equipo de Medición (Autocompletado)")
+                st.info(f"**Tipo:** {eq_data.get('tipo de equipo', 'N/D')} | **Fabricante:** {eq_data.get('fabricante', 'N/D')} | **Modelo:** {eq_data.get('modelo', 'N/D')} | **SN:** {eq_data.get('número de serie', 'N/D')} \n\n **Reporte Calibración:** {eq_data.get('número de reporte de calibración', 'N/D')} (Vence: {eq_data.get('fecha de calibración próxima', 'N/D')}) | **Resolución:** {eq_data.get('resolución', 'N/D')}")
+
+                st.markdown("#### 5. Parámetros y Medición")
+                cm1, cm2, cm3 = st.columns(3)
+                metodo_med = cm1.text_input("Método", value=info["metodo"])
+                modo_med = cm2.text_input("Modo de Medición", placeholder="Ej: PTP, RTG, Descarga")
+                unidad_med = cm3.text_input("Unidad de Medición", placeholder="Ej: Ohms, Volts, Segundos")
+
+                cr1, cr2 = st.columns(2)
+                # Formato %g permite capturar números enteros o notación científica (ej: 1e9)
+                referencia = cr1.number_input(f"Referencia Numérica / Límite", value=0.0, format="%g", help="Usa notación científica si es necesario (Ej: 1e9). Límite norma: " + info["limite"])
+                tolerancia = cr2.text_input("Tolerancia", placeholder="Ej: +/- 10%")
+
+                cv1, cv2 = st.columns([1, 2])
+                medicion_1 = cv1.number_input("Medición 1 (Obligatoria)", value=0.0, format="%g")
+                mediciones_extra = cv2.text_input("Mediciones Adicionales (Opcional)", placeholder="Separadas por coma. Ej: 1.2e7, 1.4e7, 1.1e7")
+                
+                notas_val = st.text_area("Notas / Observaciones")
+
+                st.markdown("#### 6. Evidencia Fotográfica")
+                st.info("📸 Puedes usar la cámara o subir un archivo. Si usas ambos, se dará prioridad a la cámara.")
                 
                 col_img1, col_img2 = st.columns(2)
                 imagen_camara = col_img1.camera_input("Capturar foto en vivo")
-                imagen_subida = col_img2.file_uploader("O subir archivo de imagen", type=["jpg", "jpeg", "png"])
-                
-                # Selecciona la cámara primero, si no hay foto, usa la subida
+                imagen_subida = col_img2.file_uploader("Subir archivo de imagen", type=["jpg", "jpeg", "png"])
                 imagen_final = imagen_camara if imagen_camara is not None else imagen_subida
 
-                submit_val = st.form_submit_button("💾 Guardar Validación", use_container_width=True)
+                submit_val = st.form_submit_button("💾 Evaluar y Guardar Trazabilidad", use_container_width=True)
 
                 if submit_val:
-                    if not valor_medido:
-                        st.error("⚠️ Debes ingresar el valor de medición obtenido.")
-                    elif not id_dispositivo:
-                        st.error("⚠️ El ID del Dispositivo de medición es obligatorio.")
+                    if not id_elemento or not ubicacion:
+                        st.error("⚠️ Debes proporcionar un ID de elemento y la ubicación.")
                     elif imagen_final is None:
-                        st.error("⚠️ La evidencia fotográfica es obligatoria.")
+                        st.error("⚠️ La evidencia fotográfica es obligatoria para la auditoría.")
                     else:
-                        with st.spinner("Procesando imagen y guardando en servidor..."):
-                            img_b64 = procesar_imagen_b64(imagen_final)
+                        with st.spinner("Evaluando límites y guardando en servidor..."):
+                            # Lógica: Aprobado si la medición es INFERIOR al límite de referencia establecido
+                            resultado_calc = "CUMPLE (APROBADO)" if medicion_1 < referencia else "NO CUMPLE (RECHAZADO)"
                             
+                            img_b64 = procesar_imagen_b64(imagen_final)
                             import gspread
                             sec = dict(st.secrets["connections"]["gsheets"])
                             gc_val = gspread.service_account_from_dict(sec)
@@ -1644,31 +1673,33 @@ else:
                                 ws_val = gc_val.open_by_url(sec["spreadsheet"]).worksheet("VALIDACION_ESD")
                             except gspread.exceptions.WorksheetNotFound:
                                 sheet_file = gc_val.open_by_url(sec["spreadsheet"])
-                                ws_val = sheet_file.add_worksheet(title="VALIDACION_ESD", rows="1000", cols="11")
-                                # Se actualizan los encabezados para incluir "ID Dispositivo"
-                                encabezados = ["Fecha", "Auditor", "Elemento", "Línea", "ID Específico", "ID Dispositivo", "Límite Requerido", "Valor Medido", "Resultado", "Notas", "Imagen (Base64)"]
+                                ws_val = sheet_file.add_worksheet(title="VALIDACION_ESD", rows="1000", cols="30")
+                                # 30 Encabezados estructurados
+                                encabezados = [
+                                    "Fecha", "Auditor", "Elemento S20.20", "ID Elemento", "Tipo Material", 
+                                    "Fabricante Elem", "Modelo Elem", "SN Elem", "Temperatura", "Humedad", 
+                                    "Ubicación", "Magnitud Medida", "ID Equipo", "Tipo Equipo", "Reporte Cal", 
+                                    "Resolución", "Fabricante Eq", "Modelo Eq", "SN Eq", "Fecha Prox Cal", 
+                                    "Referencia", "Tolerancia", "Medición 1", "Mediciones Extra", "Unidad", 
+                                    "Método", "Modo Medición", "Resultado", "Notas", "Imagen (Base64)"
+                                ]
                                 ws_val.append_row(encabezados)
                                 
                             fecha_hoy_val = datetime.today().strftime("%d-%b-%Y %H:%M")
                             
                             fila_validacion = [
-                                fecha_hoy_val,
-                                st.session_state.usuario_nombre,
-                                elemento_sel,
-                                linea_val,
-                                id_especifico.upper(),
-                                id_dispositivo.upper(), # Nuevo dato a guardar
-                                info["limite"],
-                                valor_medido,
-                                resultado_val.split(" ")[0], 
-                                notas_val,
-                                img_b64
+                                fecha_hoy_val, st.session_state.usuario_nombre, elemento_sel, id_elemento.upper(), tipo_material,
+                                fab_elem, mod_elem, sn_elem, temp, humedad,
+                                ubicacion, magnitud_med, id_equipo_sel, eq_data.get('tipo de equipo', 'N/D'), eq_data.get('número de reporte de calibración', 'N/D'),
+                                eq_data.get('resolución', 'N/D'), eq_data.get('fabricante', 'N/D'), eq_data.get('modelo', 'N/D'), eq_data.get('número de serie', 'N/D'), eq_data.get('fecha de calibración próxima', 'N/D'),
+                                float(referencia), tolerancia, float(medicion_1), mediciones_extra, unidad_med,
+                                metodo_med, modo_med, resultado_calc, notas_val, img_b64
                             ]
                             
                             ws_val.append_row(fila_validacion, value_input_option="USER_ENTERED")
                             
-                        st.success("✅ ¡Validación registrada exitosamente!")
-                        st.cache_data.clear() # Limpia caché para que el historial se actualice
+                        st.success(f"✅ ¡Validación registrada! Resultado: **{resultado_calc}**")
+                        st.cache_data.clear()
                         st.balloons()
 
         # ==========================================
@@ -1676,194 +1707,59 @@ else:
         # ==========================================
         with tab_historial:
             col_h1, col_h2 = st.columns([0.8, 0.2])
-            col_h1.markdown("#### 🗂️ Registros Históricos de Validación")
-            if col_h2.button("🔄 Actualizar", use_container_width=True):
+            col_h1.markdown("#### 🗂️ Dashobard de Registros Históricos")
+            if col_h2.button("🔄 Actualizar Datos", use_container_width=True):
                 st.cache_data.clear()
                 st.rerun()
 
             try:
-                # Leemos la pestaña de validaciones
                 df_val = conn.read(worksheet="VALIDACION_ESD")
-                
                 if df_val.empty:
                     st.info("Aún no hay registros de validación.")
                 else:
-                    # Filtramos filas vacías que Google Sheets suele agregar
-                    df_val = df_val.dropna(subset=['Fecha', 'Elemento'], how='all')
-                    
-                    # Ordenamos para ver las más recientes primero (Asumiendo que las más recientes están al final)
-                    df_val = df_val.iloc[::-1]
+                    df_val = df_val.dropna(subset=['Fecha', 'Elemento S20.20'], how='all').iloc[::-1]
 
                     for index, row in df_val.iterrows():
-                        fecha_str = str(row.get('Fecha', ''))
-                        elemento_str = str(row.get('Elemento', ''))
                         resultado_str = str(row.get('Resultado', ''))
-                        
                         icono_res = "🟢" if "CUMPLE" in resultado_str.upper() else "🔴"
                         
-                        with st.expander(f"{icono_res} {fecha_str} | {elemento_str} - {row.get('Línea', '')}"):
-                            c_info, c_img = st.columns([1.5, 1])
+                        with st.expander(f"{icono_res} {row.get('Fecha', '')} | {row.get('ID Elemento', 'N/D')} ({row.get('Elemento S20.20', '')}) - {row.get('Ubicación', '')}"):
+                            # Dividimos el visor en 4 columnas
+                            c_det1, c_det2, c_det3, c_img = st.columns([1, 1, 1, 1.5])
                             
-                            with c_info:
-                                st.markdown(f"**Auditor:** {row.get('Auditor', 'N/D')}")
-                                st.markdown(f"**ID Específico:** {row.get('ID Específico', 'N/D')} | **ID Dispositivo:** {row.get('ID Dispositivo', 'N/D')}")
-                                st.markdown(f"**Límite Requerido:** {row.get('Límite Requerido', 'N/D')}")
-                                st.markdown(f"**Valor Medido:** `{row.get('Valor Medido', 'N/D')}`")
+                            with c_det1:
+                                st.markdown("##### 📦 Elemento")
+                                st.markdown(f"**Material:** {row.get('Tipo Material', 'N/D')}")
+                                st.markdown(f"**Fabricante:** {row.get('Fabricante Elem', 'N/D')}")
+                                st.markdown(f"**Modelo / SN:** {row.get('Modelo Elem', 'N/D')} / {row.get('SN Elem', 'N/D')}")
+                                st.markdown(f"**Temp/Hum:** {row.get('Temperatura', 'N/D')} | {row.get('Humedad', 'N/D')}")
+                            
+                            with c_det2:
+                                st.markdown("##### 🛠️ Equipo Utilizado")
+                                st.markdown(f"**ID:** {row.get('ID Equipo', 'N/D')}")
+                                st.markdown(f"**Tipo:** {row.get('Tipo Equipo', 'N/D')}")
+                                st.markdown(f"**Certificado:** {row.get('Reporte Cal', 'N/D')}")
+                                st.markdown(f"**Vencimiento:** {row.get('Fecha Prox Cal', 'N/D')}")
+
+                            with c_det3:
+                                st.markdown("##### 📊 Resultados")
+                                st.markdown(f"**Método/Modo:** {row.get('Método', 'N/D')} / {row.get('Modo Medición', 'N/D')}")
+                                st.markdown(f"**Referencia:** `< {row.get('Referencia', 'N/D')} {row.get('Unidad', '')}`")
+                                st.markdown(f"**Medición 1:** `{row.get('Medición 1', 'N/D')} {row.get('Unidad', '')}`")
+                                if str(row.get('Mediciones Extra', '')) != "nan" and row.get('Mediciones Extra', ''):
+                                    st.markdown(f"**Extra:** {row.get('Mediciones Extra', '')}")
                                 st.markdown(f"**Notas:** {row.get('Notas', 'Ninguna')}")
                             
                             with c_img:
                                 b64_string = str(row.get('Imagen (Base64)', ''))
                                 if b64_string and b64_string != 'nan':
                                     try:
-                                        # Decodificamos de Base64 de vuelta a imagen
                                         img_bytes = base64.b64decode(b64_string)
-                                        st.image(img_bytes, caption="Evidencia", use_container_width=True)
-                                    except Exception as e:
-                                        st.error("Archivo de imagen corrupto o inválido.")
+                                        st.image(img_bytes, caption=f"Evidencia - {row.get('Auditor', 'N/D')}", use_container_width=True)
+                                    except Exception:
+                                        st.error("Archivo de imagen corrupto.")
                                 else:
-                                    st.warning("No se adjuntó imagen.")
-                                # --- GENERACIÓN DEL FORMATO HTML ---
-                                limite_req = str(row.get('Límite Requerido', ''))
-                                val_medido = str(row.get('Valor Medido', ''))
-                                id_esp = str(row.get('ID Específico', 'N/A'))
-                                id_disp = str(row.get('ID Dispositivo', 'N/A'))
-                                notas = str(row.get('Notas', ''))
-                                auditor = str(row.get('Auditor', ''))
-                                linea_area = str(row.get('Línea', ''))
-                                
-                                color_res = "text-red-600" if "NO CUMPLE" in resultado_str.upper() else "text-green-600"
-                                img_src = f"data:image/png;base64,{b64_string}" if b64_string and b64_string != 'nan' else "https://via.placeholder.com/400x300?text=Sin+Imagen"
-                                fecha_hoy = datetime.now().strftime("%Y/%m/%d")
-                                
-                                html_rep = f"""<!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Formato de Validación - {elemento_str}</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <style>
-        @media print {{
-            body {{ background-color: white !important; -webkit-print-color-adjust: exact; }}
-            .no-print {{ display: none !important; }}
-            .print-container {{ box-shadow: none !important; margin: 0 !important; padding: 0 !important; border: none !important; max-width: 100% !important; }}
-            input, textarea {{ border: none !important; background-color: transparent !important; resize: none !important; overflow: hidden !important; }}
-        }}
-        .editable-field {{ width: 100%; background-color: transparent; border: 1px solid transparent; padding: 2px 4px; border-radius: 4px; transition: all 0.2s ease; }}
-        .editable-field:hover {{ border-color: #d1d5db; background-color: #f9fafb; }}
-        .editable-field:focus {{ outline: none; border-color: #3b82f6; background-color: #eff6ff; }}
-    </style>
-</head>
-<body class="bg-gray-100 text-gray-800 font-sans p-4 md:p-8">
-    <div class="max-w-4xl mx-auto mb-4 flex justify-end no-print">
-        <button onclick="window.print()" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded shadow flex items-center gap-2">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
-            </svg>
-            Imprimir / Guardar PDF
-        </button>
-    </div>
-    <div class="print-container max-w-4xl mx-auto bg-white p-8 md:p-12 shadow-lg border border-gray-200 relative">
-        <header class="flex flex-col md:flex-row justify-between items-start mb-8 border-b-2 border-gray-800 pb-4">
-            <div class="mb-4 md:mb-0 w-1/3">
-                <h1 class="text-2xl font-black text-gray-900 tracking-tighter leading-none">BCS</h1>
-                <p class="text-xs font-bold text-gray-600 leading-tight mt-1">AUTOMOTIVE<br>INTERFACE<br>SOLUTIONS</p>
-            </div>
-            <div class="text-center w-1/3">
-                <h2 class="text-lg font-bold">FORMAT FOR INTERNAL<br>PRODUCT VALIDATION</h2>
-            </div>
-            <div class="w-1/3 text-right text-sm">
-                <div class="flex items-center justify-end mb-1">
-                    <span class="font-bold mr-2 whitespace-nowrap">Execution Date:</span>
-                    <input type="text" value="{fecha_str[:10]}" class="editable-field text-right w-28 font-semibold">
-                </div>
-                <div class="flex items-center justify-end">
-                    <span class="font-bold mr-2 whitespace-nowrap">Report:</span>
-                    <input type="text" value="BCS-PV-{index}" class="editable-field text-right w-32 font-semibold">
-                </div>
-            </div>
-        </header>
-
-        <div class="mb-6 border border-gray-400">
-            <div class="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-gray-400">
-                <div class="p-4">
-                    <h3 class="font-bold bg-gray-200 text-center uppercase py-1 mb-3 border border-gray-400 text-sm">EQUIPMENT DATA</h3>
-                    <div class="space-y-2 text-sm">
-                        <div class="flex items-center"><span class="font-bold w-1/3">ID:</span><input type="text" value="{id_esp}" class="editable-field w-2/3"></div>
-                        <div class="flex items-center"><span class="font-bold w-1/3">Model:</span><input type="text" value="{elemento_str}" class="editable-field w-2/3"></div>
-                        <div class="flex items-center"><span class="font-bold w-1/3">Location:</span><input type="text" value="{linea_area}" class="editable-field w-2/3"></div>
-                    </div>
-                </div>
-                <div class="p-4">
-                    <h3 class="font-bold bg-gray-200 text-center uppercase py-1 mb-3 border border-gray-400 text-sm">GENERAL INFORMATION</h3>
-                    <div class="space-y-2 text-sm">
-                        <div class="flex items-center"><span class="font-bold w-1/3">Temperature:</span><input type="text" value="N/A" class="editable-field w-2/3"></div>
-                        <div class="flex items-center"><span class="font-bold w-1/3">Humidity:</span><input type="text" value="N/A" class="editable-field w-2/3"></div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <h3 class="font-bold bg-gray-200 text-center uppercase py-1 mb-0 border border-gray-400 border-b-0 text-sm">TRACEABILITY</h3>
-        <div class="mb-8 border border-gray-400 p-4">
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-2 text-sm">
-                <div class="flex items-center"><span class="font-bold w-1/3">ID Dispositivo:</span><input type="text" value="{id_disp}" class="editable-field w-2/3"></div>
-            </div>
-        </div>
-
-        <h3 class="font-bold bg-gray-200 text-center uppercase py-1 mb-0 border border-gray-400 border-b-0 text-sm">RESULTS</h3>
-        <div class="mb-8 overflow-x-auto">
-            <table class="w-full text-sm border-collapse border border-gray-400 text-center">
-                <thead>
-                    <tr class="bg-gray-100">
-                        <th class="border border-gray-400 p-2">Reference</th>
-                        <th class="border border-gray-400 p-2">Method</th>
-                        <th class="border border-gray-400 p-2">Location</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr>
-                        <td class="border border-gray-400 p-1"><input type="text" value="{limite_req}" class="editable-field text-center"></td>
-                        <td class="border border-gray-400 p-1"><input type="text" value="ANSI/ESD" class="editable-field text-center"></td>
-                        <td class="border border-gray-400 p-1"><input type="text" value="{linea_area}" class="editable-field text-center"></td>
-                    </tr>
-                    <tr class="bg-gray-50 font-bold">
-                        <td class="border border-gray-400 p-2 text-right">Result:</td>
-                        <td colspan="2" class="border border-gray-400 p-1"><input type="text" value="{val_medido} | {resultado_str}" class="editable-field text-center font-bold {color_res}"></td>
-                    </tr>
-                </tbody>
-            </table>
-        </div>
-
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8 h-48">
-            <div class="border border-gray-400 flex flex-col justify-center items-center bg-gray-50 relative overflow-hidden group">
-                <img src="{img_src}" alt="Product Image" class="w-full h-full object-contain">
-            </div>
-            <div class="border border-gray-400 flex flex-col">
-                <div class="bg-gray-200 border-b border-gray-400 p-1 text-center font-bold text-sm">Comments</div>
-                <textarea class="w-full h-full p-2 resize-none editable-field text-red-600 font-bold uppercase text-lg" spellcheck="false">{notas}\n{resultado_str}</textarea>
-            </div>
-        </div>
-
-        <div class="mt-16 flex justify-center">
-            <div class="text-center w-64">
-                <div class="border-b border-black mb-2"></div>
-                <p class="font-bold text-sm">Certified by:</p>
-                <input type="text" value="{auditor}" class="editable-field text-center text-sm">
-            </div>
-        </div>
-        <footer class="mt-12 text-xs text-gray-500 flex justify-between border-t border-gray-300 pt-2">
-            <div><p>Formato de Validación de producto.</p></div>
-            <div class="text-right"><p>Fecha: <input type="text" value="{fecha_hoy}" class="editable-field w-20 text-right inline-block text-gray-500"></p></div>
-        </footer>
-    </div>
-</body>
-</html>"""
-                                
-                                b64_html_rep = base64.b64encode(html_rep.encode('utf-8')).decode('utf-8')
-                                nombre_archivo_rep = f"Validacion_{elemento_str.replace(' ', '_')}_{fecha_str[:10]}.html"
-                                href_btn = f'<a href="data:text/html;base64,{b64_html_rep}" download="{nombre_archivo_rep}" target="_blank" style="display: block; text-align: center; padding: 10px 20px; background-color: #0052cc; color: white; text-decoration: none; border-radius: 5px; font-weight: bold; margin-top: 15px;">📄 Generar Formato de Validación</a>'
-                                st.markdown(href_btn, unsafe_allow_html=True)
-            
+                                    st.warning("Sin imagen.")
+                                    
             except Exception as e:
-                st.warning("La base de datos de validaciones aún no ha sido creada o hubo un error al leerla. Registra un elemento primero.")
+                st.warning("La base de datos de validaciones aún no ha sido creada o hay un error de conexión.")
