@@ -61,7 +61,7 @@ if token_actual:
 if st.session_state.usuario_nombre is None and not st.session_state.modo_lectura:
     col_img1, col_img2, col_img3 = st.columns([1, 1, 1])
     with col_img2:
-        st.image("https://raw.githubusercontent.com/aldoaoa/Visualizador-BCS-IDS/main/BCS%20LOGO.png", use_container_width=True)
+        st.image("https://raw.githubusercontent.com/aldoaoa/Visualizador-BCS-IDS/refs/heads/main/Logo_BCS_transparent%20(1).png", use_container_width=True)
     st.markdown("<h2 style='text-align: center;'>🛡️ Sistema de Gestión ESD BCS-AIS</h2>", unsafe_allow_html=True)
     col_v1, col_c, col_v2 = st.columns([1, 1.2, 1])
     with col_c:
