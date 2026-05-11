@@ -38,6 +38,22 @@ def limpiar_url_escaneo():
     if "qr_baja" in st.query_params:
         del st.query_params["qr_baja"]
 
+def procesar_imagen_b64(img_file):
+    """Comprime la imagen."""
+    if img_file is not None:
+        try:
+            img = Image.open(img_file)
+            if img.mode != 'RGB':
+                img = img.convert('RGB')
+            # Redimensionar para mantener calidad pero reducir peso
+            img.thumbnail((800, 800))
+            buffered = io.BytesIO()
+            img.save(buffered, format="JPEG", quality=60)
+            return base64.b64encode(buffered.getvalue()).decode("utf-8")
+        except Exception as e:
+            return ""
+    return ""
+
 # ==========================================
 # SEGURIDAD Y ACCESO (POR URL)
 # ==========================================
@@ -158,7 +174,8 @@ else:
         st.session_state.vista_actual = "Alta"
 
     if not st.session_state.modo_lectura:
-        c_nav1, c_nav2, c_nav3, c_nav4, c_nav5 = st.columns(5)
+# --- INICIO ACTUALIZACIÓN MENÚ ---
+        c_nav1, c_nav2, c_nav3, c_nav4, c_nav5, c_nav6 = st.columns(6)
         with c_nav1:
             if st.button("🗺️ Mapa y Reportes", use_container_width=True, type="primary" if st.session_state.vista_actual == "Mapa" else "secondary"):
                 st.session_state.vista_actual = "Mapa"
@@ -184,6 +201,12 @@ else:
                 st.session_state.vista_actual = "Walking Test"
                 limpiar_url_escaneo()
                 st.rerun()
+        with c_nav6:
+            if st.button("✅ Validación ESD", use_container_width=True, type="primary" if st.session_state.vista_actual == "Validación" else "secondary"):
+                st.session_state.vista_actual = "Validación"
+                limpiar_url_escaneo()
+                st.rerun()
+        # --- FIN ACTUALIZACIÓN MENÚ ---
     else:
         st.session_state.vista_actual = "Escáner"
 
@@ -1517,3 +1540,120 @@ else:
                         st.success("✅ ¡Reporte consolidado generado exitosamente!")
                         href = f'<a href="data:text/html;base64,{b64_html}" download="{nombre_archivo}" target="_blank" style="display: block; text-align: center; padding: 15px; background-color: #003366; color: white; text-decoration: none; border-radius: 8px; font-weight: bold; margin-top: 10px; font-size: 16px;">📥 Descargar Reporte Completo (Abrir para imprimir PDF)</a>'
                         st.markdown(href, unsafe_allow_html=True)
+
+# ==========================================
+    # VISTA 5: VALIDACIÓN ESD (NUEVA SECCIÓN)
+    # ==========================================
+    elif st.session_state.vista_actual == "Validación" and not st.session_state.modo_lectura:
+        st.markdown("### ✅ Validación de Elementos de Control ESD")
+        st.info("Registra la validación de los elementos de control conforme a la tabla oficial. Debes adjuntar evidencia fotográfica.")
+
+        # Diccionario basado en la Tabla de Validación ESD
+        INFO_ELEMENTOS_ESD = {
+            "Pulsera antiestática": {"limite": "RS < 3.5x10^7 ohms", "metodo": "ANSI/ESD TR53", "frecuencia": "Diariamente"},
+            "Calzado": {"limite": "RS < 1.0x10^9 ohms", "metodo": "ANSI/ESD TR53", "frecuencia": "Diariamente"},
+            "Piso ESD": {"limite": "RTG < 1.0x10^9 ohms / Walking Test < 100V", "metodo": "ANSI/ESD TR53 / ANSI/ESD 97.2", "frecuencia": "Semestralmente / Anualmente"},
+            "Superficie de trabajo": {"limite": "RTG < 1.0x10^9 ohms", "metodo": "ANSI/ESD TR53", "frecuencia": "Anualmente"},
+            "Monitor Continuo": {"limite": "RTG < 2 ohms", "metodo": "Anexo A.1", "frecuencia": "Trimestralmente"},
+            "Ionizador": {"limite": "Descarga: <10s, Bal: +-35V", "metodo": "ANSI/ESD SP3.3-2016", "frecuencia": "Trimestralmente"},
+            "Bolsa disipativa": {"limite": "RS < 1.0x10^9 ohms", "metodo": "ANSI/ESD STM11.11", "frecuencia": "Semestralmente"},
+            "Cautín / Estación de soldar": {"limite": "RTG < 10 ohms", "metodo": "ANSI/ESD TR53", "frecuencia": "Semestralmente"},
+            "Caja Disipativa": {"limite": "RS < 1.0x10^11 ohms", "metodo": "ANSI/ESD STM11.11", "frecuencia": "Anualmente"},
+            "Caja conductiva": {"limite": "RS < 1.0x10^4 ohms", "metodo": "ANSI/ESD STM11.11", "frecuencia": "Anualmente"},
+            "Charola conductiva": {"limite": "RS < 1.0x10^4 ohms", "metodo": "ANSI/ESD STM11.13/11.11", "frecuencia": "Anualmente"},
+            "Charola Disipativa": {"limite": "RS < 1.0x10^11 ohms", "metodo": "ANSI/ESD STM11.13/11.11", "frecuencia": "Anualmente"},
+            "Magazine": {"limite": "RS < 1.0x10^11 ohms", "metodo": "ANSI/ESD STM11.13/11.11", "frecuencia": "Anualmente"},
+            "Bata": {"limite": "RPP < 1.0x10^11 ohms", "metodo": "ANSI/ESD TR53", "frecuencia": "Semestralmente"},
+            "Gorra": {"limite": "RPP < 1.0x10^11 ohms", "metodo": "ANSI/ESD TR53", "frecuencia": "Semestralmente"},
+            "Rack": {"limite": "RTG < 1.0x10^9 ohms", "metodo": "ANSI/ESD STM4.1", "frecuencia": "Anualmente"},
+            "Carrito": {"limite": "RTG < 1.0x10^9 ohms", "metodo": "ANSI/ESD STM4.1", "frecuencia": "Anualmente"},
+            "Silla ESD": {"limite": "RTG < 1.0x10^9 ohms", "metodo": "ANSI/ESD TR53", "frecuencia": "Semestralmente"},
+            "Guantes Nitrilo": {"limite": "RTG < 1.0x10^9 ohms", "metodo": "ANSI/ESD TR53", "frecuencia": "Semestralmente"},
+            "Guantes Tela": {"limite": "RTG < 1.0x10^9 ohms", "metodo": "ANSI/ESD TR53", "frecuencia": "Semestralmente"},
+            "Tapete de piso": {"limite": "RTG < 1.0x10^9 ohms", "metodo": "ANSI/ESD TR53", "frecuencia": "Semestralmente"},
+            "Aislantes - EPA (General)": {"limite": ">30 cm de ESDS", "metodo": "Anexo A.2", "frecuencia": "Anualmente / Diariamente"},
+            "Aislantes - Conductores Aislados": {"limite": "< 35 Volts", "metodo": "Anexo A.2", "frecuencia": "Semestralmente"},
+            "Aislantes - Contacto directo": {"limite": "<= 125 Volts/in", "metodo": "Anexo A.2", "frecuencia": "Semestralmente"},
+            "Bolsas blindadas": {"limite": "Indicaciones visuales de daño", "metodo": "Inspección visual aleatoria", "frecuencia": "Trimestralmente"}
+        }
+
+        col_v1, col_v2 = st.columns([1.5, 1])
+
+        with col_v1:
+            elemento_sel = st.selectbox("Elemento a validar:", options=list(INFO_ELEMENTOS_ESD.keys()))
+            info = INFO_ELEMENTOS_ESD[elemento_sel]
+            
+            st.markdown("#### 📋 Criterios de la Norma")
+            c_crit1, c_crit2, c_crit3 = st.columns(3)
+            c_crit1.metric("Límite Permitido", info["limite"])
+            c_crit2.metric("Método / Procedimiento", info["metodo"])
+            c_crit3.metric("Frecuencia", info["frecuencia"])
+            
+            # Recordatorios de nomenclatura extraídos del PDF
+            st.caption("*Nota: RS = Resistencia del sistema (persona, pulsera, cable, calzado). RTG = Resistencia a tierra.*")
+
+        with st.form("form_validacion_esd"):
+            st.markdown("#### 🛠️ Registro de Medición")
+            c_form1, c_form2 = st.columns(2)
+            
+            lineas_disponibles = sorted([str(x).strip() for x in df_piso_local['Línea'].dropna().unique()]) if df_piso_local is not None and 'Línea' in df_piso_local.columns else ["SMT", "Ensamble", "Almacén", "Laboratorio"]
+            linea_val = c_form1.selectbox("Línea / Área", options=lineas_disponibles)
+            id_especifico = c_form2.text_input("ID del Elemento (Opcional - Ej: SILLA-05)")
+            
+            valor_medido = c_form1.text_input("Valor de medición obtenido", placeholder="Ej: 1.5x10^7 ohms o 15 V")
+            resultado_val = c_form2.radio("Resultado de Validación", ["CUMPLE (APROBADO)", "NO CUMPLE (RECHAZADO)"], horizontal=True)
+            
+            notas_val = st.text_area("Observaciones")
+
+            st.markdown("#### 📸 Evidencia Fotográfica")
+            metodo_foto = st.radio("Método de captura:", ["Tomar foto con cámara", "Subir archivo de imagen"], horizontal=True)
+            
+            imagen_final = None
+            if metodo_foto == "Tomar foto con cámara":
+                imagen_final = st.camera_input("Capturar Evidencia")
+            else:
+                imagen_final = st.file_uploader("Selecciona una imagen", type=["jpg", "jpeg", "png"])
+
+            submit_val = st.form_submit_button("💾 Guardar Validación", use_container_width=True)
+
+            if submit_val:
+                if not valor_medido:
+                    st.error("⚠️ Debes ingresar el valor de medición obtenido.")
+                elif imagen_final is None:
+                    st.error("⚠️ La evidencia fotográfica es obligatoria.")
+                else:
+                    with st.spinner("Procesando imagen y guardando en servidor..."):
+                        img_b64 = procesar_imagen_b64(imagen_final)
+                        
+                        import gspread
+                        sec = dict(st.secrets["connections"]["gsheets"])
+                        gc_val = gspread.service_account_from_dict(sec)
+                        
+                        try:
+                            ws_val = gc_val.open_by_url(sec["spreadsheet"]).worksheet("VALIDACION_ESD")
+                        except gspread.exceptions.WorksheetNotFound:
+                            # Si la hoja no existe, la crea con los encabezados
+                            sheet_file = gc_val.open_by_url(sec["spreadsheet"])
+                            ws_val = sheet_file.add_worksheet(title="VALIDACION_ESD", rows="1000", cols="10")
+                            encabezados = ["Fecha", "Auditor", "Elemento", "Línea", "ID Específico", "Límite Requerido", "Valor Medido", "Resultado", "Notas", "Imagen (Base64)"]
+                            ws_val.append_row(encabezados)
+                            
+                        fecha_hoy_val = datetime.today().strftime("%d-%b-%Y %H:%M")
+                        
+                        fila_validacion = [
+                            fecha_hoy_val,
+                            st.session_state.usuario_nombre,
+                            elemento_sel,
+                            linea_val,
+                            id_especifico.upper(),
+                            info["limite"],
+                            valor_medido,
+                            resultado_val.split(" ")[0], # Guarda solo "CUMPLE" o "NO"
+                            notas_val,
+                            img_b64
+                        ]
+                        
+                        ws_val.append_row(fila_validacion, value_input_option="USER_ENTERED")
+                        
+                    st.success("✅ ¡Validación registrada exitosamente con evidencia fotográfica!")
+                    st.balloons()
