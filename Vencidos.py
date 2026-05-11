@@ -239,8 +239,8 @@ def generar_html_reporte_esd(row, index):
 
         <!-- Footer Normativo -->
         <div class="border-t border-gray-300 p-4 text-xs text-gray-500 flex justify-between bg-gray-50">
-            <div>Ref: E_310_3_001_QRO_SP</div>
-            <div>Formato: E_310_4_113_QRO_SP_Rev. A</div>
+            <div>Ref: B_010_3_002_QRO_SP</div>
+            <div>B_010_4_018_QRO_SP_Rev. A Formato de Validación de producto.</div>
         </div>
     </div>
 </body>
