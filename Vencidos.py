@@ -1542,11 +1542,11 @@ else:
                         st.markdown(href, unsafe_allow_html=True)
 
 # ==========================================
-    # VISTA 5: VALIDACIÓN ESD (NUEVA SECCIÓN)
+    # VISTA 5: VALIDACIÓN ESD (ACTUALIZADA)
     # ==========================================
     elif st.session_state.vista_actual == "Validación" and not st.session_state.modo_lectura:
         st.markdown("### ✅ Validación de Elementos de Control ESD")
-        st.info("Registra la validación de los elementos de control conforme a la tabla oficial. Debes adjuntar evidencia fotográfica.")
+        st.info("Registra y consulta las validaciones de los elementos de control conforme a la tabla oficial.")
 
         # Diccionario basado en la Tabla de Validación ESD
         INFO_ELEMENTOS_ESD = {
@@ -1577,83 +1577,151 @@ else:
             "Bolsas blindadas": {"limite": "Indicaciones visuales de daño", "metodo": "Inspección visual aleatoria", "frecuencia": "Trimestralmente"}
         }
 
-        col_v1, col_v2 = st.columns([1.5, 1])
+        # --- SISTEMA DE PESTAÑAS ---
+        tab_registro, tab_historial = st.tabs(["📝 Registrar Validación", "🖼️ Historial de Validaciones"])
 
-        with col_v1:
-            elemento_sel = st.selectbox("Elemento a validar:", options=list(INFO_ELEMENTOS_ESD.keys()))
-            info = INFO_ELEMENTOS_ESD[elemento_sel]
-            
-            st.markdown("#### 📋 Criterios de la Norma")
-            c_crit1, c_crit2, c_crit3 = st.columns(3)
-            c_crit1.metric("Límite Permitido", info["limite"])
-            c_crit2.metric("Método / Procedimiento", info["metodo"])
-            c_crit3.metric("Frecuencia", info["frecuencia"])
-            
-            # Recordatorios de nomenclatura extraídos del PDF
-            st.caption("*Nota: RS = Resistencia del sistema (persona, pulsera, cable, calzado). RTG = Resistencia a tierra.*")
+        # ==========================================
+        # PESTAÑA 1: FORMULARIO DE CAPTURA
+        # ==========================================
+        with tab_registro:
+            col_v1, col_v2 = st.columns([1.5, 1])
 
-        with st.form("form_validacion_esd"):
-            st.markdown("#### 🛠️ Registro de Medición")
-            c_form1, c_form2 = st.columns(2)
-            
-            lineas_disponibles = sorted([str(x).strip() for x in df_piso_local['Línea'].dropna().unique()]) if df_piso_local is not None and 'Línea' in df_piso_local.columns else ["SMT", "Ensamble", "Almacén", "Laboratorio"]
-            linea_val = c_form1.selectbox("Línea / Área", options=lineas_disponibles)
-            id_especifico = c_form2.text_input("ID del Elemento (Opcional - Ej: SILLA-05)")
-            
-            valor_medido = c_form1.text_input("Valor de medición obtenido", placeholder="Ej: 1.5x10^7 ohms o 15 V")
-            resultado_val = c_form2.radio("Resultado de Validación", ["CUMPLE (APROBADO)", "NO CUMPLE (RECHAZADO)"], horizontal=True)
-            
-            notas_val = st.text_area("Observaciones")
+            with col_v1:
+                elemento_sel = st.selectbox("Elemento a validar:", options=list(INFO_ELEMENTOS_ESD.keys()))
+                info = INFO_ELEMENTOS_ESD[elemento_sel]
+                
+                st.markdown("#### 📋 Criterios de la Norma")
+                c_crit1, c_crit2, c_crit3 = st.columns(3)
+                c_crit1.metric("Límite Permitido", info["limite"])
+                c_crit2.metric("Método", info["metodo"])
+                c_crit3.metric("Frecuencia", info["frecuencia"])
+                st.caption("*Nota: RS = Resistencia del sistema. RTG = Resistencia a tierra.*")
 
-            st.markdown("#### 📸 Evidencia Fotográfica")
-            metodo_foto = st.radio("Método de captura:", ["Tomar foto con cámara", "Subir archivo de imagen"], horizontal=True)
-            
-            imagen_final = None
-            if metodo_foto == "Tomar foto con cámara":
-                imagen_final = st.camera_input("Capturar Evidencia")
-            else:
-                imagen_final = st.file_uploader("Selecciona una imagen", type=["jpg", "jpeg", "png"])
+            with st.form("form_validacion_esd"):
+                st.markdown("#### 🛠️ Registro de Medición")
+                c_form1, c_form2, c_form3 = st.columns([1, 1, 1])
+                
+                lineas_disponibles = sorted([str(x).strip() for x in df_piso_local['Línea'].dropna().unique()]) if df_piso_local is not None and 'Línea' in df_piso_local.columns else ["SMT", "Ensamble", "Almacén", "Laboratorio"]
+                
+                linea_val = c_form1.selectbox("Línea / Área", options=lineas_disponibles)
+                id_especifico = c_form2.text_input("ID del Elemento (Opcional)")
+                id_dispositivo = c_form3.text_input("ID Dispositivo de Medición")
+                
+                c_res1, c_res2 = st.columns(2)
+                valor_medido = c_res1.text_input("Valor de medición obtenido", placeholder="Ej: 1.5x10^7 ohms o 15 V")
+                resultado_val = c_res2.radio("Resultado de Validación", ["CUMPLE (APROBADO)", "NO CUMPLE (RECHAZADO)"], horizontal=True)
+                
+                notas_val = st.text_area("Observaciones")
 
-            submit_val = st.form_submit_button("💾 Guardar Validación", use_container_width=True)
+                st.markdown("#### 📸 Evidencia Fotográfica")
+                st.info("Puedes usar la cámara o subir un archivo. Si usas ambos, se dará prioridad a la cámara.")
+                
+                col_img1, col_img2 = st.columns(2)
+                imagen_camara = col_img1.camera_input("Capturar foto en vivo")
+                imagen_subida = col_img2.file_uploader("O subir archivo de imagen", type=["jpg", "jpeg", "png"])
+                
+                # Selecciona la cámara primero, si no hay foto, usa la subida
+                imagen_final = imagen_camara if imagen_camara is not None else imagen_subida
 
-            if submit_val:
-                if not valor_medido:
-                    st.error("⚠️ Debes ingresar el valor de medición obtenido.")
-                elif imagen_final is None:
-                    st.error("⚠️ La evidencia fotográfica es obligatoria.")
-                else:
-                    with st.spinner("Procesando imagen y guardando en servidor..."):
-                        img_b64 = procesar_imagen_b64(imagen_final)
-                        
-                        import gspread
-                        sec = dict(st.secrets["connections"]["gsheets"])
-                        gc_val = gspread.service_account_from_dict(sec)
-                        
-                        try:
-                            ws_val = gc_val.open_by_url(sec["spreadsheet"]).worksheet("VALIDACION_ESD")
-                        except gspread.exceptions.WorksheetNotFound:
-                            # Si la hoja no existe, la crea con los encabezados
-                            sheet_file = gc_val.open_by_url(sec["spreadsheet"])
-                            ws_val = sheet_file.add_worksheet(title="VALIDACION_ESD", rows="1000", cols="10")
-                            encabezados = ["Fecha", "Auditor", "Elemento", "Línea", "ID Específico", "Límite Requerido", "Valor Medido", "Resultado", "Notas", "Imagen (Base64)"]
-                            ws_val.append_row(encabezados)
+                submit_val = st.form_submit_button("💾 Guardar Validación", use_container_width=True)
+
+                if submit_val:
+                    if not valor_medido:
+                        st.error("⚠️ Debes ingresar el valor de medición obtenido.")
+                    elif not id_dispositivo:
+                        st.error("⚠️ El ID del Dispositivo de medición es obligatorio.")
+                    elif imagen_final is None:
+                        st.error("⚠️ La evidencia fotográfica es obligatoria.")
+                    else:
+                        with st.spinner("Procesando imagen y guardando en servidor..."):
+                            img_b64 = procesar_imagen_b64(imagen_final)
                             
-                        fecha_hoy_val = datetime.today().strftime("%d-%b-%Y %H:%M")
+                            import gspread
+                            sec = dict(st.secrets["connections"]["gsheets"])
+                            gc_val = gspread.service_account_from_dict(sec)
+                            
+                            try:
+                                ws_val = gc_val.open_by_url(sec["spreadsheet"]).worksheet("VALIDACION_ESD")
+                            except gspread.exceptions.WorksheetNotFound:
+                                sheet_file = gc_val.open_by_url(sec["spreadsheet"])
+                                ws_val = sheet_file.add_worksheet(title="VALIDACION_ESD", rows="1000", cols="11")
+                                # Se actualizan los encabezados para incluir "ID Dispositivo"
+                                encabezados = ["Fecha", "Auditor", "Elemento", "Línea", "ID Específico", "ID Dispositivo", "Límite Requerido", "Valor Medido", "Resultado", "Notas", "Imagen (Base64)"]
+                                ws_val.append_row(encabezados)
+                                
+                            fecha_hoy_val = datetime.today().strftime("%d-%b-%Y %H:%M")
+                            
+                            fila_validacion = [
+                                fecha_hoy_val,
+                                st.session_state.usuario_nombre,
+                                elemento_sel,
+                                linea_val,
+                                id_especifico.upper(),
+                                id_dispositivo.upper(), # Nuevo dato a guardar
+                                info["limite"],
+                                valor_medido,
+                                resultado_val.split(" ")[0], 
+                                notas_val,
+                                img_b64
+                            ]
+                            
+                            ws_val.append_row(fila_validacion, value_input_option="USER_ENTERED")
+                            
+                        st.success("✅ ¡Validación registrada exitosamente!")
+                        st.cache_data.clear() # Limpia caché para que el historial se actualice
+                        st.balloons()
+
+        # ==========================================
+        # PESTAÑA 2: VISOR DE HISTORIAL E IMÁGENES
+        # ==========================================
+        with tab_historial:
+            col_h1, col_h2 = st.columns([0.8, 0.2])
+            col_h1.markdown("#### 🗂️ Registros Históricos de Validación")
+            if col_h2.button("🔄 Actualizar", use_container_width=True):
+                st.cache_data.clear()
+                st.rerun()
+
+            try:
+                # Leemos la pestaña de validaciones
+                df_val = conn.read(worksheet="VALIDACION_ESD")
+                
+                if df_val.empty:
+                    st.info("Aún no hay registros de validación.")
+                else:
+                    # Filtramos filas vacías que Google Sheets suele agregar
+                    df_val = df_val.dropna(subset=['Fecha', 'Elemento'], how='all')
+                    
+                    # Ordenamos para ver las más recientes primero (Asumiendo que las más recientes están al final)
+                    df_val = df_val.iloc[::-1]
+
+                    for index, row in df_val.iterrows():
+                        fecha_str = str(row.get('Fecha', ''))
+                        elemento_str = str(row.get('Elemento', ''))
+                        resultado_str = str(row.get('Resultado', ''))
                         
-                        fila_validacion = [
-                            fecha_hoy_val,
-                            st.session_state.usuario_nombre,
-                            elemento_sel,
-                            linea_val,
-                            id_especifico.upper(),
-                            info["limite"],
-                            valor_medido,
-                            resultado_val.split(" ")[0], # Guarda solo "CUMPLE" o "NO"
-                            notas_val,
-                            img_b64
-                        ]
+                        icono_res = "🟢" if "CUMPLE" in resultado_str.upper() else "🔴"
                         
-                        ws_val.append_row(fila_validacion, value_input_option="USER_ENTERED")
-                        
-                    st.success("✅ ¡Validación registrada exitosamente con evidencia fotográfica!")
-                    st.balloons()
+                        with st.expander(f"{icono_res} {fecha_str} | {elemento_str} - {row.get('Línea', '')}"):
+                            c_info, c_img = st.columns([1.5, 1])
+                            
+                            with c_info:
+                                st.markdown(f"**Auditor:** {row.get('Auditor', 'N/D')}")
+                                st.markdown(f"**ID Específico:** {row.get('ID Específico', 'N/D')} | **ID Dispositivo:** {row.get('ID Dispositivo', 'N/D')}")
+                                st.markdown(f"**Límite Requerido:** {row.get('Límite Requerido', 'N/D')}")
+                                st.markdown(f"**Valor Medido:** `{row.get('Valor Medido', 'N/D')}`")
+                                st.markdown(f"**Notas:** {row.get('Notas', 'Ninguna')}")
+                            
+                            with c_img:
+                                b64_string = str(row.get('Imagen (Base64)', ''))
+                                if b64_string and b64_string != 'nan':
+                                    try:
+                                        # Decodificamos de Base64 de vuelta a imagen
+                                        img_bytes = base64.b64decode(b64_string)
+                                        st.image(img_bytes, caption="Evidencia", use_container_width=True)
+                                    except Exception as e:
+                                        st.error("Archivo de imagen corrupto o inválido.")
+                                else:
+                                    st.warning("No se adjuntó imagen.")
+                                    
+            except Exception as e:
+                st.warning("La base de datos de validaciones aún no ha sido creada o hubo un error al leerla. Registra un elemento primero.")
