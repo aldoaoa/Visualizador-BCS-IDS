@@ -1707,7 +1707,7 @@ else:
         # ==========================================
         with tab_historial:
             col_h1, col_h2 = st.columns([0.8, 0.2])
-            col_h1.markdown("#### 🗂️ Dashobard de Registros Históricos")
+            col_h1.markdown("#### 🗂️ Dashboard de Registros Históricos")
             if col_h2.button("🔄 Actualizar Datos", use_container_width=True):
                 st.cache_data.clear()
                 st.rerun()
