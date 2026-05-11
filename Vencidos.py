@@ -94,6 +94,8 @@ else:
     RUTA_COORDENADAS = "coordenadas.csv"
 
     with st.sidebar:
+        st.image("https://raw.githubusercontent.com/aldoaoa/Visualizador-BCS-IDS/refs/heads/main/Logo_BCS_transparent%20(1).png", use_container_width=True)
+        st.divider()
         if st.session_state.modo_lectura:
             st.warning("👁️ Modo Consulta Activo")
         else:
