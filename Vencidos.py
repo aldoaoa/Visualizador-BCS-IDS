@@ -893,6 +893,12 @@ else:
                                         fp_idx = df_actual.columns.get_loc('Fecha de próxima verificación')
                                         st_idx = df_actual.columns.get_loc('Estatus de verificación')
                                         aud_idx = df_actual.columns.get_loc('Auditor') 
+                                        # --- INICIO DE NUEVO CÓDIGO: ÍNDICE DE EQUIPO ---
+                                        try:
+                                            eq_idx = df_actual.columns.get_loc('Equipo de medición')
+                                        except KeyError:
+                                            eq_idx = None  # Si la columna no existe, no detiene el programa
+                                        # --- FIN DE NUEVO CÓDIGO ---
                                     except KeyError as e:
                                         st.error(f"Falta columna {e}")
                                         st.stop()
@@ -911,7 +917,8 @@ else:
                                     ws.update_cell(r_idx, f_idx + 1, nueva_fecha_valida.strftime("%d-%b-%Y"))
                                     ws.update_cell(r_idx, fp_idx + 1, proxy.strftime("%d-%b-%Y"))
                                     ws.update_cell(r_idx, st_idx + 1, 'VIGENTE')
-                                    
+                                    if not es_ion and eq_idx is not None:
+                                        ws.update_cell(r_idx, eq_idx + 1, equipo_utilizado)
                                     # --- EJECUCIÓN LÓGICA REACTIVACIÓN ---
                                     if estatus_actual_op == "NO OPERATIVO":
                                         try:
