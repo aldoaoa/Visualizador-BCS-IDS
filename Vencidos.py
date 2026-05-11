@@ -105,9 +105,9 @@ def generar_html_reporte_esd(row, index):
     if img_b64 == 'N/D' or not img_b64:
         img_tag = "<span class='text-gray-400 flex flex-col items-center'><br><br>Sin evidencia fotográfica</span>"
     else:
-        img_tag = f'<img src="data:image/png;base64,{img_b64}" class="max-h-full max-w-full object-contain" />'
+        img_tag = f'<img src="data:image/png;base64,{img_b64}" style="height: 190px; width: auto; max-width: 100%; object-fit: contain; margin: 0 auto;" />'
         
-    fecha_ejecucion = safe_str(row.get('Fecha'))[:10]
+    fecha_ejecucion = safe_str(row.get('Fecha')).split(' ')[0]
     año_actual = datetime.today().strftime("%y")
     
     # NOTA: Los corchetes del CSS deben ser dobles {{ }} por ser un F-String en Python
@@ -127,6 +127,7 @@ def generar_html_reporte_esd(row, index):
     </div>
     
     <div class="max-w-5xl mx-auto bg-white shadow-xl print:shadow-none print:w-full">
+        <!-- Header -->
         <div class="border-b-2 border-gray-800 p-6 flex items-start justify-between">
             <div class="w-1/3">
                 <img src="https://github.com/aldoaoa/Visualizador-BCS-IDS/blob/main/BCS%20LOGO.png?raw=true" alt="BCS Logo" class="h-16 object-contain" />
@@ -136,6 +137,7 @@ def generar_html_reporte_esd(row, index):
                 <p class="text-xs text-gray-600">ANSI/ESD S20.20-2021</p>
             </div>
             <div class="w-1/3 text-right text-sm">
+                <!-- Se construye el secuencial ascendente: BCS-PV-[Fila]-[Año] -->
                 <div class="font-bold text-red-700 text-lg mb-2">Reporte: BCS-PV-{index:03d}-{año_actual}</div>
                 <div class="flex justify-end gap-2 mb-1">
                     <span class="font-bold">Fecha de Ejecución:</span><span>{fecha_ejecucion}</span>
@@ -144,6 +146,7 @@ def generar_html_reporte_esd(row, index):
         </div>
 
         <div class="p-6 space-y-6">
+            <!-- Datos del Elemento -->
             <div class="grid grid-cols-2 gap-6">
                 <div>
                     <div class="bg-gray-800 text-white font-bold px-2 py-1 uppercase text-xs">Datos del Elemento de Control</div>
@@ -166,6 +169,7 @@ def generar_html_reporte_esd(row, index):
                 </div>
             </div>
 
+            <!-- Trazabilidad Equipo Medición -->
             <div>
                 <div class="bg-gray-800 text-white font-bold px-2 py-1 uppercase text-xs">Trazabilidad (Equipo de Medición)</div>
                 <div class="grid grid-cols-2 border-l border-t border-gray-300">
@@ -188,6 +192,7 @@ def generar_html_reporte_esd(row, index):
                 </div>
             </div>
 
+            <!-- Tabla de Resultados S20.20 -->
             <div>
                 <div class="bg-gray-800 text-white font-bold px-2 py-1 uppercase text-xs">Resultados (ANSI/ESD S20.20)</div>
                 <table class="w-full text-sm border-collapse border border-gray-300 text-center">
@@ -209,6 +214,7 @@ def generar_html_reporte_esd(row, index):
                 </table>
             </div>
 
+            <!-- Evidencia e Información Adicional -->
             <div class="grid grid-cols-2 gap-6 h-64">
                 <div class="border border-gray-300 flex flex-col items-center justify-center bg-gray-50 overflow-hidden relative">
                     <div class="absolute top-0 left-0 bg-gray-800 text-white font-bold px-2 py-1 uppercase text-xs w-full text-left z-10">Imagen del Producto / Evidencia</div>
@@ -223,6 +229,7 @@ def generar_html_reporte_esd(row, index):
                 </div>
             </div>
 
+            <!-- Firmas -->
             <div class="mt-12 mb-8 pt-8">
                 <div class="w-1/3 mx-auto text-center border-t border-gray-800 pt-2">
                     <div class="font-bold uppercase text-sm mb-1">APROBADO Y CERTIFICADO POR:</div>
@@ -231,9 +238,10 @@ def generar_html_reporte_esd(row, index):
             </div>
         </div>
 
+        <!-- Footer Normativo -->
         <div class="border-t border-gray-300 p-4 text-xs text-gray-500 flex justify-between bg-gray-50">
-            <div>Ref: B_010_3_002_QRO_SP</div>
-            <div>B_010_4_018_QRO_SP_Rev. A Formato de Validación de producto.</div>
+            <div>Ref: E_310_3_001_QRO_SP</div>
+            <div>Formato: E_310_4_113_QRO_SP_Rev. A</div>
         </div>
     </div>
 </body>
