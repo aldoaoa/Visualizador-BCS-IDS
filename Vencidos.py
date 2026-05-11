@@ -1802,7 +1802,7 @@ else:
                 st.markdown("#### 2. Datos del Elemento a Validar")
                 c1, c2, c3 = st.columns(3)
                 id_elemento = c1.text_input("ID del Elemento", placeholder="Ej: SILLA-05")
-                tipo_material = c2.text_input("Tipo de Material", placeholder="Ej: Vinil, Acero")
+                tipo_material = c2.text_input("Tipo de Material", placeholder="Ej: Guante, silla")
                 magnitud_med = c3.text_input("Magnitud Medida", placeholder="Ej: Resistencia, Voltaje, Tiempo")
                 
                 c4, c5, c6 = st.columns(3)
@@ -1817,7 +1817,7 @@ else:
                 humedad = c9.text_input("Humedad Relativa", placeholder="Ej: 45 %")
 
                 st.markdown("#### 4. Detalles del Equipo de Medición (Autocompletado)")
-                st.info(f"**Tipo:** {eq_data.get('tipo de equipo', 'N/D')} | **Fabricante:** {eq_data.get('fabricante', 'N/D')} | **Modelo:** {eq_data.get('modelo', 'N/D')} | **SN:** {eq_data.get('número de serie', 'N/D')} \n\n **Reporte Calibración:** {eq_data.get('número de reporte de calibración', 'N/D')} (Vence: {eq_data.get('fecha de calibración próxima', 'N/D')}) | **Resolución:** {eq_data.get('resolución', 'N/D')}")
+                st.info(f"**Tipo:** {eq_data.get('Tipo de equipo', 'N/D')} | **Fabricante:** {eq_data.get('Fabricante', 'N/D')} | **Modelo:** {eq_data.get('Modelo', 'N/D')} | **SN:** {eq_data.get('Número de serie', 'N/D')} \n\n **Reporte Calibración:** {eq_data.get('Número de reporte de calibración', 'N/D')} (Vence: {eq_data.get('Fecha de calibración próxima', 'N/D')}) | **Alcance:** {eq_data.get('Resolución', 'N/D')}")
 
                 st.markdown("#### 5. Parámetros y Medición")
                 cm1, cm2, cm3 = st.columns(3)
