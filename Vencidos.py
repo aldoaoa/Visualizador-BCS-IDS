@@ -822,6 +822,15 @@ else:
                                 # Si lo dejan en blanco, conservamos el balance anterior
                                 nuevo_balance = nuevo_balance if nuevo_balance is not None else bal_def
                             else:
+                                # --- INICIO DE NUEVO CÓDIGO: SELECTOR DE EQUIPO ---
+                                st.markdown("#### 🛠️ Dispositivo de Medición")
+                                equipo_utilizado = st.selectbox(
+                                    "ID del equipo utilizado (Resistencia):",
+                                    options=["BCS-QRO-LAB-RES001", "BCS-QRO-LAB-RES002", "Otro"]
+                                )
+                                if equipo_utilizado == "Otro":
+                                    equipo_utilizado = st.text_input("Especificar otro ID de equipo:")
+                                # --- FIN DE NUEVO CÓDIGO ---
                                 st.caption("Resistencia (Ohms)")
                                 def_val = float(valor_ocr_detectado) if valor_ocr_detectado else 0.0
     
