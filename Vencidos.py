@@ -739,75 +739,127 @@ else:
     # ==========================================
     elif st.session_state.vista_actual == "Mapa" and not st.session_state.modo_lectura:
         st.markdown("### Mapa y Cumplimiento ESD")
+
+        tab_mapa, tab_overview = st.tabs(["📍 Mapa Físico (Mobiliario/Ionizadores)", "📊 Overview de Validaciones (S20.20)"])
+
+        with tab_mapa:
+            tipo_mapa = st.radio("Selecciona la categoría a visualizar en el mapa:", ["Mobiliario", "Ionizadores"], horizontal=True)
+            st.info("☁️ Los datos mostrados están sincronizados en tiempo real con el servidor.")
         
-        tipo_mapa = st.radio("Selecciona la categoría a visualizar en el mapa:", ["Mobiliario", "Ionizadores"], horizontal=True)
-        st.info("☁️ Los datos mostrados están sincronizados en tiempo real con el servidor.")
+            df_total = df_mob_local.copy() if tipo_mapa == "Mobiliario" else df_ion_local.copy()
         
-        df_total = df_mob_local.copy() if tipo_mapa == "Mobiliario" else df_ion_local.copy()
-        
-        if df_total.empty:
-            st.warning(f"No hay datos registrados en la base de datos de {tipo_mapa}.")
-        elif 'Estatus de verificación' not in df_total.columns:
-            st.warning(f"⚠️ La pestaña de {tipo_mapa} no tiene los encabezados correctos.")
-        else:
-            df_total['Estatus de verificación'] = df_total['Estatus de verificación'].astype(str).str.strip().str.upper()
-            if 'Estatus operativo' in df_total.columns:
-                df_total['Estatus operativo'] = df_total['Estatus operativo'].astype(str).str.strip().str.upper()
+            if df_total.empty:
+                st.warning(f"No hay datos registrados en la base de datos de {tipo_mapa}.")
+            elif 'Estatus de verificación' not in df_total.columns:
+                st.warning(f"⚠️ La pestaña de {tipo_mapa} no tiene los encabezados correctos.")
             else:
-                df_total['Estatus operativo'] = 'OPERATIVO'
+                df_total['Estatus de verificación'] = df_total['Estatus de verificación'].astype(str).str.strip().str.upper()
+                if 'Estatus operativo' in df_total.columns:
+                    df_total['Estatus operativo'] = df_total['Estatus operativo'].astype(str).str.strip().str.upper()
+                else:
+                    df_total['Estatus operativo'] = 'OPERATIVO'
 
-            equipos_activos = df_total[df_total['Estatus operativo'] != 'NO OPERATIVO']
-            total_equipos = len(equipos_activos)
+                equipos_activos = df_total[df_total['Estatus operativo'] != 'NO OPERATIVO']
+                total_equipos = len(equipos_activos)
 
-            vencidos = equipos_activos[equipos_activos['Estatus de verificación'] == 'VENCIDO']
-            total_vencidos = len(vencidos)
+                vencidos = equipos_activos[equipos_activos['Estatus de verificación'] == 'VENCIDO']
+                total_vencidos = len(vencidos)
             
-            if total_equipos > 0:
-                porcentaje_cumplimiento = ((total_equipos - total_vencidos) / total_equipos) * 100
-            else:
-                porcentaje_cumplimiento = 100.0
+                if total_equipos > 0:
+                    porcentaje_cumplimiento = ((total_equipos - total_vencidos) / total_equipos) * 100
+                else:
+                    porcentaje_cumplimiento = 100.0
 
-            if not vencidos.empty:
-                st.error(f"🚨 **Cumplimiento {tipo_mapa}:** {porcentaje_cumplimiento:.1f}% | **Equipos Vencidos:** {total_vencidos} de {total_equipos} activos.")
-                conteo_tipos = vencidos.groupby(['Línea']).size().reset_index(name='Total Vencidos')
-                conteo_tipos['Etiqueta'] = ("M: " if tipo_mapa == "Mobiliario" else "I: ") + conteo_tipos['Total Vencidos'].astype(str)
+                if not vencidos.empty:
+                    st.error(f"🚨 **Cumplimiento {tipo_mapa}:** {porcentaje_cumplimiento:.1f}% | **Equipos Vencidos:** {total_vencidos} de {total_equipos} activos.")
+                    conteo_tipos = vencidos.groupby(['Línea']).size().reset_index(name='Total Vencidos')
+                    conteo_tipos['Etiqueta'] = ("M: " if tipo_mapa == "Mobiliario" else "I: ") + conteo_tipos['Total Vencidos'].astype(str)
                 
-                if os.path.exists(RUTA_MAPA) and os.path.exists(RUTA_COORDENADAS):
-                    img = Image.open(RUTA_MAPA)
-                    width, height = img.size
-                    df_coords = pd.read_csv(RUTA_COORDENADAS)
-                    mapa_data = pd.merge(conteo_tipos, df_coords, on='Línea', how='inner')
-                    if not mapa_data.empty:
-                        fig = px.scatter(
-                            mapa_data, x="X", y="Y", color="Total Vencidos", text="Etiqueta", hover_name="Línea",
-                            hover_data={"X": False, "Y": False, "Etiqueta": False, "Total Vencidos": True},
-                            color_continuous_scale="Reds"
-                        )
+                    if os.path.exists(RUTA_MAPA) and os.path.exists(RUTA_COORDENADAS):
+                        img = Image.open(RUTA_MAPA)
+                        width, height = img.size
+                        df_coords = pd.read_csv(RUTA_COORDENADAS)
+                        mapa_data = pd.merge(conteo_tipos, df_coords, on='Línea', how='inner')
+                        if not mapa_data.empty:
+                            fig = px.scatter(
+                                mapa_data, x="X", y="Y", color="Total Vencidos", text="Etiqueta", hover_name="Línea",
+                                hover_data={"X": False, "Y": False, "Etiqueta": False, "Total Vencidos": True},
+                                color_continuous_scale="Reds"
+                            )
                         
-                        # --- ICONOS GRANDES ---
-                        fig.update_traces(
-                            textposition='middle center', 
-                            textfont=dict(color='white', size=14, weight='bold'), 
-                            marker=dict(symbol='circle', size=45, opacity=0.9, line=dict(width=2, color='black'))
-                        )
+                            # --- ICONOS GRANDES ---
+                            fig.update_traces(
+                                textposition='middle center', 
+                                textfont=dict(color='white', size=14, weight='bold'), 
+                                marker=dict(symbol='circle', size=45, opacity=0.9, line=dict(width=2, color='black'))
+                            )
                         
-                        # --- CÁLCULO DE PROPORCIÓN PARA EVITAR APLASTAMIENTO ---
-                        aspect_ratio = height / width
-                        plot_height = max(500, int(1200 * aspect_ratio))
+                            # --- CÁLCULO DE PROPORCIÓN PARA EVITAR APLASTAMIENTO ---
+                            aspect_ratio = height / width
+                            plot_height = max(500, int(1200 * aspect_ratio))
                         
-                        fig.update_layout(
-                            height=plot_height,
-                            images=[dict(source=img, xref="x", yref="y", x=0, y=0, sizex=width, sizey=height, sizing="stretch", opacity=1, layer="below")], 
-                            xaxis=dict(visible=False, range=[0, width]), 
-                            yaxis=dict(visible=False, range=[height, 0], scaleanchor="x"), 
-                            margin=dict(l=0, r=0, t=0, b=0),
-                            coloraxis_showscale=False
-                        )
-                        st.plotly_chart(fig, use_container_width=True)
-                st.dataframe(vencidos[['Línea', 'Id de producto', 'Clasificación', 'Estatus de verificación']], use_container_width=True, hide_index=True)
-            else:
-                st.success(f"✅ **¡Felicidades! 100% de Cumplimiento en {tipo_mapa}.** No hay equipos operativos VENCIDOS (0 de {total_equipos} activos).")
+                            fig.update_layout(
+                                height=plot_height,
+                                images=[dict(source=img, xref="x", yref="y", x=0, y=0, sizex=width, sizey=height, sizing="stretch", opacity=1, layer="below")], 
+                                xaxis=dict(visible=False, range=[0, width]), 
+                                yaxis=dict(visible=False, range=[height, 0], scaleanchor="x"), 
+                                margin=dict(l=0, r=0, t=0, b=0),
+                                coloraxis_showscale=False
+                            )
+                            st.plotly_chart(fig, use_container_width=True)
+                    st.dataframe(vencidos[['Línea', 'Id de producto', 'Clasificación', 'Estatus de verificación']], use_container_width=True, hide_index=True)
+                else:
+                    st.success(f"✅ **¡Felicidades! 100% de Cumplimiento en {tipo_mapa}.** No hay equipos operativos VENCIDOS (0 de {total_equipos} activos).")
 
+        with tab_overview:
+            st.markdown("#### Estado Global de Elementos ESD")
+            st.info("Visión general de los elementos validados. Filtra por su estatus de vigencia.")
+            
+            try:
+                df_val = conn.read(worksheet="VALIDACION_ESD")
+                if not df_val.empty and 'ID Elemento' in df_val.columns and 'Fecha Prox Validación' in df_val.columns:
+                    
+                    # Convertir las fechas para ordenar y agrupar
+                    df_val['Fecha Prox Validación'] = pd.to_datetime(df_val['Fecha Prox Validación'], format="%d-%b-%Y", errors='coerce')
+                    df_val['Fecha'] = pd.to_datetime(df_val['Fecha'], format="%d-%b-%Y %H:%M", errors='coerce')
+                    
+                    # Mantener solo la última validación registrada de cada ID
+                    df_latest = df_val.sort_values('Fecha').groupby('ID Elemento').tail(1).copy()
+                    
+                    hoy = pd.Timestamp(datetime.today().date())
+                    
+                    def estado_validacion(fecha_prox):
+                        if pd.isna(fecha_prox):
+                            return "Sin Validación"
+                        dias_restantes = (fecha_prox - hoy).days
+                        if dias_restantes < 0:
+                            return "Vencido"
+                        elif dias_restantes <= 30:
+                            return "Por Vencer"
+                        else:
+                            return "Vigente"
+                            
+                    df_latest['Estatus'] = df_latest['Fecha Prox Validación'].apply(estado_validacion)
+                    
+                    # Calcular métricas
+                    total_vig = len(df_latest[df_latest['Estatus'] == 'Vigente'])
+                    total_prx = len(df_latest[df_latest['Estatus'] == 'Por Vencer'])
+                    total_ven = len(df_latest[df_latest['Estatus'] == 'Vencido'])
+                    
+                    col_m1, col_m2, col_m3 = st.columns(3)
+                    col_m1.metric("🟢 Vigentes", total_vig)
+                    col_m2.metric("🟡 Por Vencer (30 días)", total_prx)
+                    col_m3.metric("🔴 Vencidos", total_ven)
+                    
+                    # Formatear la fecha de vuelta a string para visualización limpia
+                    df_latest['Fecha Prox Validación'] = df_latest['Fecha Prox Validación'].dt.strftime('%d-%b-%Y').fillna("N/D")
+                    
+                    st.dataframe(df_latest[['Elemento S20.20', 'ID Elemento', 'Ubicación', 'Estatus', 'Fecha Prox Validación']], use_container_width=True, hide_index=True)
+                else:
+                    st.warning("Aún no hay suficientes registros históricos en 'VALIDACION_ESD' para mostrar el Overview.")
+            except Exception as e:
+                st.error("Error al cargar la base de datos de validaciones.")
+    
     # ==========================================
     # VISTA 2: ESCÁNER Y DETALLES
     # ==========================================
@@ -1741,10 +1793,11 @@ else:
         st.info("Registro de trazabilidad completa. Selecciona el equipo de medición primero para autocompletar su información.")
 
         # Diccionario basado en la Tabla de Validación ESD
+# Diccionario actualizado conforme a la Tabla de Validación ESD
         INFO_ELEMENTOS_ESD = {
-            "Pulsera antiestática": {"limite": "RS < 3.5x10^7 ohms", "metodo": "ANSI/ESD TR53", "frecuencia": "Diariamente"},
-            "Calzado": {"limite": "RS < 1.0x10^9 ohms", "metodo": "ANSI/ESD TR53", "frecuencia": "Diariamente"},
-            "Piso ESD": {"limite": "RTG < 1.0x10^9 ohms / Walking Test < 100V", "metodo": "ANSI/ESD TR53 / ANSI/ESD 97.2", "frecuencia": "Semestralmente / Anualmente"},
+            "Pulsera antiestática": {"limite": "RS < 3.5x10^7 ohms", "metodo": "ANSI/ESD TR53", "frecuencia": "Semestralmente"},
+            "Calzado": {"limite": "RS < 1.0x10^9 ohms", "metodo": "ANSI/ESD TR53", "frecuencia": "Semestralmente"},
+            "Piso ESD": {"limite": "RTG < 1.0x10^9 ohms / Walking Test < 100V", "metodo": "ANSI/ESD TR53 / ANSI/ESD 97.2", "frecuencia": "Semestralmente"},
             "Superficie de trabajo": {"limite": "RTG < 1.0x10^9 ohms", "metodo": "ANSI/ESD TR53", "frecuencia": "Anualmente"},
             "Monitor Continuo": {"limite": "RTG < 2 ohms", "metodo": "Anexo A.1", "frecuencia": "Trimestralmente"},
             "Ionizador": {"limite": "Descarga: <10s, Bal: +-35V", "metodo": "ANSI/ESD SP3.3-2016", "frecuencia": "Trimestralmente"},
@@ -1763,12 +1816,12 @@ else:
             "Guantes Nitrilo": {"limite": "RTG < 1.0x10^9 ohms", "metodo": "ANSI/ESD TR53", "frecuencia": "Semestralmente"},
             "Guantes Tela": {"limite": "RTG < 1.0x10^9 ohms", "metodo": "ANSI/ESD TR53", "frecuencia": "Semestralmente"},
             "Tapete de piso": {"limite": "RTG < 1.0x10^9 ohms", "metodo": "ANSI/ESD TR53", "frecuencia": "Semestralmente"},
-            "Aislantes - EPA (General)": {"limite": ">30 cm de ESDS", "metodo": "Anexo A.2", "frecuencia": "Anualmente / Diariamente"},
+            "Aislantes - EPA (General)": {"limite": ">30 cm de ESDS", "metodo": "Anexo A.2", "frecuencia": "Semestralmente"},
             "Aislantes - Conductores Aislados": {"limite": "< 35 Volts", "metodo": "Anexo A.2", "frecuencia": "Semestralmente"},
             "Aislantes - Contacto directo": {"limite": "<= 125 Volts/in", "metodo": "Anexo A.2", "frecuencia": "Semestralmente"},
             "Bolsas blindadas": {"limite": "Indicaciones visuales de daño", "metodo": "Inspección visual aleatoria", "frecuencia": "Trimestralmente"}
         }
-
+        st.caption("*Nota: RS se refiere a la resistencia del sistema, incluyendo a la persona, pulsera, cable a tierra y calzado ESD. RTG se refiere a la resistencia a tierra.*")
         # Cargar Base de Datos de Equipos
         try:
             df_equipos = conn.read(worksheet="EQUIPOS")
@@ -1873,19 +1926,22 @@ else:
                                     "Ubicación", "Magnitud Medida", "ID Equipo", "Tipo Equipo", "Reporte Cal", 
                                     "Resolución", "Fabricante Eq", "Modelo Eq", "SN Eq", "Fecha Prox Cal", 
                                     "Referencia", "Tolerancia", "Medición 1", "Mediciones Extra", "Unidad", 
-                                    "Método", "Modo Medición", "Resultado", "Notas", "Imagen (Base64)"
+                                    "Método", "Modo Medición", "Resultado", "Fecha Prox Validación", "Notas", "Imagen (Base64)"
                                 ]
                                 ws_val.append_row(encabezados)
                                 
+                            fecha_hoy = datetime.today().date()
                             fecha_hoy_val = datetime.today().strftime("%d-%b-%Y %H:%M")
+                            # Calcula la próxima fecha de validación con base en la frecuencia de la tabla
+                            fecha_prox_val = calcular_proxima_fecha(fecha_hoy, info["frecuencia"]).strftime("%d-%b-%Y")
                             
-                            fila_validacion = [
+                           fila_validacion = [
                                 fecha_hoy_val, st.session_state.usuario_nombre, elemento_sel, id_elemento.upper(), tipo_material,
                                 fab_elem, mod_elem, sn_elem, temp, humedad,
                                 ubicacion, magnitud_med, id_equipo_sel, eq_data.get('tipo de equipo', 'N/D'), eq_data.get('número de reporte de calibración', 'N/D'),
                                 eq_data.get('resolución', 'N/D'), eq_data.get('fabricante', 'N/D'), eq_data.get('modelo', 'N/D'), eq_data.get('número de serie', 'N/D'), eq_data.get('fecha de calibración próxima', 'N/D'),
                                 float(referencia), tolerancia, float(medicion_1), mediciones_extra, unidad_med,
-                                metodo_med, modo_med, resultado_calc, notas_val, img_b64
+                                metodo_med, modo_med, resultado_calc, fecha_prox_val, notas_val, img_b64
                             ]
                             
                             ws_val.append_row(fila_validacion, value_input_option="USER_ENTERED")
