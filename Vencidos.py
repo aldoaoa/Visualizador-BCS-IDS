@@ -1722,6 +1722,148 @@ else:
                                         st.error("Archivo de imagen corrupto o inválido.")
                                 else:
                                     st.warning("No se adjuntó imagen.")
-                                    
+                                # --- GENERACIÓN DEL FORMATO HTML ---
+                                limite_req = str(row.get('Límite Requerido', ''))
+                                val_medido = str(row.get('Valor Medido', ''))
+                                id_esp = str(row.get('ID Específico', 'N/A'))
+                                id_disp = str(row.get('ID Dispositivo', 'N/A'))
+                                notas = str(row.get('Notas', ''))
+                                auditor = str(row.get('Auditor', ''))
+                                linea_area = str(row.get('Línea', ''))
+                                
+                                color_res = "text-red-600" if "NO CUMPLE" in resultado_str.upper() else "text-green-600"
+                                img_src = f"data:image/png;base64,{b64_string}" if b64_string and b64_string != 'nan' else "https://via.placeholder.com/400x300?text=Sin+Imagen"
+                                fecha_hoy = datetime.now().strftime("%Y/%m/%d")
+                                
+                                html_rep = f"""<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Formato de Validación - {elemento_str}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @media print {{
+            body {{ background-color: white !important; -webkit-print-color-adjust: exact; }}
+            .no-print {{ display: none !important; }}
+            .print-container {{ box-shadow: none !important; margin: 0 !important; padding: 0 !important; border: none !important; max-width: 100% !important; }}
+            input, textarea {{ border: none !important; background-color: transparent !important; resize: none !important; overflow: hidden !important; }}
+        }}
+        .editable-field {{ width: 100%; background-color: transparent; border: 1px solid transparent; padding: 2px 4px; border-radius: 4px; transition: all 0.2s ease; }}
+        .editable-field:hover {{ border-color: #d1d5db; background-color: #f9fafb; }}
+        .editable-field:focus {{ outline: none; border-color: #3b82f6; background-color: #eff6ff; }}
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800 font-sans p-4 md:p-8">
+    <div class="max-w-4xl mx-auto mb-4 flex justify-end no-print">
+        <button onclick="window.print()" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded shadow flex items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+            </svg>
+            Imprimir / Guardar PDF
+        </button>
+    </div>
+    <div class="print-container max-w-4xl mx-auto bg-white p-8 md:p-12 shadow-lg border border-gray-200 relative">
+        <header class="flex flex-col md:flex-row justify-between items-start mb-8 border-b-2 border-gray-800 pb-4">
+            <div class="mb-4 md:mb-0 w-1/3">
+                <h1 class="text-2xl font-black text-gray-900 tracking-tighter leading-none">BCS</h1>
+                <p class="text-xs font-bold text-gray-600 leading-tight mt-1">AUTOMOTIVE<br>INTERFACE<br>SOLUTIONS</p>
+            </div>
+            <div class="text-center w-1/3">
+                <h2 class="text-lg font-bold">FORMAT FOR INTERNAL<br>PRODUCT VALIDATION</h2>
+            </div>
+            <div class="w-1/3 text-right text-sm">
+                <div class="flex items-center justify-end mb-1">
+                    <span class="font-bold mr-2 whitespace-nowrap">Execution Date:</span>
+                    <input type="text" value="{fecha_str[:10]}" class="editable-field text-right w-28 font-semibold">
+                </div>
+                <div class="flex items-center justify-end">
+                    <span class="font-bold mr-2 whitespace-nowrap">Report:</span>
+                    <input type="text" value="BCS-PV-{index}" class="editable-field text-right w-32 font-semibold">
+                </div>
+            </div>
+        </header>
+
+        <div class="mb-6 border border-gray-400">
+            <div class="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-gray-400">
+                <div class="p-4">
+                    <h3 class="font-bold bg-gray-200 text-center uppercase py-1 mb-3 border border-gray-400 text-sm">EQUIPMENT DATA</h3>
+                    <div class="space-y-2 text-sm">
+                        <div class="flex items-center"><span class="font-bold w-1/3">ID:</span><input type="text" value="{id_esp}" class="editable-field w-2/3"></div>
+                        <div class="flex items-center"><span class="font-bold w-1/3">Model:</span><input type="text" value="{elemento_str}" class="editable-field w-2/3"></div>
+                        <div class="flex items-center"><span class="font-bold w-1/3">Location:</span><input type="text" value="{linea_area}" class="editable-field w-2/3"></div>
+                    </div>
+                </div>
+                <div class="p-4">
+                    <h3 class="font-bold bg-gray-200 text-center uppercase py-1 mb-3 border border-gray-400 text-sm">GENERAL INFORMATION</h3>
+                    <div class="space-y-2 text-sm">
+                        <div class="flex items-center"><span class="font-bold w-1/3">Temperature:</span><input type="text" value="N/A" class="editable-field w-2/3"></div>
+                        <div class="flex items-center"><span class="font-bold w-1/3">Humidity:</span><input type="text" value="N/A" class="editable-field w-2/3"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <h3 class="font-bold bg-gray-200 text-center uppercase py-1 mb-0 border border-gray-400 border-b-0 text-sm">TRACEABILITY</h3>
+        <div class="mb-8 border border-gray-400 p-4">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-2 text-sm">
+                <div class="flex items-center"><span class="font-bold w-1/3">ID Dispositivo:</span><input type="text" value="{id_disp}" class="editable-field w-2/3"></div>
+            </div>
+        </div>
+
+        <h3 class="font-bold bg-gray-200 text-center uppercase py-1 mb-0 border border-gray-400 border-b-0 text-sm">RESULTS</h3>
+        <div class="mb-8 overflow-x-auto">
+            <table class="w-full text-sm border-collapse border border-gray-400 text-center">
+                <thead>
+                    <tr class="bg-gray-100">
+                        <th class="border border-gray-400 p-2">Reference</th>
+                        <th class="border border-gray-400 p-2">Method</th>
+                        <th class="border border-gray-400 p-2">Location</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td class="border border-gray-400 p-1"><input type="text" value="{limite_req}" class="editable-field text-center"></td>
+                        <td class="border border-gray-400 p-1"><input type="text" value="ANSI/ESD" class="editable-field text-center"></td>
+                        <td class="border border-gray-400 p-1"><input type="text" value="{linea_area}" class="editable-field text-center"></td>
+                    </tr>
+                    <tr class="bg-gray-50 font-bold">
+                        <td class="border border-gray-400 p-2 text-right">Result:</td>
+                        <td colspan="2" class="border border-gray-400 p-1"><input type="text" value="{val_medido} | {resultado_str}" class="editable-field text-center font-bold {color_res}"></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8 h-48">
+            <div class="border border-gray-400 flex flex-col justify-center items-center bg-gray-50 relative overflow-hidden group">
+                <img src="{img_src}" alt="Product Image" class="w-full h-full object-contain">
+            </div>
+            <div class="border border-gray-400 flex flex-col">
+                <div class="bg-gray-200 border-b border-gray-400 p-1 text-center font-bold text-sm">Comments</div>
+                <textarea class="w-full h-full p-2 resize-none editable-field text-red-600 font-bold uppercase text-lg" spellcheck="false">{notas}\n{resultado_str}</textarea>
+            </div>
+        </div>
+
+        <div class="mt-16 flex justify-center">
+            <div class="text-center w-64">
+                <div class="border-b border-black mb-2"></div>
+                <p class="font-bold text-sm">Certified by:</p>
+                <input type="text" value="{auditor}" class="editable-field text-center text-sm">
+            </div>
+        </div>
+        <footer class="mt-12 text-xs text-gray-500 flex justify-between border-t border-gray-300 pt-2">
+            <div><p>Formato de Validación de producto.</p></div>
+            <div class="text-right"><p>Fecha: <input type="text" value="{fecha_hoy}" class="editable-field w-20 text-right inline-block text-gray-500"></p></div>
+        </footer>
+    </div>
+</body>
+</html>"""
+                                
+                                b64_html_rep = base64.b64encode(html_rep.encode('utf-8')).decode('utf-8')
+                                nombre_archivo_rep = f"Validacion_{elemento_str.replace(' ', '_')}_{fecha_str[:10]}.html"
+                                href_btn = f'<a href="data:text/html;base64,{b64_html_rep}" download="{nombre_archivo_rep}" target="_blank" style="display: block; text-align: center; padding: 10px 20px; background-color: #0052cc; color: white; text-decoration: none; border-radius: 5px; font-weight: bold; margin-top: 15px;">📄 Generar Formato de Validación</a>'
+                                st.markdown(href_btn, unsafe_allow_html=True)
+            
             except Exception as e:
                 st.warning("La base de datos de validaciones aún no ha sido creada o hubo un error al leerla. Registra un elemento primero.")
