@@ -1579,7 +1579,7 @@ else:
 
         # Cargar Base de Datos de Equipos
         try:
-            df_equipos = conn.read(worksheet="Equipos")
+            df_equipos = conn.read(worksheet="EQUIPOS")
             lista_equipos = df_equipos["ID del equipo de medición"].dropna().unique().tolist()
         except:
             df_equipos = pd.DataFrame()
@@ -1600,7 +1600,7 @@ else:
             id_equipo_sel = c_dyn2.selectbox("Seleccionar ID del Equipo de Medición:", options=lista_equipos)
             
             # Extracción de datos del equipo
-            eq_data = {k: "N/D" for k in ["tipo de equipo", "número de reporte de calibración", "resolución", "fabricante", "modelo", "número de serie", "fecha de calibración próxima"]}
+            eq_data = {k: "N/D" for k in ["Tipo de equipo", "Número de reporte de calibración", "Resolución", "Fabricante", "Modelo", "Número de serie", "Fecha de calibración próxima"]}
             if not df_equipos.empty and id_equipo_sel != "Sin conexión a 'Equipos'":
                 fila_eq = df_equipos[df_equipos["ID del equipo de medición"] == id_equipo_sel]
                 if not fila_eq.empty:
