@@ -39,17 +39,40 @@ def limpiar_url_escaneo():
         del st.query_params["qr_baja"]
 
 def procesar_imagen_b64(img_file):
-    """Comprime la imagen."""
+    """Comprime la imagen garantizando que el string Base64 resultante sea < 50,000 caracteres para Google Sheets."""
     if img_file is not None:
         try:
             img = Image.open(img_file)
             if img.mode != 'RGB':
                 img = img.convert('RGB')
-            # Redimensionar para mantener calidad pero reducir peso
-            img.thumbnail((800, 800))
+            
+            # Tamaño inicial más conservador para evitar procesar de más
+            max_size = (500, 500)
+            img.thumbnail(max_size)
+            
+            quality = 60
             buffered = io.BytesIO()
-            img.save(buffered, format="JPEG", quality=60)
-            return base64.b64encode(buffered.getvalue()).decode("utf-8")
+            img.save(buffered, format="JPEG", quality=quality)
+            b64_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
+            
+            # Bucle de compresión: Si supera los 48,000 caracteres, aplicamos más compresión
+            while len(b64_str) > 48000 and quality > 10:
+                quality -= 10  # Bajamos la calidad de 10 en 10
+                
+                # Si la calidad ya está muy baja y sigue pesando, reducimos la resolución
+                if quality <= 30:
+                    max_size = (int(max_size[0] * 0.8), int(max_size[1] * 0.8))
+                    img = img.resize(max_size, Image.Resampling.LANCZOS)
+                    
+                buffered = io.BytesIO()
+                img.save(buffered, format="JPEG", quality=quality)
+                b64_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
+                
+            # Fallback de seguridad extrema: Si es imposible comprimir (muy raro), se recorta para no crashear
+            if len(b64_str) > 49500:
+                return "ERROR_IMAGEN_MUY_PESADA"
+                
+            return b64_str
         except Exception as e:
             return ""
     return ""
