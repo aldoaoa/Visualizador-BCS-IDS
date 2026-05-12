@@ -1787,12 +1787,16 @@ else:
                         href = f'<a href="data:text/html;base64,{b64_html}" download="{nombre_archivo}" target="_blank" style="display: block; text-align: center; padding: 15px; background-color: #003366; color: white; text-decoration: none; border-radius: 8px; font-weight: bold; margin-top: 10px; font-size: 16px;">📥 Descargar Reporte Completo (Abrir para imprimir PDF)</a>'
                         st.markdown(href, unsafe_allow_html=True)
 
-    # ==========================================
+# ==========================================
     # VISTA 5: VALIDACIÓN ESD (SISTEMA INTEGRAL)
     # ==========================================
     elif st.session_state.vista_actual == "Validación" and not st.session_state.modo_lectura:
         st.markdown("### ✅ Validación Integral de Elementos de Control ESD")
         st.info("Registro de trazabilidad completa. Selecciona el equipo de medición primero para autocompletar su información.")
+
+        # --- NUEVO: Control de llaves para limpiar el formulario ---
+        if "val_form_key" not in st.session_state:
+            st.session_state.val_form_key = 0
 
         # Diccionario actualizado conforme a la Tabla de Validación ESD
         INFO_ELEMENTOS_ESD = {
@@ -1838,6 +1842,13 @@ else:
         # PESTAÑA 1: FORMULARIO DE CAPTURA
         # ==========================================
         with tab_registro:
+            
+            # --- NUEVO: Mostrar mensaje de éxito después del rerun ---
+            if "val_success_msg" in st.session_state and st.session_state.val_success_msg:
+                st.success(st.session_state.val_success_msg)
+                st.balloons()
+                st.session_state.val_success_msg = ""
+
             st.markdown("#### 1. Selección de Parámetros Globales")
             # Selectores dinámicos FUERA del form para permitir el autocompletado en tiempo real
             c_dyn1, c_dyn2 = st.columns(2)
@@ -1853,7 +1864,8 @@ else:
                 if not fila_eq.empty:
                     eq_data = fila_eq.iloc[0].to_dict()
 
-            with st.form("form_validacion_esd"):
+            # --- MODIFICADO: Llave dinámica del formulario ---
+            with st.form(f"form_validacion_esd_{st.session_state.val_form_key}"):
                 st.markdown("#### 2. Datos del Elemento a Validar")
                 c1, c2, c3 = st.columns(3)
                 id_elemento = c1.text_input("ID del Elemento", placeholder="Ej: SILLA-05")
@@ -1948,9 +1960,11 @@ else:
                             
                             ws_val.append_row(fila_validacion, value_input_option="USER_ENTERED")
                             
-                        st.success(f"✅ ¡Validación registrada! Resultado: **{resultado_calc}**")
+                        # --- NUEVO: Resetear formulario, limpiar caché y recargar ---
+                        st.session_state.val_success_msg = f"✅ ¡Validación registrada! Resultado: **{resultado_calc}**"
+                        st.session_state.val_form_key += 1
                         st.cache_data.clear()
-                        st.balloons()
+                        st.rerun()
 
         # ==========================================
         # PESTAÑA 2: VISOR DE HISTORIAL E IMÁGENES
