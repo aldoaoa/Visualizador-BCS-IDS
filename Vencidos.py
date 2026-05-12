@@ -1792,42 +1792,51 @@ else:
     # ==========================================
     elif st.session_state.vista_actual == "Validación" and not st.session_state.modo_lectura:
         st.markdown("### ✅ Validación Integral de Elementos de Control ESD")
-        st.info("Registro de trazabilidad completa. Selecciona el equipo de medición primero para autocompletar su información.")
+        st.info("Registro de trazabilidad completa. Selecciona el equipo de medición y el elemento para autocompletar la información.")
 
-        # --- NUEVO: Control de llaves para limpiar el formulario ---
+        # --- Control de llaves para limpiar el formulario tras éxito ---
         if "val_form_key" not in st.session_state:
             st.session_state.val_form_key = 0
 
-        # Diccionario actualizado conforme a la Tabla de Validación ESD
+        # Diccionario actualizado con ref_num, tipo_material y magnitud por defecto
         INFO_ELEMENTOS_ESD = {
-            "Pulsera antiestática": {"limite": "RS < 3.5x10^7 ohms", "metodo": "ANSI/ESD TR53", "frecuencia": "Semestralmente"},
-            "Calzado": {"limite": "RS < 1.0x10^9 ohms", "metodo": "ANSI/ESD TR53", "frecuencia": "Semestralmente"},
-            "Piso ESD": {"limite": "RTG < 1.0x10^9 ohms / Walking Test < 100V", "metodo": "ANSI/ESD TR53 / ANSI/ESD 97.2", "frecuencia": "Semestralmente"},
-            "Superficie de trabajo": {"limite": "RTG < 1.0x10^9 ohms", "metodo": "ANSI/ESD TR53", "frecuencia": "Anualmente"},
-            "Monitor Continuo": {"limite": "RTG < 2 ohms", "metodo": "Anexo A.1", "frecuencia": "Trimestralmente"},
-            "Ionizador": {"limite": "Descarga: <10s, Bal: +-35V", "metodo": "ANSI/ESD SP3.3-2016", "frecuencia": "Trimestralmente"},
-            "Bolsa disipativa": {"limite": "RS < 1.0x10^9 ohms", "metodo": "ANSI/ESD STM11.11", "frecuencia": "Semestralmente"},
-            "Cautín / Estación de soldar": {"limite": "RTG < 10 ohms", "metodo": "ANSI/ESD TR53", "frecuencia": "Semestralmente"},
-            "Caja Disipativa": {"limite": "RS < 1.0x10^11 ohms", "metodo": "ANSI/ESD STM11.11", "frecuencia": "Anualmente"},
-            "Caja conductiva": {"limite": "RS < 1.0x10^4 ohms", "metodo": "ANSI/ESD STM11.11", "frecuencia": "Anualmente"},
-            "Charola conductiva": {"limite": "RS < 1.0x10^4 ohms", "metodo": "ANSI/ESD STM11.13/11.11", "frecuencia": "Anualmente"},
-            "Charola Disipativa": {"limite": "RS < 1.0x10^11 ohms", "metodo": "ANSI/ESD STM11.13/11.11", "frecuencia": "Anualmente"},
-            "Magazine": {"limite": "RS < 1.0x10^11 ohms", "metodo": "ANSI/ESD STM11.13/11.11", "frecuencia": "Anualmente"},
-            "Bata": {"limite": "RPP < 1.0x10^11 ohms", "metodo": "ANSI/ESD TR53", "frecuencia": "Semestralmente"},
-            "Gorra": {"limite": "RPP < 1.0x10^11 ohms", "metodo": "ANSI/ESD TR53", "frecuencia": "Semestralmente"},
-            "Rack": {"limite": "RTG < 1.0x10^9 ohms", "metodo": "ANSI/ESD STM4.1", "frecuencia": "Anualmente"},
-            "Carrito": {"limite": "RTG < 1.0x10^9 ohms", "metodo": "ANSI/ESD STM4.1", "frecuencia": "Anualmente"},
-            "Silla ESD": {"limite": "RTG < 1.0x10^9 ohms", "metodo": "ANSI/ESD TR53", "frecuencia": "Semestralmente"},
-            "Guantes Nitrilo": {"limite": "RTG < 1.0x10^9 ohms", "metodo": "ANSI/ESD TR53", "frecuencia": "Semestralmente"},
-            "Guantes Tela": {"limite": "RTG < 1.0x10^9 ohms", "metodo": "ANSI/ESD TR53", "frecuencia": "Semestralmente"},
-            "Tapete de piso": {"limite": "RTG < 1.0x10^9 ohms", "metodo": "ANSI/ESD TR53", "frecuencia": "Semestralmente"},
-            "Aislantes - EPA (General)": {"limite": ">30 cm de ESDS", "metodo": "Anexo A.2", "frecuencia": "Semestralmente"},
-            "Aislantes - Conductores Aislados": {"limite": "< 35 Volts", "metodo": "Anexo A.2", "frecuencia": "Semestralmente"},
-            "Aislantes - Contacto directo": {"limite": "<= 125 Volts/in", "metodo": "Anexo A.2", "frecuencia": "Semestralmente"},
-            "Bolsas blindadas": {"limite": "Indicaciones visuales de daño", "metodo": "Inspección visual aleatoria", "frecuencia": "Trimestralmente"}
+            "Pulsera antiestática": {"limite": "RS < 3.5x10^7 ohms", "ref_num": 3.5e7, "tipo_material": "Banda elástica / Metal", "magnitud": "Resistencia", "metodo": "ANSI/ESD TR53", "frecuencia": "Semestralmente"},
+            "Calzado": {"limite": "RS < 1.0x10^9 ohms", "ref_num": 1.0e9, "tipo_material": "Suela disipativa / Talón", "magnitud": "Resistencia", "metodo": "ANSI/ESD TR53", "frecuencia": "Semestralmente"},
+            "Piso ESD": {"limite": "RTG < 1.0x10^9 ohms / Walking Test < 100V", "ref_num": 1.0e9, "tipo_material": "Epóxico / Vinílico ESD", "magnitud": "Resistencia", "metodo": "ANSI/ESD TR53 / ANSI/ESD 97.2", "frecuencia": "Semestralmente"},
+            "Superficie de trabajo": {"limite": "RTG < 1.0x10^9 ohms", "ref_num": 1.0e9, "tipo_material": "Tapete disipativo / Mesa", "magnitud": "Resistencia", "metodo": "ANSI/ESD TR53", "frecuencia": "Anualmente"},
+            "Monitor Continuo": {"limite": "RTG < 2 ohms", "ref_num": 2.0, "tipo_material": "Equipo Electrónico", "magnitud": "Resistencia", "metodo": "Anexo A.1", "frecuencia": "Trimestralmente"},
+            "Ionizador": {"limite": "Descarga: <10s, Bal: +-35V", "ref_num": 10.0, "tipo_material": "Ventilador / Barra", "magnitud": "Tiempo", "metodo": "ANSI/ESD SP3.3-2016", "frecuencia": "Trimestralmente"},
+            "Bolsa disipativa": {"limite": "RS < 1.0x10^9 ohms", "ref_num": 1.0e9, "tipo_material": "Plástico disipativo", "magnitud": "Resistencia", "metodo": "ANSI/ESD STM11.11", "frecuencia": "Semestralmente"},
+            "Cautín / Estación de soldar": {"limite": "RTG < 10 ohms", "ref_num": 10.0, "tipo_material": "Metal / Punta", "magnitud": "Resistencia", "metodo": "ANSI/ESD TR53", "frecuencia": "Semestralmente"},
+            "Caja Disipativa": {"limite": "RS < 1.0x10^11 ohms", "ref_num": 1.0e11, "tipo_material": "Plástico / Cartón", "magnitud": "Resistencia", "metodo": "ANSI/ESD STM11.11", "frecuencia": "Anualmente"},
+            "Caja conductiva": {"limite": "RS < 1.0x10^4 ohms", "ref_num": 1.0e4, "tipo_material": "Plástico conductivo", "magnitud": "Resistencia", "metodo": "ANSI/ESD STM11.11", "frecuencia": "Anualmente"},
+            "Charola conductiva": {"limite": "RS < 1.0x10^4 ohms", "ref_num": 1.0e4, "tipo_material": "Plástico conductivo", "magnitud": "Resistencia", "metodo": "ANSI/ESD STM11.13/11.11", "frecuencia": "Anualmente"},
+            "Charola Disipativa": {"limite": "RS < 1.0x10^11 ohms", "ref_num": 1.0e11, "tipo_material": "Plástico disipativo", "magnitud": "Resistencia", "metodo": "ANSI/ESD STM11.13/11.11", "frecuencia": "Anualmente"},
+            "Magazine": {"limite": "RS < 1.0x10^11 ohms", "ref_num": 1.0e11, "tipo_material": "Metal / Plástico", "magnitud": "Resistencia", "metodo": "ANSI/ESD STM11.13/11.11", "frecuencia": "Anualmente"},
+            "Bata": {"limite": "RPP < 1.0x10^11 ohms", "ref_num": 1.0e11, "tipo_material": "Tela ESD", "magnitud": "Resistencia", "metodo": "ANSI/ESD TR53", "frecuencia": "Semestralmente"},
+            "Gorra": {"limite": "RPP < 1.0x10^11 ohms", "ref_num": 1.0e11, "tipo_material": "Tela ESD", "magnitud": "Resistencia", "metodo": "ANSI/ESD TR53", "frecuencia": "Semestralmente"},
+            "Rack": {"limite": "RTG < 1.0x10^9 ohms", "ref_num": 1.0e9, "tipo_material": "Metal", "magnitud": "Resistencia", "metodo": "ANSI/ESD STM4.1", "frecuencia": "Anualmente"},
+            "Carrito": {"limite": "RTG < 1.0x10^9 ohms", "ref_num": 1.0e9, "tipo_material": "Metal", "magnitud": "Resistencia", "metodo": "ANSI/ESD STM4.1", "frecuencia": "Anualmente"},
+            "Silla ESD": {"limite": "RTG < 1.0x10^9 ohms", "ref_num": 1.0e9, "tipo_material": "Tela / Vinil ESD", "magnitud": "Resistencia", "metodo": "ANSI/ESD TR53", "frecuencia": "Semestralmente"},
+            "Guantes Nitrilo": {"limite": "RTG < 1.0x10^9 ohms", "ref_num": 1.0e9, "tipo_material": "Nitrilo", "magnitud": "Resistencia", "metodo": "ANSI/ESD TR53", "frecuencia": "Semestralmente"},
+            "Guantes Tela": {"limite": "RTG < 1.0x10^9 ohms", "ref_num": 1.0e9, "tipo_material": "Tela ESD", "magnitud": "Resistencia", "metodo": "ANSI/ESD TR53", "frecuencia": "Semestralmente"},
+            "Tapete de piso": {"limite": "RTG < 1.0x10^9 ohms", "ref_num": 1.0e9, "tipo_material": "Caucho / Vinil ESD", "magnitud": "Resistencia", "metodo": "ANSI/ESD TR53", "frecuencia": "Semestralmente"},
+            "Aislantes - EPA (General)": {"limite": ">30 cm de ESDS", "ref_num": 2000.0, "tipo_material": "Material Aislante", "magnitud": "Voltaje", "metodo": "Anexo A.2", "frecuencia": "Semestralmente"},
+            "Aislantes - Conductores Aislados": {"limite": "< 35 Volts", "ref_num": 35.0, "tipo_material": "Conductor Aislado", "magnitud": "Voltaje", "metodo": "Anexo A.2", "frecuencia": "Semestralmente"},
+            "Aislantes - Contacto directo": {"limite": "<= 125 Volts/in", "ref_num": 125.0, "tipo_material": "Material Aislante", "magnitud": "Voltaje", "metodo": "Anexo A.2", "frecuencia": "Semestralmente"},
+            "Bolsas blindadas": {"limite": "Visual", "ref_num": 0.0, "tipo_material": "Plástico metalizado", "magnitud": "Otro", "metodo": "Inspección visual", "frecuencia": "Trimestralmente"}
         }
-        st.caption("*Nota: RS se refiere a la resistencia del sistema, incluyendo a la persona, pulsera, cable a tierra y calzado ESD. RTG se refiere a la resistencia a tierra.*")
+        st.caption("*Nota: RS se refiere a la resistencia del sistema. RTG se refiere a la resistencia a tierra.*")
         
+        # Diccionario para mapear Magnitud -> Unidad
+        MAPA_UNIDADES = {
+            "Resistencia": "Ohms",
+            "Voltaje": "Volts",
+            "Tiempo": "Segundos",
+            "Longitud": "cm",
+            "Otro": "N/A"
+        }
+
         # Cargar Base de Datos de Equipos
         try:
             df_equipos = conn.read(worksheet="EQUIPOS")
@@ -1843,20 +1852,25 @@ else:
         # ==========================================
         with tab_registro:
             
-            # --- NUEVO: Mostrar mensaje de éxito después del rerun ---
             if "val_success_msg" in st.session_state and st.session_state.val_success_msg:
                 st.success(st.session_state.val_success_msg)
                 st.balloons()
                 st.session_state.val_success_msg = ""
 
             st.markdown("#### 1. Selección de Parámetros Globales")
-            # Selectores dinámicos FUERA del form para permitir el autocompletado en tiempo real
-            c_dyn1, c_dyn2 = st.columns(2)
+            
+            # Selectores dinámicos FUERA del form para permitir el autocompletado interactivo
+            c_dyn1, c_dyn2, c_dyn3 = st.columns(3)
             elemento_sel = c_dyn1.selectbox("Elemento S20.20 a validar:", options=list(INFO_ELEMENTOS_ESD.keys()))
             info = INFO_ELEMENTOS_ESD[elemento_sel]
             
-            id_equipo_sel = c_dyn2.selectbox("Seleccionar ID del Equipo de Medición:", options=lista_equipos)
+            id_equipo_sel = c_dyn2.selectbox("ID del Equipo de Medición:", options=lista_equipos)
             
+            opciones_magnitud = list(MAPA_UNIDADES.keys())
+            idx_mag = opciones_magnitud.index(info["magnitud"]) if info["magnitud"] in opciones_magnitud else 0
+            magnitud_med = c_dyn3.selectbox("Magnitud Medida:", options=opciones_magnitud, index=idx_mag)
+            unidad_auto = MAPA_UNIDADES.get(magnitud_med, "")
+
             # Extracción de datos del equipo
             eq_data = {k: "N/D" for k in ["Tipo de equipo", "Número de reporte de calibración", "Resolución", "Fabricante", "Modelo", "Número de serie", "Fecha de calibración próxima"]}
             if not df_equipos.empty and id_equipo_sel != "Sin conexión a 'Equipos'":
@@ -1864,18 +1878,17 @@ else:
                 if not fila_eq.empty:
                     eq_data = fila_eq.iloc[0].to_dict()
 
-            # --- MODIFICADO: Llave dinámica del formulario ---
+            # --- Formulario limpio iterativo ---
             with st.form(f"form_validacion_esd_{st.session_state.val_form_key}"):
                 st.markdown("#### 2. Datos del Elemento a Validar")
-                c1, c2, c3 = st.columns(3)
+                c1, c2 = st.columns([1, 2])
                 id_elemento = c1.text_input("ID del Elemento", placeholder="Ej: SILLA-05")
-                tipo_material = c2.text_input("Tipo de Material", placeholder="Ej: Guante, silla")
-                magnitud_med = c3.text_input("Magnitud Medida", placeholder="Ej: Resistencia, Voltaje, Tiempo")
+                tipo_material = c2.text_input("Tipo de Material", value=info["tipo_material"])
                 
                 c4, c5, c6 = st.columns(3)
-                fab_elem = c4.text_input("Fabricante del Elemento")
-                mod_elem = c5.text_input("Modelo del Elemento")
-                sn_elem = c6.text_input("Número de Serie (Si aplica)")
+                fab_elem = c4.text_input("Fabricante del Elemento (Opcional)")
+                mod_elem = c5.text_input("Modelo del Elemento (Opcional)")
+                sn_elem = c6.text_input("Número de Serie (Opcional)")
 
                 st.markdown("#### 3. Condiciones Ambientales y Ubicación")
                 c7, c8, c9 = st.columns(3)
@@ -1883,29 +1896,30 @@ else:
                 temp = c8.text_input("Temperatura", placeholder="Ej: 24.5 °C")
                 humedad = c9.text_input("Humedad Relativa", placeholder="Ej: 45 %")
 
-                st.markdown("#### 4. Detalles del Equipo de Medición (Autocompletado)")
+                st.markdown("#### 4. Detalles del Equipo de Medición")
                 st.info(f"**Tipo:** {eq_data.get('Tipo de equipo', 'N/D')} | **Fabricante:** {eq_data.get('Fabricante', 'N/D')} | **Modelo:** {eq_data.get('Modelo', 'N/D')} | **SN:** {eq_data.get('Número de serie', 'N/D')} \n\n **Reporte Calibración:** {eq_data.get('Número de reporte de calibración', 'N/D')} (Vence: {eq_data.get('Fecha de calibración próxima', 'N/D')}) | **Alcance:** {eq_data.get('Resolución', 'N/D')}")
 
                 st.markdown("#### 5. Parámetros y Medición")
                 cm1, cm2, cm3 = st.columns(3)
                 metodo_med = cm1.text_input("Método", value=info["metodo"])
                 modo_med = cm2.text_input("Modo de Medición", placeholder="Ej: PTP, RTG, Descarga")
-                unidad_med = cm3.text_input("Unidad de Medición", placeholder="Ej: Ohms, Volts, Segundos")
+                unidad_med = cm3.text_input("Unidad de Medición", value=unidad_auto)
 
-                cr1, cr2 = st.columns(2)
-                # Formato %g permite capturar números enteros o notación científica (ej: 1e9)
-                referencia = cr1.number_input(f"Referencia Numérica / Límite", value=0.0, format="%g", help="Usa notación científica si es necesario (Ej: 1e9). Límite norma: " + info["limite"])
-                tolerancia = cr2.text_input("Tolerancia", placeholder="Ej: +/- 10%")
+                # Eliminamos Tolerancia y usamos el value en Referencia
+                referencia = st.number_input(f"Referencia Numérica / Límite Permitido", value=float(info["ref_num"]), format="%g", help="Límite S20.20: " + info["limite"])
 
-                cv1, cv2 = st.columns([1, 2])
-                medicion_1 = cv1.number_input("Medición 1 (Obligatoria)", value=0.0, format="%g")
-                mediciones_extra = cv2.text_input("Mediciones Adicionales (Opcional)", placeholder="Separadas por coma. Ej: 1.2e7, 1.4e7, 1.1e7")
+                st.markdown("##### Resultados Obtenidos")
+                cv1, cv2, cv3, cv4, cv5 = st.columns(5)
+                medicion_1 = cv1.number_input("Medición 1 (Oblig.)", value=0.0, format="%g")
+                med_2 = cv2.number_input("Medición 2 (Opc.)", value=None, format="%g", placeholder="0.0")
+                med_3 = cv3.number_input("Medición 3 (Opc.)", value=None, format="%g", placeholder="0.0")
+                med_4 = cv4.number_input("Medición 4 (Opc.)", value=None, format="%g", placeholder="0.0")
+                med_5 = cv5.number_input("Medición 5 (Opc.)", value=None, format="%g", placeholder="0.0")
                 
                 notas_val = st.text_area("Notas / Observaciones")
 
                 st.markdown("#### 6. Evidencia Fotográfica")
                 st.info("📸 Puedes usar la cámara o subir un archivo. Si usas ambos, se dará prioridad a la cámara.")
-                
                 col_img1, col_img2 = st.columns(2)
                 imagen_camara = col_img1.camera_input("Capturar foto en vivo")
                 imagen_subida = col_img2.file_uploader("Subir archivo de imagen", type=["jpg", "jpeg", "png"])
@@ -1920,7 +1934,11 @@ else:
                         st.error("⚠️ La evidencia fotográfica es obligatoria para la auditoría.")
                     else:
                         with st.spinner("Evaluando límites y guardando en servidor..."):
-                            # Lógica: Aprobado si la medición es INFERIOR al límite de referencia establecido
+                            # Empaquetado de mediciones extra ignorando los campos vacíos
+                            lista_extras = [str(m) for m in [med_2, med_3, med_4, med_5] if m is not None]
+                            mediciones_extra_str = ", ".join(lista_extras)
+
+                            # Lógica de aprobación
                             resultado_calc = "CUMPLE (APROBADO)" if medicion_1 < referencia else "NO CUMPLE (RECHAZADO)"
                             
                             img_b64 = procesar_imagen_b64(imagen_final)
@@ -1933,7 +1951,6 @@ else:
                             except gspread.exceptions.WorksheetNotFound:
                                 sheet_file = gc_val.open_by_url(sec["spreadsheet"])
                                 ws_val = sheet_file.add_worksheet(title="VALIDACION_ESD", rows="1000", cols="30")
-                                # 30 Encabezados estructurados
                                 encabezados = [
                                     "Fecha", "Auditor", "Elemento S20.20", "ID Elemento", "Tipo Material", 
                                     "Fabricante Elem", "Modelo Elem", "SN Elem", "Temperatura", "Humedad", 
@@ -1946,21 +1963,21 @@ else:
                                 
                             fecha_hoy = datetime.today().date()
                             fecha_hoy_val = datetime.today().strftime("%d-%b-%Y %H:%M")
-                            # Calcula la próxima fecha de validación con base en la frecuencia de la tabla
                             fecha_prox_val = calcular_proxima_fecha(fecha_hoy, info["frecuencia"]).strftime("%d-%b-%Y")
                             
+                            # Nota: Se inyecta "N/A" en el índice de Tolerancia para no descuadrar Google Sheets
                             fila_validacion = [
                                 fecha_hoy_val, st.session_state.usuario_nombre, elemento_sel, id_elemento.upper(), tipo_material,
                                 fab_elem, mod_elem, sn_elem, temp, humedad,
                                 ubicacion, magnitud_med, id_equipo_sel, eq_data.get('Tipo de equipo', 'N/D'), eq_data.get('Número de reporte de calibración', 'N/D'),
                                 eq_data.get('Resolución', 'N/D'), eq_data.get('Fabricante', 'N/D'), eq_data.get('Modelo', 'N/D'), eq_data.get('Número de serie', 'N/D'), eq_data.get('Fecha de calibración próxima', 'N/D'),
-                                float(referencia), tolerancia, float(medicion_1), mediciones_extra, unidad_med,
+                                float(referencia), "N/A", float(medicion_1), mediciones_extra_str, unidad_med,
                                 metodo_med, modo_med, resultado_calc, fecha_prox_val, notas_val, img_b64
                             ]
                             
                             ws_val.append_row(fila_validacion, value_input_option="USER_ENTERED")
                             
-                        # --- NUEVO: Resetear formulario, limpiar caché y recargar ---
+                        # Limpiar formulario y caché
                         st.session_state.val_success_msg = f"✅ ¡Validación registrada! Resultado: **{resultado_calc}**"
                         st.session_state.val_form_key += 1
                         st.cache_data.clear()
@@ -1988,7 +2005,6 @@ else:
                         icono_res = "🟢" if "CUMPLE" in resultado_str.upper() else "🔴"
                         
                         with st.expander(f"{icono_res} {row.get('Fecha', '')} | {row.get('ID Elemento', 'N/D')} ({row.get('Elemento S20.20', '')}) - {row.get('Ubicación', '')}"):
-                            # Dividimos el visor en 4 columnas
                             c_det1, c_det2, c_det3, c_img = st.columns([1, 1, 1, 1.5])
                             
                             with c_det1:
@@ -2024,7 +2040,7 @@ else:
                                         st.error("Archivo de imagen corrupto.")
                                 else:
                                     st.warning("Sin imagen.")
-                            # -------- NUEVO: BOTÓN DE DESCARGA DE REPORTE --------
+                            
                             st.divider()
                             año_actual = datetime.today().strftime("%y")
                             html_reporte = generar_html_reporte_esd(row, index)
