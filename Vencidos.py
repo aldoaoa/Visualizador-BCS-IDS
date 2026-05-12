@@ -80,6 +80,15 @@ def generar_html_reporte_esd(row, index):
     promedio = sum(valid_nums) / len(valid_nums) if valid_nums else 0
     promedio_str = f"{promedio:.2E}" if promedio > 0 else "N/A"
     
+    # --- NUEVO: Formateo de Referencia en Notación Científica ---
+    ref_raw = safe_str(row.get('Referencia'))
+    try:
+        ref_num = float(ref_raw)
+        # Convertir a notación científica
+        ref_str = f"{ref_num:.2E}"
+    except:
+        ref_str = ref_raw
+    
     html_rows = ""
     for i, val in enumerate(mediciones, 1):
         try:
@@ -92,8 +101,7 @@ def generar_html_reporte_esd(row, index):
         html_rows += f"""
         <tr class="border-b border-gray-200 hover:bg-blue-50 print:hover:bg-transparent text-center">
             <td class="p-1 border-r border-gray-300 font-bold">{i}</td>
-            <td class="p-1 border-r border-gray-300">{safe_str(row.get('Referencia'))}</td>
-            <td class="p-1 border-r border-gray-300">{safe_str(row.get('Tolerancia'))}</td>
+            <td class="p-1 border-r border-gray-300 font-mono">{ref_str}</td>
             <td class="p-1 border-r border-gray-300 bg-yellow-50 print:bg-transparent font-mono font-bold">{val_str}</td>
             <td class="p-1 border-r border-gray-300">{safe_str(row.get('Método'))}</td>
             <td class="p-1 border-r border-gray-300">{safe_str(row.get('Unidad'))}</td>
@@ -199,7 +207,6 @@ def generar_html_reporte_esd(row, index):
                     <tr class="bg-gray-100 border-b border-gray-300">
                         <th class="p-2 border-r border-gray-300">No.</th>
                         <th class="p-2 border-r border-gray-300">Referencia</th>
-                        <th class="p-2 border-r border-gray-300">Tolerancia</th>
                         <th class="p-2 border-r border-gray-300">Resultado Obtenido</th>
                         <th class="p-2 border-r border-gray-300">Método de Prueba</th>
                         <th class="p-2 border-r border-gray-300">Unidad</th>
@@ -207,7 +214,8 @@ def generar_html_reporte_esd(row, index):
                     </tr>
                     {html_rows}
                     <tr class="border-t-2 border-gray-400 bg-gray-50">
-                        <td colspan="3" class="p-2 font-bold text-right border-r border-gray-300">Promedio / Final:</td>
+                        <!-- Ajuste de colspan a 2 por la eliminación de la columna Tolerancia -->
+                        <td colspan="2" class="p-2 font-bold text-right border-r border-gray-300">Promedio / Final:</td>
                         <td class="p-2 font-mono font-bold text-center border-r border-gray-300">{promedio_str}</td>
                         <td colspan="3"></td>
                     </tr>
