@@ -6,3 +6,4 @@ streamlit-cookies-controller
 xlrd
 PyMuPDF
 pytesseract
+supabase
