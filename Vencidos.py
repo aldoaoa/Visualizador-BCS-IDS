@@ -15,6 +15,10 @@ import io
 import pytesseract
 from supabase import create_client, Client
 
+# Configuración de página
+st.set_page_config(page_title="Control ESD BCS-AIS", layout="wide")
+
+# --- CONEXIÓN A SUPABASE ---
 @st.cache_resource
 def init_connection():
     url = st.secrets["SUPABASE_URL"]
@@ -23,16 +27,35 @@ def init_connection():
 
 supabase: Client = init_connection()
 
-# --- NUEVA LECTURA DE DATOS ---
+# --- NUEVA LECTURA DE DATOS UNIFICADA (Mapeada a tus viejos nombres para no romper la UI) ---
 @st.cache_data(ttl=10) 
 def cargar_datos_cloud():
     try:
-        # 1. Traer todo el inventario unificado (Ignoramos los dados de baja por defecto para agilizar)
+        # 1. Traer inventario
         resp_inv = supabase.table("inventario_esd").select("*").execute()
         df_inv = pd.DataFrame(resp_inv.data)
         
-        # Separamos temporalmente en DataFrames para no romper tu UI actual
         if not df_inv.empty:
+            rename_map = {
+                "id_producto": "Id de producto",
+                "linea_ubicacion": "Línea",
+                "clasificacion": "Clasificación",
+                "fabricante": "Fabricante",
+                "limite_minimo": "Mínimo",
+                "limite_maximo": "Maximo",
+                "unidad_medida": "Unidad",
+                "valor_actual": "Valor de verificación",
+                "balance_ionizador": "Balance",
+                "metodo_prueba": "Método",
+                "fecha_ultima_verif": "Fecha de verificación",
+                "fecha_proxima_verif": "Fecha de próxima verificación",
+                "frecuencia": "Frecuencia de verificación",
+                "estatus_verificacion": "Estatus de verificación",
+                "estatus_operativo": "Estatus operativo",
+                "comentarios": "Notas",
+                "auditor_responsable": "Auditor"
+            }
+            df_inv = df_inv.rename(columns=rename_map)
             df_mob = df_inv[df_inv['categoria'] == 'Mobiliario']
             df_ion = df_inv[df_inv['categoria'] == 'Ionizador']
             df_piso = df_inv[df_inv['categoria'] == 'Piso']
@@ -41,7 +64,21 @@ def cargar_datos_cloud():
 
         # 2. Traer Event Meter
         resp_em = supabase.table("event_meter").select("*").execute()
-        df_em = pd.DataFrame(resp_em.data) if resp_em.data else pd.DataFrame(columns=['linea_ubicacion', 'id_operacion'])
+        df_em = pd.DataFrame(resp_em.data) if resp_em.data else pd.DataFrame()
+        if not df_em.empty:
+            em_rename_map = {
+                "linea_ubicacion": "Línea",
+                "id_operacion": "Id de Operación",
+                "tipo_contacto": "Tipo de contacto",
+                "cantidad_eventos": "Detección (Cantidad)",
+                "voltaje_maximo": "Voltaje máximo",
+                "estatus_verificacion": "Estatus de verificación",
+                "notas": "Notas",
+                "auditor": "Auditor"
+            }
+            df_em = df_em.rename(columns=em_rename_map)
+        else:
+            df_em = pd.DataFrame(columns=['Línea', 'Id de Operación'])
 
         return df_piso, df_mob, df_ion, df_em
         
@@ -50,11 +87,8 @@ def cargar_datos_cloud():
         return None, None, None, None
 
 
-# Configuración de página
-st.set_page_config(page_title="Control ESD BCS-AIS", layout="wide")
-
 # ==========================================
-# FUNCIONES AUXILIARES DE URL Y SESIÓN
+# FUNCIONES AUXILIARES
 # ==========================================
 def codificar_sesion(nombre):
     return base64.b64encode(nombre.encode('utf-8')).decode('utf-8')
@@ -74,56 +108,40 @@ def limpiar_url_escaneo():
         del st.query_params["qr_baja"]
 
 def procesar_imagen_b64(img_file):
-    """Comprime la imagen garantizando que el string Base64 resultante sea < 50,000 caracteres para Google Sheets."""
     if img_file is not None:
         try:
             img = Image.open(img_file)
             if img.mode != 'RGB':
                 img = img.convert('RGB')
-            
-            # Tamaño inicial más conservador para evitar procesar de más
             max_size = (500, 500)
             img.thumbnail(max_size)
-            
             quality = 60
             buffered = io.BytesIO()
             img.save(buffered, format="JPEG", quality=quality)
             b64_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
-            
-            # Bucle de compresión: Si supera los 48,000 caracteres, aplicamos más compresión
             while len(b64_str) > 48000 and quality > 10:
-                quality -= 10  # Bajamos la calidad de 10 en 10
-                
-                # Si la calidad ya está muy baja y sigue pesando, reducimos la resolución
+                quality -= 10
                 if quality <= 30:
                     max_size = (int(max_size[0] * 0.8), int(max_size[1] * 0.8))
                     img = img.resize(max_size, Image.Resampling.LANCZOS)
-                    
                 buffered = io.BytesIO()
                 img.save(buffered, format="JPEG", quality=quality)
                 b64_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
-                
-            # Fallback de seguridad extrema: Si es imposible comprimir (muy raro), se recorta para no crashear
             if len(b64_str) > 49500:
                 return "ERROR_IMAGEN_MUY_PESADA"
-                
             return b64_str
         except Exception as e:
             return ""
     return ""
 
 def safe_str(val, default="N/D"):
-    """Evita errores de NaN al extraer de pandas."""
     if pd.isna(val) or str(val).strip().lower() == 'nan' or str(val).strip() == '':
         return default
     return str(val).strip()
 
 def generar_html_reporte_esd(row, index):
-    """Genera el HTML imprimible en formato ANSI/ESD S20.20 para una fila específica."""
     med1 = safe_str(row.get('Medición 1', ''), '')
     med_extra = safe_str(row.get('Mediciones Extra', ''), '')
-    
-    # Juntar todas las mediciones para procesar tabla y promedio
     mediciones = [med1] if med1 else []
     if med_extra and med_extra != 'N/D':
         mediciones.extend([m.strip() for m in med_extra.split(',') if m.strip()])
@@ -132,17 +150,14 @@ def generar_html_reporte_esd(row, index):
     for m in mediciones:
         try:
             valid_nums.append(float(m))
-        except:
-            pass
+        except: pass
             
     promedio = sum(valid_nums) / len(valid_nums) if valid_nums else 0
     promedio_str = f"{promedio:.2E}" if promedio > 0 else "N/A"
     
-    # --- NUEVO: Formateo de Referencia en Notación Científica ---
     ref_raw = safe_str(row.get('Referencia'))
     try:
         ref_num = float(ref_raw)
-        # Convertir a notación científica
         ref_str = f"{ref_num:.2E}"
     except:
         ref_str = ref_raw
@@ -151,7 +166,6 @@ def generar_html_reporte_esd(row, index):
     for i, val in enumerate(mediciones, 1):
         try:
             val_num = float(val)
-            # Notación científica si el número es muy grande o muy pequeño
             val_str = f"{val_num:.2E}" if val_num > 1000 or val_num < 0.01 else str(val)
         except:
             val_str = val
@@ -176,24 +190,19 @@ def generar_html_reporte_esd(row, index):
     fecha_ejecucion = safe_str(row.get('Fecha')).split(' ')[0]
     año_actual = datetime.today().strftime("%y")
     
-    # NOTA: Los corchetes del CSS deben ser dobles {{ }} por ser un F-String en Python
     html = f"""<!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
     <title>Reporte de Validación S20.20</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <style>
-        @media print {{ body {{ -webkit-print-color-adjust: exact; }} }}
-    </style>
+    <style>@media print {{ body {{ -webkit-print-color-adjust: exact; }} }}</style>
 </head>
 <body class="bg-gray-100 p-4 md:p-8 font-sans text-sm print:bg-white print:p-0">
     <div class="max-w-5xl mx-auto mb-6 bg-white p-4 rounded-lg shadow flex justify-end print:hidden">
         <button onclick="window.print()" class="bg-blue-600 text-white px-6 py-2 rounded font-bold shadow-sm">🖨️ Imprimir / Guardar PDF</button>
     </div>
-    
     <div class="max-w-5xl mx-auto bg-white shadow-xl print:shadow-none print:w-full">
-        <!-- Header -->
         <div class="border-b-2 border-gray-800 p-6 flex items-start justify-between">
             <div class="w-1/3">
                 <img src="https://github.com/aldoaoa/Visualizador-BCS-IDS/blob/main/BCS%20LOGO.png?raw=true" alt="BCS Logo" class="h-16 object-contain" />
@@ -203,62 +212,22 @@ def generar_html_reporte_esd(row, index):
                 <p class="text-xs text-gray-600">ANSI/ESD S20.20-2021</p>
             </div>
             <div class="w-1/3 text-right text-sm">
-                <!-- Se construye el secuencial ascendente: BCS-PV-[Fila]-[Año] -->
                 <div class="font-bold text-red-700 text-lg mb-2">Reporte: BCS-PV-{index:03d}-{año_actual}</div>
                 <div class="flex justify-end gap-2 mb-1">
                     <span class="font-bold">Fecha de Ejecución:</span><span>{fecha_ejecucion}</span>
                 </div>
             </div>
         </div>
-
         <div class="p-6 space-y-6">
-            <!-- Datos del Elemento -->
             <div class="grid grid-cols-2 gap-6">
                 <div>
                     <div class="bg-gray-800 text-white font-bold px-2 py-1 uppercase text-xs">Datos del Elemento de Control</div>
                     <table class="w-full text-sm border-collapse border border-gray-300">
                         <tr class="border-b border-gray-300"><td class="w-1/3 font-bold bg-gray-100 p-1 border-r border-gray-300">ID:</td><td class="p-1">{safe_str(row.get('ID Elemento'))}</td></tr>
                         <tr class="border-b border-gray-300"><td class="w-1/3 font-bold bg-gray-100 p-1 border-r border-gray-300">Elemento:</td><td class="p-1">{safe_str(row.get('Elemento S20.20'))}</td></tr>
-                        <tr class="border-b border-gray-300"><td class="w-1/3 font-bold bg-gray-100 p-1 border-r border-gray-300">Fabricante:</td><td class="p-1">{safe_str(row.get('Fabricante Elem'))}</td></tr>
-                        <tr class="border-b border-gray-300"><td class="w-1/3 font-bold bg-gray-100 p-1 border-r border-gray-300">Modelo:</td><td class="p-1">{safe_str(row.get('Modelo Elem'))}</td></tr>
-                        <tr><td class="w-1/3 font-bold bg-gray-100 p-1 border-r border-gray-300">No. Serie:</td><td class="p-1">{safe_str(row.get('SN Elem'))}</td></tr>
-                    </table>
-                </div>
-                <div>
-                    <div class="bg-gray-800 text-white font-bold px-2 py-1 uppercase text-xs">Información General</div>
-                    <table class="w-full text-sm border-collapse border border-gray-300 h-full">
-                        <tr class="border-b border-gray-300"><td class="w-1/3 font-bold bg-gray-100 p-1 border-r border-gray-300">Temperatura:</td><td class="p-1">{safe_str(row.get('Temperatura'))}</td></tr>
-                        <tr class="border-b border-gray-300"><td class="w-1/3 font-bold bg-gray-100 p-1 border-r border-gray-300">Humedad:</td><td class="p-1">{safe_str(row.get('Humedad'))}</td></tr>
-                        <tr class="border-b border-gray-300"><td class="w-1/3 font-bold bg-gray-100 p-1 border-r border-gray-300">Ubicación:</td><td class="p-1">{safe_str(row.get('Ubicación'))}</td></tr>
-                        <tr><td class="w-1/3 font-bold bg-gray-100 p-1 border-r border-gray-300">Magnitud:</td><td class="p-1">{safe_str(row.get('Magnitud Medida'))}</td></tr>
                     </table>
                 </div>
             </div>
-
-            <!-- Trazabilidad Equipo Medición -->
-            <div>
-                <div class="bg-gray-800 text-white font-bold px-2 py-1 uppercase text-xs">Trazabilidad (Equipo de Medición)</div>
-                <div class="grid grid-cols-2 border-l border-t border-gray-300">
-                    <div class="border-r border-b border-gray-300">
-                        <table class="w-full text-sm">
-                            <tr class="border-b border-gray-300"><td class="font-bold bg-gray-100 p-1 w-1/3 border-r border-gray-300">ID:</td><td class="p-1">{safe_str(row.get('ID Equipo'))}</td></tr>
-                            <tr class="border-b border-gray-300"><td class="font-bold bg-gray-100 p-1 border-r border-gray-300">Equipo:</td><td class="p-1">{safe_str(row.get('Tipo Equipo'))}</td></tr>
-                            <tr class="border-b border-gray-300"><td class="font-bold bg-gray-100 p-1 border-r border-gray-300">Reporte Cal.:</td><td class="p-1">{safe_str(row.get('Reporte Cal'))}</td></tr>
-                            <tr><td class="font-bold bg-gray-100 p-1 border-r border-gray-300">Resolución:</td><td class="p-1">{safe_str(row.get('Resolución'))}</td></tr>
-                        </table>
-                    </div>
-                    <div class="border-b border-gray-300">
-                        <table class="w-full text-sm">
-                            <tr class="border-b border-gray-300"><td class="font-bold bg-gray-100 p-1 w-1/3 border-r border-gray-300">Fabricante:</td><td class="p-1">{safe_str(row.get('Fabricante Eq'))}</td></tr>
-                            <tr class="border-b border-gray-300"><td class="font-bold bg-gray-100 p-1 border-r border-gray-300">Modelo:</td><td class="p-1">{safe_str(row.get('Modelo Eq'))}</td></tr>
-                            <tr class="border-b border-gray-300"><td class="font-bold bg-gray-100 p-1 border-r border-gray-300">No. Serie:</td><td class="p-1">{safe_str(row.get('SN Eq'))}</td></tr>
-                            <tr><td class="font-bold bg-gray-100 p-1 border-r border-gray-300">Vigencia Cal.:</td><td class="p-1">{safe_str(row.get('Fecha Prox Cal'))}</td></tr>
-                        </table>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Tabla de Resultados S20.20 -->
             <div>
                 <div class="bg-gray-800 text-white font-bold px-2 py-1 uppercase text-xs">Resultados (ANSI/ESD S20.20)</div>
                 <table class="w-full text-sm border-collapse border border-gray-300 text-center">
@@ -272,21 +241,16 @@ def generar_html_reporte_esd(row, index):
                     </tr>
                     {html_rows}
                     <tr class="border-t-2 border-gray-400 bg-gray-50">
-                        <!-- Ajuste de colspan a 2 por la eliminación de la columna Tolerancia -->
                         <td colspan="2" class="p-2 font-bold text-right border-r border-gray-300">Promedio / Final:</td>
                         <td class="p-2 font-mono font-bold text-center border-r border-gray-300">{promedio_str}</td>
                         <td colspan="3"></td>
                     </tr>
                 </table>
             </div>
-
-            <!-- Evidencia e Información Adicional -->
             <div class="grid grid-cols-2 gap-6 h-64">
                 <div class="border border-gray-300 flex flex-col items-center justify-center bg-gray-50 overflow-hidden relative">
-                    <div class="absolute top-0 left-0 bg-gray-800 text-white font-bold px-2 py-1 uppercase text-xs w-full text-left z-10">Imagen del Producto / Evidencia</div>
-                    <div class="mt-8 flex-1 flex items-center justify-center p-2">
-                        {img_tag}
-                    </div>
+                    <div class="absolute top-0 left-0 bg-gray-800 text-white font-bold px-2 py-1 uppercase text-xs w-full text-left z-10">Evidencia</div>
+                    <div class="mt-8 flex-1 flex items-center justify-center p-2">{img_tag}</div>
                 </div>
                 <div class="border border-gray-300 flex flex-col relative">
                     <div class="bg-gray-800 text-white font-bold px-2 py-1 uppercase text-xs w-full">Comentarios / Observaciones</div>
@@ -294,20 +258,6 @@ def generar_html_reporte_esd(row, index):
                     <div class="absolute bottom-2 right-2 text-lg font-bold text-gray-700">{safe_str(row.get('Resultado'))}</div>
                 </div>
             </div>
-
-            <!-- Firmas -->
-            <div class="mt-12 mb-8 pt-8">
-                <div class="w-1/3 mx-auto text-center border-t border-gray-800 pt-2">
-                    <div class="font-bold uppercase text-sm mb-1">APROBADO Y CERTIFICADO POR:</div>
-                    <div class="text-center font-bold text-gray-700">{safe_str(row.get('Auditor'))}</div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Footer Normativo -->
-        <div class="border-t border-gray-300 p-4 text-xs text-gray-500 flex justify-between bg-gray-50">
-            <div>Ref: E_310_3_001_QRO_SP</div>
-            <div>Formato: E_310_4_113_QRO_SP_Rev. A</div>
         </div>
     </div>
 </body>
@@ -315,7 +265,7 @@ def generar_html_reporte_esd(row, index):
     return html
 
 # ==========================================
-# SEGURIDAD Y ACCESO (POR URL)
+# SEGURIDAD Y ACCESO
 # ==========================================
 if "usuario_nombre" not in st.session_state:
     st.session_state.usuario_nombre = None
@@ -382,21 +332,6 @@ else:
             st.query_params.clear() 
             st.rerun()
 
-    conn = st.connection("gsheets", type=GSheetsConnection)
-
-    @st.cache_data(ttl=2, max_entries=1) 
-    def cargar_datos_cloud():
-        df_piso, df_mob, df_ion, df_em = None, None, None, None
-        try: df_piso = conn.read(worksheet="PISO", header=4)
-        except: pass
-        try: df_mob = conn.read(worksheet="MOBILIARIO", header=4)
-        except: pass
-        try: df_ion = conn.read(worksheet="IONIZADORES", header=4)
-        except: pass
-        try: df_em = conn.read(worksheet="EVENT_METER")
-        except: pass
-        return df_piso, df_mob, df_ion, df_em
-
     def calcular_proxima_fecha(fecha_actual, frecuencia):
         frecuencia = str(frecuencia).strip().lower()
         if 'anual' in frecuencia: return fecha_actual + relativedelta(years=1)
@@ -409,17 +344,9 @@ else:
     
     df_piso_local, df_mob_local, df_ion_local, df_em_local = cargar_datos_cloud()
     
-    # Fallback de seguridad por si la pestaña está vacía al inicio
-    if df_em_local is None:
-        df_em_local = pd.DataFrame(columns=['Línea', 'Id de Operación'])
-
     if df_mob_local is None:
-        st.error("Falla al conectar con el servidor.")
+        st.error("Falla al conectar con el servidor SQL.")
         st.stop()
-        
-    if df_ion_local is None:
-        st.warning("⚠️ No se encontró la DB 'IONIZADORES'.")
-        df_ion_local = pd.DataFrame(columns=df_mob_local.columns.tolist() + ['Balance'])
 
     if "vista_actual" not in st.session_state:
         st.session_state.vista_actual = "Escáner" 
@@ -434,7 +361,6 @@ else:
         st.session_state.vista_actual = "Alta"
 
     if not st.session_state.modo_lectura:
-        # --- INICIO ACTUALIZACIÓN MENÚ ---
         c_nav1, c_nav2, c_nav3, c_nav4, c_nav5, c_nav6 = st.columns(6)
         with c_nav1:
             if st.button("🗺️ Mapa y Reportes", use_container_width=True, type="primary" if st.session_state.vista_actual == "Mapa" else "secondary"):
@@ -442,7 +368,7 @@ else:
                 limpiar_url_escaneo() 
                 st.rerun()
         with c_nav2:
-            if st.button("📱 Escáner / Auditoría", use_container_width=True, type="primary" if st.session_state.vista_actual == "Escáner" else "secondary"):
+            if st.button("📱 Escáner", use_container_width=True, type="primary" if st.session_state.vista_actual == "Escáner" else "secondary"):
                 st.session_state.vista_actual = "Escáner"
                 limpiar_url_escaneo()
                 st.rerun()
@@ -462,11 +388,10 @@ else:
                 limpiar_url_escaneo()
                 st.rerun()
         with c_nav6:
-            if st.button("✅ Validación ESD", use_container_width=True, type="primary" if st.session_state.vista_actual == "Validación" else "secondary"):
+            if st.button("✅ Validación", use_container_width=True, type="primary" if st.session_state.vista_actual == "Validación" else "secondary"):
                 st.session_state.vista_actual = "Validación"
                 limpiar_url_escaneo()
                 st.rerun()
-        # --- FIN ACTUALIZACIÓN MENÚ ---
     else:
         st.session_state.vista_actual = "Escáner"
 
@@ -490,7 +415,6 @@ else:
                     df_clean = df_dir.copy()
                     
                 df_clean = df_clean[['Línea', 'Id de producto', 'Clasificación']].dropna(subset=['Id de producto'])
-                df_clean = df_clean[df_clean['Id de producto'].astype(str).str.strip() != '']
                 st.dataframe(df_clean, use_container_width=True, hide_index=True)
             else:
                 st.warning("No hay datos disponibles aún en esta categoría.")
@@ -506,20 +430,17 @@ else:
         accion_seleccionada = st.radio(
             "Selecciona la acción a realizar:",
             ["🆕 Registrar Nuevo", "🗑️ Dar de Baja"],
-            horizontal=True,
-            label_visibility="collapsed",
-            key="radio_alta_baja"
+            horizontal=True, label_visibility="collapsed", key="radio_alta_baja"
         )
         
         # --- SUB-VISTA 1: ALTA ---
         if accion_seleccionada == "🆕 Registrar Nuevo":
-            
             tipo_alta = st.radio("Categoría del Equipo a Registrar:", ["Mobiliario", "Ionizador"], horizontal=True)
             df_target_alta = df_mob_local if tipo_alta == "Mobiliario" else df_ion_local
             
             todas_lineas = set()
             for df_temp in [df_piso_local, df_mob_local, df_ion_local]:
-                if df_temp is not None and 'Línea' in df_temp.columns:
+                if not df_temp.empty and 'Línea' in df_temp.columns:
                     todas_lineas.update([str(x).strip() for x in df_temp['Línea'].dropna() if str(x).strip() != ''])
             lineas_disponibles = sorted(list(todas_lineas))
 
@@ -533,490 +454,199 @@ else:
                     nuevo_tipo = col1.selectbox("Tipo / Clasificación", options=tipos_disponibles if tipos_disponibles else ["Mesa", "Silla"])
                     
                     with col2:
-                        st.caption("Valor de medición inicial (Opcional - Ohms)")
+                        st.caption("Valor inicial (Ohms)")
                         c_b, c_x, c_e = st.columns([2, 1, 2])
                         base_alta = c_b.number_input("Número", value=0.0, format="%.2f")
-                        c_x.markdown("<div style='text-align: center; margin-top: 30px; font-weight: bold; font-size: 18px;'>x 10^</div>", unsafe_allow_html=True)
                         exp_alta = c_e.number_input("Exponente", value=0, step=1, format="%d")
                         valor_alta = base_alta * (10 ** exp_alta) if base_alta != 0 else 0.0
                     
                     fabricante_opc = col1.selectbox("Fabricante", options=["BCS", "Otro", "N/A"])
-                    fabricante_final = fabricante_opc
-                    if fabricante_opc == "Otro":
-                        fabricante_final = col1.text_input("Especifique Fabricante")
-                        
-                    frecuencia_alta = col2.selectbox("Frecuencia de verificación", options=["Anual", "Semestral", "Trimestral", "Mensual"], index=0)
+                    fabricante_final = col1.text_input("Especifique Fabricante") if fabricante_opc == "Otro" else fabricante_opc
+                    
+                    frecuencia_alta = col2.selectbox("Frecuencia", options=["Anual", "Semestral", "Trimestral", "Mensual"], index=0)
                     col3, col4 = st.columns(2)
                     nuevo_minimo = col3.number_input("Mínimo", value=0.00, format="%.2e")
-                    limite_alta = col4.text_input("Límite S20.20 (Maximo)", value="1.00E+09")
+                    limite_alta = col4.text_input("Límite Maximo", value="1.00E+09")
+                    balance_alta = 0.0
                     
                 else:
-                    nuevo_tipo = col1.selectbox("Tipo / Clasificación", options=["Ventilador", "Barra", "Pistola"])
-                    valor_alta = col2.number_input("Tiempo de descarga inicial (Seg)", value=0.0, format="%.2f")
+                    nuevo_tipo = col1.selectbox("Clasificación", options=["Ventilador", "Barra", "Pistola"])
+                    valor_alta = col2.number_input("Descarga (Seg)", value=0.0, format="%.2f")
                     
                     fabricante_opc = col1.selectbox("Fabricante", options=["SMC", "Panasonic", "Keyence", "SIMCO", "Otro"])
-                    fabricante_final = fabricante_opc
-                    if fabricante_opc == "Otro":
-                        fabricante_final = col1.text_input("Especifique Fabricante")
-                        
-                    balance_alta = col2.number_input("Balance Inicial (V)", value=0.0, format="%.2f")
+                    fabricante_final = col1.text_input("Especifique Fabricante") if fabricante_opc == "Otro" else fabricante_opc
+                    
+                    balance_alta = col2.number_input("Balance (V)", value=0.0, format="%.2f")
                     frecuencia_alta = "Trimestral"
                     nuevo_minimo = 0.00
                     limite_alta = "10.00"
 
-                comentarios = st.text_area("Comentarios (Notas opcionales)")
+                comentarios = st.text_area("Comentarios")
                 submit_alta = st.form_submit_button("Registrar en sistema", use_container_width=True)
                 
             if submit_alta:
-                    if not nuevo_id or (fabricante_opc == "Otro" and not fabricante_final):
-                        st.error("Por favor complete los campos obligatorios (ID y Fabricante).")
+                if not nuevo_id or not fabricante_final:
+                    st.error("Por favor complete los campos obligatorios (ID y Fabricante).")
+                else:
+                    id_limpio_alta = str(nuevo_id).strip().upper()
+                    check_exist = supabase.table("inventario_esd").select("id_producto").eq("id_producto", id_limpio_alta).execute()
+                    
+                    if len(check_exist.data) > 0:
+                        st.error(f"El ID {nuevo_id} ya existe en SQL.")
                     else:
-                        id_limpio_alta = str(nuevo_id).strip().upper()
-                        
-                        # Verificamos si existe en SQL directamente
-                        check_exist = supabase.table("inventario_esd").select("id_producto").eq("id_producto", id_limpio_alta).execute()
-                        
-                        if len(check_exist.data) > 0:
-                            st.error(f"El ID {nuevo_id} ya existe en la base de datos.")
-                        else:
-                            with st.spinner("Creando nuevo registro en SQL..."):
-                                fecha_hoy = datetime.today().date()
-                                dias_map = {"Anual": 360, "Semestral": 180, "Trimestral": 90, "Mensual": 30}
-                                proxima = fecha_hoy + timedelta(days=dias_map.get(frecuencia_alta, 360))
-                                
-                                unidad_medida = "Segundos" if tipo_alta == "Ionizador" else "Ohms"
-                                metodo = "CPM" if tipo_alta == "Ionizador" else "RTG"
-                                
-                                # Construimos el diccionario de inserción
-                                data_insert = {
-                                    "id_producto": id_limpio_alta,
-                                    "categoria": tipo_alta,
-                                    "linea_ubicacion": nueva_linea,
-                                    "clasificacion": nuevo_tipo,
-                                    "fabricante": fabricante_final,
-                                    "limite_minimo": float(nuevo_minimo),
-                                    "limite_maximo": float(limite_alta) if "E" not in str(limite_alta).upper() else float(limite_alta), 
-                                    "unidad_medida": unidad_medida,
-                                    "valor_actual": float(valor_alta) if valor_alta > 0 else None,
-                                    "metodo_prueba": metodo,
-                                    "fecha_ultima_verif": fecha_hoy.isoformat() if valor_alta > 0 else None,
-                                    "fecha_proxima_verif": proxima.isoformat() if valor_alta > 0 else None,
-                                    "frecuencia": frecuencia_alta,
-                                    "estatus_verificacion": "VIGENTE" if valor_alta > 0 and fecha_hoy < proxima else "PENDIENTE",
-                                    "estatus_operativo": "OPERATIVO",
-                                    "comentarios": comentarios,
-                                    "auditor_responsable": st.session_state.usuario_nombre
-                                }
-                                
-                                # Campo exclusivo de ionizadores
-                                if tipo_alta == "Ionizador":
-                                    data_insert["balance_ionizador"] = float(balance_alta)
-                                
-                                # Ejecutamos la inserción en Supabase
-                                try:
-                                    supabase.table("inventario_esd").insert(data_insert).execute()
-                                    st.success(f"✅ ¡Activo {nuevo_id} registrado exitosamente!")
-                                    st.cache_data.clear()
-                                    st.balloons()
-                                except Exception as e:
-                                    st.error(f"Error al guardar en base de datos: {e}")
+                        with st.spinner("Guardando en SQL..."):
+                            fecha_hoy = datetime.today().date()
+                            dias_map = {"Anual": 360, "Semestral": 180, "Trimestral": 90, "Mensual": 30}
+                            proxima = fecha_hoy + timedelta(days=dias_map.get(frecuencia_alta, 360))
                             
-        # --- SUB-VISTA 2: BAJA (SOFT DELETE) ---
-        elif accion_seleccionada == "🗑️ Dar de Baja":
-            st.markdown("#### 🗑️ Dar de Baja (Desactivar Equipo)")
-            st.info("Esta acción cambiará el estatus del equipo a **NO OPERATIVO**, conservando su historial pero eliminándolo de los reportes y mapas activos.")
-            
-            if not id_baja_url:
-                st.write("Escanea el QR o ingresa manualmente el ID del equipo a dar de baja.")
-                html_code_baja = """
-                <script src="https://unpkg.com/html5-qrcode"></script>
-                <div id="reader_baja" style="width:100%; max-width:500px; margin:auto; border-radius:10px; overflow:hidden; border: 2px solid #ddd; background-color: #f9f9f9;"></div>
-                
-                <div style="text-align:center; margin-top:10px; display:flex; justify-content:center; gap:5px; flex-wrap:wrap;">
-                    <button type="button" id="cam_wide_baja" style="padding:10px; background:#28a745; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">📸 LENTE ESTÁNDAR</button>
-                    <button type="button" id="cam_cycle_baja" style="padding:10px; background:#555; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">🔄 OTRA CÁMARA</button>
-                </div>
-                <div style="text-align:center; margin-top:10px; display:flex; justify-content:center; gap:5px;">
-                    <button type="button" id="zoom_1x_baja" style="padding:10px 20px; background:#0052cc; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">🔍 1X (NORMAL)</button>
-                    <button type="button" id="zoom_3x_baja" style="padding:10px 20px; background:#666; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">🔍 3X (CURVO)</button>
-                </div>
-                <p id="cam-status-baja" style="text-align:center; color:#666; font-size: 14px; margin-top: 10px;">Buscando cámaras...</p>
-                
-                <script>
-                let html5QrCodeBaja;
-                let rearCamsBaja = [];
-                let currentIdxBaja = 0;
-                let wideIdBaja = null;
-
-                function applyZoomBaja(scale) {
-                    const vid = document.querySelector("#reader_baja video");
-                    if (vid) {
-                        vid.style.transform = `scale(${scale})`;
-                        vid.style.transformOrigin = "center center";
-                    }
-                    document.getElementById('zoom_1x_baja').style.background = (scale === 1) ? "#0052cc" : "#666";
-                    document.getElementById('zoom_3x_baja').style.background = (scale === 3) ? "#0052cc" : "#666";
-                }
-
-                function startScannerBaja(camId) {
-                    if(!html5QrCodeBaja) html5QrCodeBaja = new Html5Qrcode("reader_baja");
-                    if (html5QrCodeBaja.isScanning) {
-                        html5QrCodeBaja.stop().then(() => { runScanBaja(camId); }).catch(e => console.log(e));
-                    } else {
-                        runScanBaja(camId);
-                    }
-                }
-
-                function runScanBaja(camId) {
-                    html5QrCodeBaja.start(
-                        camId, { fps: 15, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 },
-                        (decodedText) => {
-                            html5QrCodeBaja.stop();
-                            const url = new URL(window.parent.location.href);
-                            url.searchParams.set("qr_baja", decodedText);
-                            window.parent.history.replaceState({}, "", url);
-                            window.parent.location.reload();
-                        }, (err) => {} 
-                    ).then(() => { 
-                        let activeCam = rearCamsBaja.find(c => c.id === camId);
-                        document.getElementById("cam-status-baja").innerText = "Lente activo: " + (activeCam ? activeCam.label : "Cámara");
-                        applyZoomBaja(1);
-                    }).catch(err => {
-                        document.getElementById("cam-status-baja").innerText = "Error iniciando lente. Intenta 'Otra Cámara'.";
-                    });
-                }
-
-                Html5Qrcode.getCameras().then(devices => {
-                    if (devices && devices.length) {
-                        rearCamsBaja = devices.filter(c => c.label.toLowerCase().includes('back') || c.label.toLowerCase().includes('trasera') || c.label.toLowerCase().includes('environment'));
-                        if(rearCamsBaja.length === 0) rearCamsBaja = devices;
-
-                        // Buscar la cámara WIDE original (evitar la ULTRAWIDE)
-                        wideIdBaja = rearCamsBaja[0].id;
-                        for (let c of rearCamsBaja) {
-                            let lbl = c.label.toLowerCase();
-                            if (lbl.includes('wide') && !lbl.includes('ultra')) {
-                                wideIdBaja = c.id; break;
+                            data_insert = {
+                                "id_producto": id_limpio_alta,
+                                "categoria": tipo_alta,
+                                "linea_ubicacion": nueva_linea,
+                                "clasificacion": nuevo_tipo,
+                                "fabricante": fabricante_final,
+                                "limite_minimo": float(nuevo_minimo),
+                                "limite_maximo": float(limite_alta) if "E" not in str(limite_alta).upper() else float(limite_alta), 
+                                "unidad_medida": "Segundos" if tipo_alta == "Ionizador" else "Ohms",
+                                "valor_actual": float(valor_alta) if valor_alta > 0 else None,
+                                "metodo_prueba": "CPM" if tipo_alta == "Ionizador" else "RTG",
+                                "fecha_ultima_verif": fecha_hoy.isoformat() if valor_alta > 0 else None,
+                                "fecha_proxima_verif": proxima.isoformat() if valor_alta > 0 else None,
+                                "frecuencia": frecuencia_alta,
+                                "estatus_verificacion": "VIGENTE" if valor_alta > 0 and fecha_hoy < proxima else "PENDIENTE",
+                                "estatus_operativo": "OPERATIVO",
+                                "comentarios": comentarios,
+                                "auditor_responsable": st.session_state.usuario_nombre
                             }
-                        }
-
-                        currentIdxBaja = rearCamsBaja.findIndex(c => c.id === wideIdBaja);
-                        if(currentIdxBaja === -1) currentIdxBaja = 0;
-
-                        startScannerBaja(wideIdBaja);
-
-                        document.getElementById('cam_wide_baja').addEventListener('click', () => {
-                            currentIdxBaja = rearCamsBaja.findIndex(c => c.id === wideIdBaja);
-                            startScannerBaja(wideIdBaja);
-                        });
-
-                        document.getElementById('cam_cycle_baja').addEventListener('click', () => {
-                            currentIdxBaja = (currentIdxBaja + 1) % rearCamsBaja.length;
-                            startScannerBaja(rearCamsBaja[currentIdxBaja].id);
-                        });
-
-                        document.getElementById('zoom_1x_baja').addEventListener('click', () => applyZoomBaja(1));
-                        document.getElementById('zoom_3x_baja').addEventListener('click', () => applyZoomBaja(3));
-                    }
-                }).catch(err => { document.getElementById("cam-status-baja").innerText = "Permisos de cámara denegados."; });
-                </script>
-                """
-                components.html(html_code_baja, height=750) 
-                
-                id_manual_baja = st.text_input("Ingresa el ID manual a eliminar:", key="input_manual_baja")
+                            if tipo_alta == "Ionizador":
+                                data_insert["balance_ionizador"] = float(balance_alta)
+                            
+                            try:
+                                supabase.table("inventario_esd").insert(data_insert).execute()
+                                st.success(f"✅ ¡Activo {nuevo_id} registrado!")
+                                st.cache_data.clear()
+                                st.balloons()
+                            except Exception as e:
+                                st.error(f"Error SQL: {e}")
+                                
+        # --- SUB-VISTA 2: BAJA ---
+        elif accion_seleccionada == "🗑️ Dar de Baja":
+            st.markdown("#### 🗑️ Dar de Baja")
+            if not id_baja_url:
+                st.write("Escanea o ingresa manualmente el ID.")
+                id_manual_baja = st.text_input("Ingresa el ID manual:", key="input_manual_baja")
                 if id_manual_baja:
                     st.query_params["qr_baja"] = id_manual_baja
                     st.rerun()
             else:
                 colA, colB = st.columns([0.8, 0.2])
-                with colA:
-                    st.error(f"🗑️ **ID a Procesar:** {id_baja_url}")
+                with colA: st.error(f"🗑️ **ID a Procesar:** {id_baja_url}")
                 with colB:
                     if st.button("❌ Cancelar"):
                         limpiar_url_escaneo()
                         st.rerun()
 
                 id_limpio_baja = str(id_baja_url).strip().upper()
-                mob_ids = df_mob_local.get('Id de producto', pd.Series()).astype(str).str.strip().str.upper()
-                ion_ids = df_ion_local.get('Id de producto', pd.Series()).astype(str).str.strip().str.upper()
-
-                es_mob_baja = id_limpio_baja in mob_ids.values
-                es_ion_baja = id_limpio_baja in ion_ids.values
-
-                if es_mob_baja or es_ion_baja:
-                    hoja_activa_baja = "MOBILIARIO" if es_mob_baja else "IONIZADORES"
-                    df_actual_baja = df_mob_local if es_mob_baja else df_ion_local
-                    serie_busqueda_baja = mob_ids if es_mob_baja else ion_ids
-                    
-                    idx_baja = serie_busqueda_baja[serie_busqueda_baja == id_limpio_baja].index[0]
-                    equipo_baja = df_actual_baja.loc[idx_baja]
-                    
-                    estatus_actual_op = str(equipo_baja.get('Estatus operativo', '')).strip().upper()
-                    if estatus_actual_op == "NO OPERATIVO":
-                        st.warning("⚠️ Este equipo ya se encuentra dado de BAJA (No Operativo).")
-                    
-                    st.markdown("### Verificación del Equipo")
-                    col1_b, col2_b, col3_b = st.columns(3)
-                    col1_b.metric("Ubicación", str(equipo_baja.get('Línea', 'N/A')))
-                    col2_b.metric("Tipo (Clasificación)", str(equipo_baja.get('Clasificación', 'N/A')))
-                    col3_b.metric("Base de Datos", hoja_activa_baja)
-
-                    with st.form("form_confirmacion_baja"):
-                        if st.form_submit_button("🗑️ Confirmar Baja (Soft Delete)"):
-                            with st.spinner("Actualizando estatus en la base de datos..."):
-                                try:
-                                    # Actualización de una sola línea en Supabase
-                                    supabase.table("inventario_esd").update({
-                                        "estatus_operativo": "NO OPERATIVO",
-                                        "estatus_verificacion": "BAJA"
-                                    }).eq("id_producto", id_limpio_baja).execute()
-                                    
-                                    st.success(f"✅ ¡Equipo {id_baja_url} desactivado correctamente!")
-                                    st.cache_data.clear()
-                                    limpiar_url_escaneo()
-                                    st.rerun()
-                                except Exception as e:
-                                    st.error(f"Error al dar de baja: {e}")
+                
+                with st.form("form_confirmacion_baja"):
+                    if st.form_submit_button("🗑️ Confirmar Baja (Soft Delete)"):
+                        with st.spinner("Actualizando SQL..."):
+                            try:
+                                supabase.table("inventario_esd").update({
+                                    "estatus_operativo": "NO OPERATIVO",
+                                    "estatus_verificacion": "BAJA"
+                                }).eq("id_producto", id_limpio_baja).execute()
                                 
-                                ws_baja.update_cell(r_idx_baja, est_op_idx + 1, "NO OPERATIVO")
-                                ws_baja.update_cell(r_idx_baja, est_verif_idx + 1, "BAJA")
-                                
-                            st.success(f"✅ ¡Equipo {id_baja_url} desactivado correctamente en {hoja_activa_baja}!")
-                            st.cache_data.clear()
-                            limpiar_url_escaneo()
-                            st.rerun()
-                else:
-                    st.error(f"❌ El ID '{id_baja_url}' no se encontró en Mobiliario ni en Ionizadores.")
+                                st.success(f"✅ ¡Equipo desactivado!")
+                                st.cache_data.clear()
+                                limpiar_url_escaneo()
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Error: {e}")
 
     # ==========================================
     # VISTA 1: MAPA Y REPORTES ESD
     # ==========================================
     elif st.session_state.vista_actual == "Mapa" and not st.session_state.modo_lectura:
         st.markdown("### Mapa y Cumplimiento ESD")
-
-        tab_mapa, tab_overview = st.tabs(["📍 Mapa Físico (Mobiliario/Ionizadores)", "📊 Overview de Validaciones (S20.20)"])
+        tab_mapa, tab_overview = st.tabs(["📍 Mapa Físico", "📊 Overview (S20.20)"])
 
         with tab_mapa:
-            tipo_mapa = st.radio("Selecciona la categoría a visualizar en el mapa:", ["Mobiliario", "Ionizadores"], horizontal=True)
-            st.info("☁️ Los datos mostrados están sincronizados en tiempo real con el servidor.")
-        
+            tipo_mapa = st.radio("Ver en mapa:", ["Mobiliario", "Ionizadores"], horizontal=True)
             df_total = df_mob_local.copy() if tipo_mapa == "Mobiliario" else df_ion_local.copy()
-        
+            
             if df_total.empty:
-                st.warning(f"No hay datos registrados en la base de datos de {tipo_mapa}.")
-            elif 'Estatus de verificación' not in df_total.columns:
-                st.warning(f"⚠️ La pestaña de {tipo_mapa} no tiene los encabezados correctos.")
+                st.warning(f"No hay datos registrados en {tipo_mapa}.")
             else:
-                df_total['Estatus de verificación'] = df_total['Estatus de verificación'].astype(str).str.strip().str.upper()
-                if 'Estatus operativo' in df_total.columns:
-                    df_total['Estatus operativo'] = df_total['Estatus operativo'].astype(str).str.strip().str.upper()
-                else:
-                    df_total['Estatus operativo'] = 'OPERATIVO'
-
-                equipos_activos = df_total[df_total['Estatus operativo'] != 'NO OPERATIVO']
+                equipos_activos = df_total[df_total['Estatus operativo'].astype(str).str.upper() != 'NO OPERATIVO']
                 total_equipos = len(equipos_activos)
-
-                vencidos = equipos_activos[equipos_activos['Estatus de verificación'] == 'VENCIDO']
+                vencidos = equipos_activos[equipos_activos['Estatus de verificación'].astype(str).str.upper() == 'VENCIDO']
                 total_vencidos = len(vencidos)
             
                 if total_equipos > 0:
-                    porcentaje_cumplimiento = ((total_equipos - total_vencidos) / total_equipos) * 100
+                    porcentaje = ((total_equipos - total_vencidos) / total_equipos) * 100
                 else:
-                    porcentaje_cumplimiento = 100.0
+                    porcentaje = 100.0
 
                 if not vencidos.empty:
-                    st.error(f"🚨 **Cumplimiento {tipo_mapa}:** {porcentaje_cumplimiento:.1f}% | **Equipos Vencidos:** {total_vencidos} de {total_equipos} activos.")
+                    st.error(f"🚨 **Cumplimiento:** {porcentaje:.1f}% | **Vencidos:** {total_vencidos} de {total_equipos} activos.")
                     conteo_tipos = vencidos.groupby(['Línea']).size().reset_index(name='Total Vencidos')
                     conteo_tipos['Etiqueta'] = ("M: " if tipo_mapa == "Mobiliario" else "I: ") + conteo_tipos['Total Vencidos'].astype(str)
                 
                     if os.path.exists(RUTA_MAPA) and os.path.exists(RUTA_COORDENADAS):
                         img = Image.open(RUTA_MAPA)
-                        width, height = img.size
                         df_coords = pd.read_csv(RUTA_COORDENADAS)
                         mapa_data = pd.merge(conteo_tipos, df_coords, on='Línea', how='inner')
                         if not mapa_data.empty:
-                            fig = px.scatter(
-                                mapa_data, x="X", y="Y", color="Total Vencidos", text="Etiqueta", hover_name="Línea",
-                                hover_data={"X": False, "Y": False, "Etiqueta": False, "Total Vencidos": True},
-                                color_continuous_scale="Reds"
-                            )
-                        
-                            # --- ICONOS GRANDES ---
-                            fig.update_traces(
-                                textposition='middle center', 
-                                textfont=dict(color='white', size=14, weight='bold'), 
-                                marker=dict(symbol='circle', size=45, opacity=0.9, line=dict(width=2, color='black'))
-                            )
-                        
-                            # --- CÁLCULO DE PROPORCIÓN PARA EVITAR APLASTAMIENTO ---
-                            aspect_ratio = height / width
-                            plot_height = max(500, int(1200 * aspect_ratio))
-                        
-                            fig.update_layout(
-                                height=plot_height,
-                                images=[dict(source=img, xref="x", yref="y", x=0, y=0, sizex=width, sizey=height, sizing="stretch", opacity=1, layer="below")], 
-                                xaxis=dict(visible=False, range=[0, width]), 
-                                yaxis=dict(visible=False, range=[height, 0], scaleanchor="x"), 
-                                margin=dict(l=0, r=0, t=0, b=0),
-                                coloraxis_showscale=False
-                            )
+                            fig = px.scatter(mapa_data, x="X", y="Y", color="Total Vencidos", text="Etiqueta")
+                            fig.update_traces(textposition='middle center', marker=dict(size=45))
+                            fig.update_layout(images=[dict(source=img, xref="x", yref="y", x=0, y=0, sizex=img.size[0], sizey=img.size[1], sizing="stretch", opacity=1, layer="below")], xaxis=dict(visible=False), yaxis=dict(visible=False, autorange="reversed"))
                             st.plotly_chart(fig, use_container_width=True)
                     st.dataframe(vencidos[['Línea', 'Id de producto', 'Clasificación', 'Estatus de verificación']], use_container_width=True, hide_index=True)
                 else:
-                    st.success(f"✅ **¡Felicidades! 100% de Cumplimiento en {tipo_mapa}.** No hay equipos operativos VENCIDOS (0 de {total_equipos} activos).")
+                    st.success(f"✅ **100% Cumplimiento en {tipo_mapa}.**")
 
         with tab_overview:
             st.markdown("#### Estado Global de Elementos ESD")
-            st.info("Visión general de los elementos validados. Filtra por su estatus de vigencia.")
-            
-# --- NUEVA FORMA DE LEER EL HISTORIAL ---
             try:
-                resp_val = supabase.table("validacion_esd").select("*").execute()
-                df_val = pd.DataFrame(resp_val.data)
-                                    
-                    # Convertir las fechas para ordenar y agrupar
-                    df_val['Fecha Prox Validación'] = pd.to_datetime(df_val['Fecha Prox Validación'], format="%d-%b-%Y", errors='coerce')
-                    df_val['Fecha'] = pd.to_datetime(df_val['Fecha'], format="%d-%b-%Y %H:%M", errors='coerce')
-                    
-                    # Mantener solo la última validación registrada de cada ID
-                    df_latest = df_val.sort_values('Fecha').groupby('ID Elemento').tail(1).copy()
-                    
+                resp_inv2 = supabase.table("inventario_esd").select("id_producto, clasificacion, linea_ubicacion, estatus_verificacion, fecha_proxima_verif").execute()
+                df_ov = pd.DataFrame(resp_inv2.data)
+                
+                if not df_ov.empty:
+                    df_ov['Fecha Prox Validación'] = pd.to_datetime(df_ov['fecha_proxima_verif'], errors='coerce')
                     hoy = pd.Timestamp(datetime.today().date())
                     
                     def estado_validacion(fecha_prox):
-                        if pd.isna(fecha_prox):
-                            return "Sin Validación"
-                        dias_restantes = (fecha_prox - hoy).days
-                        if dias_restantes < 0:
-                            return "Vencido"
-                        elif dias_restantes <= 30:
-                            return "Por Vencer"
-                        else:
-                            return "Vigente"
+                        if pd.isna(fecha_prox): return "Sin Validación"
+                        dias = (fecha_prox - hoy).days
+                        if dias < 0: return "Vencido"
+                        elif dias <= 30: return "Por Vencer"
+                        else: return "Vigente"
                             
-                    df_latest['Estatus'] = df_latest['Fecha Prox Validación'].apply(estado_validacion)
-                    
-                    # Calcular métricas
-                    total_vig = len(df_latest[df_latest['Estatus'] == 'Vigente'])
-                    total_prx = len(df_latest[df_latest['Estatus'] == 'Por Vencer'])
-                    total_ven = len(df_latest[df_latest['Estatus'] == 'Vencido'])
+                    df_ov['Estatus'] = df_ov['Fecha Prox Validación'].apply(estado_validacion)
+                    total_vig = len(df_ov[df_ov['Estatus'] == 'Vigente'])
+                    total_prx = len(df_ov[df_ov['Estatus'] == 'Por Vencer'])
+                    total_ven = len(df_ov[df_ov['Estatus'] == 'Vencido'])
                     
                     col_m1, col_m2, col_m3 = st.columns(3)
                     col_m1.metric("🟢 Vigentes", total_vig)
                     col_m2.metric("🟡 Por Vencer (30 días)", total_prx)
                     col_m3.metric("🔴 Vencidos", total_ven)
                     
-                    # Formatear la fecha de vuelta a string para visualización limpia
-                    df_latest['Fecha Prox Validación'] = df_latest['Fecha Prox Validación'].dt.strftime('%d-%b-%Y').fillna("N/D")
-                    
-                    st.dataframe(df_latest[['Elemento S20.20', 'ID Elemento', 'Ubicación', 'Estatus', 'Fecha Prox Validación']], use_container_width=True, hide_index=True)
+                    df_ov['Fecha Prox Validación'] = df_ov['Fecha Prox Validación'].dt.strftime('%d-%b-%Y').fillna("N/D")
+                    df_ov = df_ov.rename(columns={'id_producto': 'ID Elemento', 'clasificacion': 'Elemento S20.20', 'linea_ubicacion': 'Ubicación'})
+                    st.dataframe(df_ov[['Elemento S20.20', 'ID Elemento', 'Ubicación', 'Estatus', 'Fecha Prox Validación']], use_container_width=True, hide_index=True)
                 else:
-                    st.warning("Aún no hay suficientes registros históricos en 'VALIDACION_ESD' para mostrar el Overview.")
+                    st.warning("Inventario vacío.")
             except Exception as e:
-                st.error("Error al cargar la base de datos de validaciones.")
-    
+                st.error(f"Error al cargar overview: {e}")
+
     # ==========================================
     # VISTA 2: ESCÁNER Y DETALLES
     # ==========================================
     elif st.session_state.vista_actual == "Escáner":
-        
         if not id_escaneado_url:
             st.markdown("### 📷 Apunta al Código QR")
-            html_code_qr = """
-            <script src="https://unpkg.com/html5-qrcode"></script>
-            <div id="reader_main" style="width:100%; max-width:500px; margin:auto; border-radius:10px; overflow:hidden; border: 2px solid #0052cc; background-color: #f9f9f9;"></div>
-            
-            <div style="text-align:center; margin-top:10px; display:flex; justify-content:center; gap:5px; flex-wrap:wrap;">
-                <button type="button" id="cam_wide_main" style="padding:10px; background:#28a745; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">📸 LENTE ESTÁNDAR</button>
-                <button type="button" id="cam_cycle_main" style="padding:10px; background:#555; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">🔄 OTRA CÁMARA</button>
-            </div>
-            <div style="text-align:center; margin-top:10px; display:flex; justify-content:center; gap:5px;">
-                <button type="button" id="zoom_1x_main" style="padding:10px 20px; background:#0052cc; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">🔍 1X (NORMAL)</button>
-                <button type="button" id="zoom_3x_main" style="padding:10px 20px; background:#666; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">🔍 3X (CURVO)</button>
-            </div>
-            <p id="cam-status-main" style="text-align:center; color:#666; font-size: 14px; margin-top: 10px;">Buscando cámaras...</p>
-            
-            <script>
-            let html5QrCodeMain;
-            let rearCamsMain = [];
-            let currentIdxMain = 0;
-            let wideIdMain = null;
-
-            function applyZoomMain(scale) {
-                const vid = document.querySelector("#reader_main video");
-                if (vid) {
-                    vid.style.transform = `scale(${scale})`;
-                    vid.style.transformOrigin = "center center";
-                }
-                document.getElementById('zoom_1x_main').style.background = (scale === 1) ? "#0052cc" : "#666";
-                document.getElementById('zoom_3x_main').style.background = (scale === 3) ? "#0052cc" : "#666";
-            }
-
-            function startScannerMain(camId) {
-                if(!html5QrCodeMain) html5QrCodeMain = new Html5Qrcode("reader_main");
-                if (html5QrCodeMain.isScanning) {
-                    html5QrCodeMain.stop().then(() => { runScanMain(camId); }).catch(e => console.log(e));
-                } else {
-                    runScanMain(camId);
-                }
-            }
-
-            function runScanMain(camId) {
-                html5QrCodeMain.start(
-                    camId, { fps: 15, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 },
-                    (decodedText) => {
-                        html5QrCodeMain.stop();
-                        const url = new URL(window.parent.location.href);
-                        url.searchParams.set("qr_id", decodedText);
-                        window.parent.history.replaceState({}, "", url);
-                        window.parent.location.reload();
-                    }, (err) => {} 
-                ).then(() => { 
-                    let activeCam = rearCamsMain.find(c => c.id === camId);
-                    document.getElementById("cam-status-main").innerText = "Lente activo: " + (activeCam ? activeCam.label : "Cámara");
-                    applyZoomMain(1);
-                }).catch(err => {
-                    document.getElementById("cam-status-main").innerText = "Error iniciando lente. Intenta 'Otra Cámara'.";
-                });
-            }
-
-            Html5Qrcode.getCameras().then(devices => {
-                if (devices && devices.length) {
-                    rearCamsMain = devices.filter(c => c.label.toLowerCase().includes('back') || c.label.toLowerCase().includes('trasera') || c.label.toLowerCase().includes('environment'));
-                    if(rearCamsMain.length === 0) rearCamsMain = devices;
-
-                    // Buscar la cámara WIDE original
-                    wideIdMain = rearCamsMain[0].id;
-                    for (let c of rearCamsMain) {
-                        let lbl = c.label.toLowerCase();
-                        if (lbl.includes('wide') && !lbl.includes('ultra')) {
-                            wideIdMain = c.id; break;
-                        }
-                    }
-
-                    currentIdxMain = rearCamsMain.findIndex(c => c.id === wideIdMain);
-                    if(currentIdxMain === -1) currentIdxMain = 0;
-
-                    startScannerMain(wideIdMain);
-
-                    document.getElementById('cam_wide_main').addEventListener('click', () => {
-                        currentIdxMain = rearCamsMain.findIndex(c => c.id === wideIdMain);
-                        startScannerMain(wideIdMain);
-                    });
-
-                    document.getElementById('cam_cycle_main').addEventListener('click', () => {
-                        currentIdxMain = (currentIdxMain + 1) % rearCamsMain.length;
-                        startScannerMain(rearCamsMain[currentIdxMain].id);
-                    });
-
-                    document.getElementById('zoom_1x_main').addEventListener('click', () => applyZoomMain(1));
-                    document.getElementById('zoom_3x_main').addEventListener('click', () => applyZoomMain(3));
-                }
-            }).catch(err => { document.getElementById("cam-status-main").innerText = "Permisos de cámara denegados."; });
-            </script>
-            """
-            components.html(html_code_qr, height=750) 
-            
             id_manual = st.text_input("O ingresa el ID manual:", key="input_manual")
             if id_manual:
                 st.query_params["qr_id"] = id_manual
@@ -1024,15 +654,13 @@ else:
 
         if id_escaneado_url:
             colA, colB = st.columns([0.8, 0.2])
-            with colA:
-                st.info(f"🔍 **ID Detectado:** {id_escaneado_url}")
+            with colA: st.info(f"🔍 **ID:** {id_escaneado_url}")
             with colB:
-                if st.button("❌ Cerrar Escaneo"):
+                if st.button("❌ Cerrar"):
                     limpiar_url_escaneo()
                     st.rerun()
 
             id_limpio = str(id_escaneado_url).strip().upper()
-            
             mob_ids_limpios = df_mob_local.get('Id de producto', pd.Series()).astype(str).str.strip().str.upper()
             ion_ids_limpios = df_ion_local.get('Id de producto', pd.Series()).astype(str).str.strip().str.upper()
 
@@ -1040,539 +668,121 @@ else:
             es_ion = id_limpio in ion_ids_limpios.values
 
             if es_mob or es_ion:
-                hoja_activa = "MOBILIARIO" if es_mob else "IONIZADORES"
                 df_actual = df_mob_local if es_mob else df_ion_local
                 serie_busqueda = mob_ids_limpios if es_mob else ion_ids_limpios
-                
                 idx = serie_busqueda[serie_busqueda == id_limpio].index[0]
                 equipo = df_actual.loc[idx]
                 
-                estatus_actual_op = str(equipo.get('Estatus operativo', '')).strip().upper()
+                estatus_op = str(equipo.get('Estatus operativo', '')).strip().upper()
+                texto_check = "✅ REACTIVAR" if estatus_op == "NO OPERATIVO" else "✅ Registrar medición"
                 
-                # --- REACTIVACIÓN LÓGICA DE INTERFAZ ---
-                if estatus_actual_op == "NO OPERATIVO":
-                    st.warning("⚠️ EQUIPO DADO DE BAJA. Al ingresar una nueva medición, el equipo se REACTIVARÁ automáticamente.")
-                    texto_checkbox = "✅ REACTIVAR equipo y registrar nueva medición"
-                else:
-                    texto_checkbox = "✅ Realizar nueva medición y actualizar"
-                
-                st.markdown(f"### 📊 Detalles del Equipo ({hoja_activa})")
-                
+                st.markdown(f"### 📊 Detalles del Equipo")
                 c_linea, c_tipo, c_estatus = st.columns(3)
-                c_linea.metric("Ubicación (Línea)", str(equipo.get('Línea', 'N/A')))
-                c_tipo.metric("Tipo (Clasificación)", str(equipo.get('Clasificación', 'N/A')))
+                c_linea.metric("Ubicación", str(equipo.get('Línea', 'N/A')))
+                c_tipo.metric("Clasificación", str(equipo.get('Clasificación', 'N/A')))
+                c_estatus.metric("Estatus", str(equipo.get('Estatus de verificación', 'N/A')))
                 
-                estatus_actual = str(equipo.get('Estatus de verificación', 'N/A')).strip().upper()
-                color_estatus = "🟢" if estatus_actual == "VIGENTE" else "🔴"
-                c_estatus.metric("Estatus Actual", f"{color_estatus} {estatus_actual}")
-                
-                c_fecha_ult, c_fecha_prox, c_val = st.columns(3)
-                
-                fecha_ult_str = str(equipo.get('Fecha de verificación', 'N/A')).strip()
-                fecha_prox_str = str(equipo.get('Fecha de próxima verificación', 'N/A')).strip()
-                
-                c_fecha_ult.metric("Última Medición", fecha_ult_str)
-                c_fecha_prox.metric("Próxima Medición", fecha_prox_str)
-                
+                c_val, c_bal = st.columns(2)
                 val_previo = equipo.get('Valor de verificación', 0)
-                
                 if es_ion:
-                    if pd.notna(val_previo) and val_previo != 0 and str(val_previo).strip() != '':
-                        try: c_val.metric("Tiempo de Descarga", f"{float(val_previo):.2f} s")
-                        except ValueError: c_val.metric("Tiempo de Descarga", str(val_previo))
-                    else:
-                        c_val.metric("Tiempo de Descarga", "N/A")
-                        
-                    c_bal, _, _ = st.columns(3)
-                    bal_previo = equipo.get('Balance', 0)
-                    if pd.notna(bal_previo) and str(bal_previo).strip() != '':
-                        try: c_bal.metric("Balance Registrado", f"{float(bal_previo):.2f} V")
-                        except ValueError: c_bal.metric("Balance Registrado", str(bal_previo))
-                    else:
-                        c_bal.metric("Balance Registrado", "N/A")
+                    c_val.metric("Descarga", f"{float(val_previo):.2f} s" if pd.notna(val_previo) else "N/A")
+                    c_bal.metric("Balance", str(equipo.get('Balance', 'N/A')))
                 else:
-                    if pd.notna(val_previo) and val_previo != 0 and str(val_previo).strip() != '':
-                        try: c_val.metric("Resistencia Registrada", f"{float(val_previo):.2E} Ω")
-                        except ValueError: c_val.metric("Resistencia Registrada", str(val_previo))
-                    else:
-                        c_val.metric("Resistencia Registrada", "N/A")
-                
-                limite_raw = equipo.get('Maximo', 'N/A')
-                if pd.notna(limite_raw) and str(limite_raw).strip() != 'N/A' and str(limite_raw).strip() != '':
-                    try:
-                        limite_str = f"{float(limite_raw):.2f} V/s" if es_ion else f"{float(limite_raw):.2E} Ω"
-                    except ValueError:
-                        limite_str = str(limite_raw)
-                else:
-                    limite_str = "N/A"
-                    
-                st.markdown(f"**Límite S20.20-2021 Permitido:** {limite_str}")
+                    c_val.metric("Resistencia", f"{float(val_previo):.2E} Ω" if pd.notna(val_previo) else "N/A")
+
                 st.divider()
 
-                if st.session_state.modo_lectura:
-                    st.warning("👁️ **Estás en Modo Consulta.** No tienes permisos para actualizar los registros.")
-                else:
-                    hacer_medicion = st.checkbox(texto_checkbox, value=bool(valor_ocr_detectado))
-                    
+                if not st.session_state.modo_lectura:
+                    hacer_medicion = st.checkbox(texto_check)
                     if hacer_medicion:
                         with st.form("form_actualizacion"):
-                            # --- SELECCIÓN DE LÍNEA ---
-                            todas_lineas_escaner = set()
-                            for df_temp in [df_piso_local, df_mob_local, df_ion_local]:
-                                if df_temp is not None and 'Línea' in df_temp.columns:
-                                    todas_lineas_escaner.update([str(x).strip() for x in df_temp['Línea'].dropna() if str(x).strip() != ''])
-                            lineas_disponibles_escaner = sorted(list(todas_lineas_escaner))
-                            
-                            linea_actual = str(equipo.get('Línea', '')).strip()
-                            idx_linea_def = lineas_disponibles_escaner.index(linea_actual) if linea_actual in lineas_disponibles_escaner else 0
-                            
-                            nueva_linea_upd = st.selectbox("Línea / Ubicación (Modificar si el equipo fue reubicado)", options=lineas_disponibles_escaner, index=idx_linea_def)
+                            lineas_opc = sorted([str(x).strip() for x in df_mob_local['Línea'].dropna().unique()])
+                            idx_l = lineas_opc.index(equipo.get('Línea')) if equipo.get('Línea') in lineas_opc else 0
+                            nueva_linea_upd = st.selectbox("Línea", lineas_opc, index=idx_l)
                             
                             if es_ion:
-                                st.markdown("#### Captura de Mediciones Ionizador")
-                                c_form1, c_form2 = st.columns(2)
-    
-                                v_act = c_form1.number_input("Tiempo de Descarga (Segundos)", value=None, format="%.2f", placeholder="0.00")
-                                v_act = v_act if v_act is not None else 0.0
-    
-                                bal_def = equipo.get('Balance', 0.0)
-                                try: bal_def = float(bal_def)
-                                except: bal_def = 0.0
-    
-                                # Usamos el bal_def como placeholder para que el usuario sepa cuál era el anterior
-                                nuevo_balance = c_form2.number_input("Balance (V)", value=None, format="%.2f", placeholder=str(bal_def))
-                                # Si lo dejan en blanco, conservamos el balance anterior
-                                nuevo_balance = nuevo_balance if nuevo_balance is not None else bal_def
+                                v_act = st.number_input("Descarga (s)", value=0.0, format="%.2f")
+                                bal_act = st.number_input("Balance (V)", value=0.0, format="%.2f")
+                                nuevo_valor_final = v_act
                             else:
-                                # --- INICIO DE NUEVO CÓDIGO: SELECTOR DE EQUIPO ---
-                                st.markdown("#### 🛠️ Dispositivo de Medición")
-                                equipo_utilizado = st.selectbox(
-                                    "ID del equipo utilizado (Resistencia):",
-                                    options=["BCS-QRO-LAB-RES001", "BCS-QRO-LAB-RES002", "Otro"]
-                                )
-                                if equipo_utilizado == "Otro":
-                                    equipo_utilizado = st.text_input("Especificar otro ID de equipo:")
-                                # --- FIN DE NUEVO CÓDIGO ---
-                                st.caption("Resistencia (Ohms)")
-                                def_val = float(valor_ocr_detectado) if valor_ocr_detectado else 0.0
-    
-                                def_base = 0.0
-                                def_exp = 0
-                                if def_val != 0:
-                                    def_exp = int(math.floor(math.log10(abs(def_val))))
-                                    def_base = def_val / (10 ** def_exp)
-    
-                                c_b, c_x, c_e = st.columns([2, 1, 2])
-                                base_upd = c_b.number_input("Número", value=None, format="%.2f", placeholder=f"{def_base:.2f}")
-                                c_x.markdown("<div style='text-align: center; margin-top: 30px; font-weight: bold; font-size: 18px;'>x 10^</div>", unsafe_allow_html=True)
-                                exp_upd = c_e.number_input("Exponente", value=None, step=1, format="%d", placeholder=str(def_exp))
-    
-                                # Si se dejan en blanco, mantenemos el valor extraído del OCR o del historial
-                                base_upd = base_upd if base_upd is not None else def_base
-                                exp_upd = exp_upd if exp_upd is not None else def_exp
-                                nuevo_valor_final = base_upd * (10 ** exp_upd) if base_upd != 0 else 0.0
+                                c_b, c_e = st.columns(2)
+                                base_upd = c_b.number_input("Base", value=0.0)
+                                exp_upd = c_e.number_input("Exp", value=0)
+                                nuevo_valor_final = base_upd * (10 ** exp_upd)
                                 
                             fecha_hoy = datetime.today().date()
-                            nueva_fecha_valida = st.date_input("Fecha de medición", fecha_hoy)
+                            nueva_fecha = st.date_input("Fecha", fecha_hoy)
                             
-                            texto_boton_submit = "Reactivar y Guardar" if estatus_actual_op == "NO OPERATIVO" else "Guardar en servidor"
-                            if st.form_submit_button(texto_boton_submit):
-                                with st.spinner("Guardando en base de datos y archivo histórico..."):
+                            if st.form_submit_button("Guardar en SQL"):
+                                freq = str(equipo.get('Frecuencia de verificación', 'Anual'))
+                                proxy = calcular_proxima_fecha(nueva_fecha, freq)
+                                
+                                try:
+                                    update_data = {
+                                        "linea_ubicacion": nueva_linea_upd,
+                                        "valor_actual": float(nuevo_valor_final),
+                                        "fecha_ultima_verif": nueva_fecha.isoformat(),
+                                        "fecha_proxima_verif": proxy.isoformat(),
+                                        "estatus_verificacion": "VIGENTE",
+                                        "estatus_operativo": "OPERATIVO",
+                                        "auditor_responsable": st.session_state.usuario_nombre,
+                                    }
                                     if es_ion:
-                                        nuevo_valor_final = v_act
-
-                                    freq = str(equipo.get('Frecuencia de verificación', 'Anual'))
-                                    proxy = calcular_proxima_fecha(nueva_fecha_valida, freq)
+                                        update_data["balance_ionizador"] = float(bal_act)
                                     
-                                    import gspread
-                                    sec = dict(st.secrets["connections"]["gsheets"])
-                                    gc_gspread = gspread.service_account_from_dict(sec)
-                                    
-                                    if pd.notna(val_previo) and str(val_previo).strip() != '':
-                                        try:
-                                            ws_hist = gc_gspread.open_by_url(sec["spreadsheet"]).worksheet("HISTORIAL")
-                                            fila_historial = [
-                                                id_limpio,                                 
-                                                hoja_activa,                               
-                                                equipo.get('Línea', ''),                   
-                                                str(val_previo),                           
-                                                str(equipo.get('Balance', '')),             
-                                                str(equipo.get('Fecha de verificación', '')),
-                                                str(equipo.get('Auditor', '')),             
-                                                datetime.now().strftime("%d-%b-%Y %H:%M")   
-                                            ]
-                                            ws_hist.append_row(fila_historial, value_input_option="USER_ENTERED")
-                                        except Exception as e:
-                                            pass
-
-                                    ws = gc_gspread.open_by_url(sec["spreadsheet"]).worksheet(hoja_activa)
-                                    
-                                    try:
-                                        id_idx = df_actual.columns.get_loc('Id de producto')
-                                        linea_idx = df_actual.columns.get_loc('Línea')
-                                        val_idx = df_actual.columns.get_loc('Valor de verificación')
-                                        f_idx = df_actual.columns.get_loc('Fecha de verificación')
-                                        fp_idx = df_actual.columns.get_loc('Fecha de próxima verificación')
-                                        st_idx = df_actual.columns.get_loc('Estatus de verificación')
-                                        aud_idx = df_actual.columns.get_loc('Auditor') 
-                                        # --- INICIO DE NUEVO CÓDIGO: ÍNDICE DE EQUIPO ---
-                                        try:
-                                            eq_idx = df_actual.columns.get_loc('Equipo de medición')
-                                        except KeyError:
-                                            eq_idx = None  # Si la columna no existe, no detiene el programa
-                                        # --- FIN DE NUEVO CÓDIGO ---
-                                    except KeyError as e:
-                                        st.error(f"Falta columna {e}")
-                                        st.stop()
-                                    
-                                    ids_gsheets = ws.col_values(id_idx + 1)
-                                    ids_gsheets_limpios = [str(v).strip().upper() for v in ids_gsheets]
-                                    
-                                    try:
-                                        r_idx = ids_gsheets_limpios.index(id_limpio) + 1
-                                    except ValueError:
-                                        st.error("No se pudo encontrar el campo en servidor para actualizar.")
-                                        st.stop()
-                                    
-                                    ws.update_cell(r_idx, linea_idx + 1, nueva_linea_upd)
-                                    ws.update_cell(r_idx, val_idx + 1, float(nuevo_valor_final))
-                                    ws.update_cell(r_idx, f_idx + 1, nueva_fecha_valida.strftime("%d-%b-%Y"))
-                                    ws.update_cell(r_idx, fp_idx + 1, proxy.strftime("%d-%b-%Y"))
-                                    ws.update_cell(r_idx, st_idx + 1, 'VIGENTE')
-                                    if not es_ion and eq_idx is not None:
-                                        ws.update_cell(r_idx, eq_idx + 1, equipo_utilizado)
-                                    # --- EJECUCIÓN LÓGICA REACTIVACIÓN ---
-                                    if estatus_actual_op == "NO OPERATIVO":
-                                        try:
-                                            est_op_idx = df_actual.columns.get_loc('Estatus operativo')
-                                            ws.update_cell(r_idx, est_op_idx + 1, "OPERATIVO")
-                                        except Exception:
-                                            pass
-                                    
-                                    try:
-                                        ws.update_cell(r_idx, aud_idx + 1, st.session_state.usuario_nombre)
-                                    except:
-                                        ws.update_cell(r_idx, 18, st.session_state.usuario_nombre)
-                                        
-                                    if es_ion:
-                                        try:
-                                            bal_idx = df_actual.columns.get_loc('Balance')
-                                            ws.update_cell(r_idx, bal_idx + 1, float(nuevo_balance))
-                                        except KeyError:
-                                            ws.update_cell(r_idx, 19, float(nuevo_balance))
-
-                                st.success("💾 ¡Guardado correctamente con trazabilidad histórica!")
-                                st.cache_data.clear()
-                                limpiar_url_escaneo()
-                                st.rerun()
+                                    supabase.table("inventario_esd").update(update_data).eq("id_producto", id_limpio).execute()
+                                    st.success("💾 ¡Guardado correctamente!")
+                                    st.cache_data.clear()
+                                    limpiar_url_escaneo()
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Error actualizando el equipo: {e}")
             else:
-                st.error(f"❌ El ID '{id_escaneado_url}' no se encontró en la base de datos.")
+                st.error("❌ El ID no se encontró en la base de datos.")
 
     # ==========================================
     # VISTA 3: EVENT METER
     # ==========================================
     elif st.session_state.vista_actual == "Event Meter" and not st.session_state.modo_lectura:
-        st.markdown("### ⚡ Estudio de Event Meter (PCBA)")
-        st.info("Mide descargas electrostáticas y transitorios durante la operación normal de la maquinaria/proceso.")
-
-        # --- SECCIÓN: GENERADOR DE REPORTE ANSI/ESD S20.20 ---
-        with st.expander("📄 Generar Reporte Oficial ANSI/ESD S20.20", expanded=False):
-            st.write("Genera el formato pre-llenado listo para imprimir en PDF con los registros actuales de tu base de datos.")
-            
-            lineas_reporte = ["Todas"]
-            if df_em_local is not None and 'Línea' in df_em_local.columns:
-                lineas_reporte += sorted([str(x).strip() for x in df_em_local['Línea'].dropna().unique() if str(x).strip() != ''])
-            
-            linea_reporte = st.selectbox("Seleccionar Línea para el Reporte", options=lineas_reporte)
-            
-            if st.button("Generar Reporte HTML", use_container_width=True):
-                html_rows = ""
-                if df_em_local is not None and not df_em_local.empty:
-                    df_rep = df_em_local.copy()
-                    if linea_reporte != "Todas":
-                        df_rep = df_rep[df_rep['Línea'].astype(str).str.strip() == linea_reporte]
-                    
-                    # Convertimos a numérico y ordenamos descendente por cantidad de eventos
-                    col_eventos = 'Detección (Cantidad)' if 'Detección (Cantidad)' in df_rep.columns else 'Detección'
-                    df_rep[col_eventos] = pd.to_numeric(df_rep[col_eventos], errors='coerce').fillna(0)
-                    df_rep = df_rep.sort_values(by=col_eventos, ascending=False)
-                    
-                    for i, row in enumerate(df_rep.to_dict('records'), 1):
-                        op = str(row.get('Id de Operación', 'N/A'))
-                        eventos = int(row.get(col_eventos, 0))
-                        
-                        # Buscamos la columna de voltaje (soporta variaciones de nombre)
-                        vmax = row.get('Voltaje máximo de descarga', row.get('Voltaje máximo', 0.0))
-                        
-                        estatus = str(row.get('Estatus de verificación', '')).upper()
-                        notas = str(row.get('Notas', ''))
-                        if notas == "nan": notas = ""
-                        
-                        color_estatus = "text-green-600" if "APROBADO" in estatus else "text-red-600"
-                        pass_fail = "PASA" if "APROBADO" in estatus else "FALLA"
-                        
-                        html_rows += f"""
-                        <tr>
-                            <td class="border border-gray-800 p-1 text-center font-bold text-gray-600">{i}</td>
-                            <td class="border border-gray-800 p-1">{op}</td>
-                            <td class="border border-gray-800 p-1 text-center font-bold">5</td>
-                            <td class="border border-gray-800 p-1 text-center">{eventos}</td>
-                            <td class="border border-gray-800 p-1 text-center">{vmax}V</td>
-                            <td class="border border-gray-800 p-1 text-center font-bold {color_estatus}">{pass_fail}</td>
-                            <td class="border border-gray-800 p-1">{notas}</td>
-                        </tr>
-                        """
-                
-                if html_rows == "":
-                    st.warning("No hay registros guardados para esta línea.")
-                else:
-                    fecha_hoy_str = datetime.today().strftime("%Y-%m-%d")
-                    auditor_name = st.session_state.usuario_nombre if st.session_state.usuario_nombre else ""
-                    
-                    html_template = """<!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Reporte Event Meter - {{LINEA}}</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <style>
-        @media print {
-            body { background-color: white; padding: 0; }
-            .no-print { display: none !important; }
-            .print-border { border: 1px solid #000; }
-            .shadow-lg { box-shadow: none; }
-            input, textarea { border: none !important; resize: none; background: transparent; }
-            input::placeholder, textarea::placeholder { color: transparent; }
-        }
-        input, textarea {
-            width: 100%; background-color: #f9fafb; border: 1px solid #e5e7eb;
-            border-radius: 0.25rem; padding: 0.25rem 0.5rem; font-size: 0.875rem;
-        }
-    </style>
-</head>
-<body class="bg-gray-100 p-4 md:p-8 text-gray-800 font-sans">
-    <div class="max-w-5xl mx-auto bg-white p-8 shadow-lg print:shadow-none print:p-0">
-        <div class="flex justify-end space-x-4 mb-6 no-print">
-            <button onclick="window.print()" class="bg-gray-800 text-white px-4 py-2 rounded shadow hover:bg-gray-900 transition flex items-center">
-                <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path></svg>
-                Imprimir / Guardar PDF
-            </button>
-        </div>
-        <div class="border-2 border-gray-800 mb-6 flex flex-col md:flex-row text-sm print-border">
-            <div class="p-4 border-b-2 md:border-b-0 md:border-r-2 border-gray-800 flex items-center justify-center w-full md:w-1/4">
-                <img src="https://github.com/aldoaoa/Visualizador-BCS-IDS/blob/main/BCS%20LOGO.png?raw=true" alt="Logo BCS" class="max-h-20 object-contain">
-            </div>
-            <div class="p-4 flex-1 border-b-2 md:border-b-0 md:border-r-2 border-gray-800 text-center flex flex-col justify-center">
-                <h1 class="text-lg font-bold uppercase">Registro de Estudio de Eventos ESD (Event Meter)</h1>
-                <p class="text-gray-600 font-semibold">Norma de Referencia: ANSI/ESD S20.20</p>
-            </div>
-            <div class="p-2 w-full md:w-1/4 flex flex-col justify-center text-xs space-y-1">
-                <div class="flex justify-between"><span class="font-bold">Código:</span> <span>F-ESD-001</span></div>
-                <div class="flex justify-between"><span class="font-bold">Límite Permitido:</span> <span class="font-bold text-red-600">< 100V</span></div>
-            </div>
-        </div>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6 text-sm">
-            <div class="space-y-2">
-                <div class="flex items-center"><label class="w-32 font-bold">Fecha:</label> <input type="date" value="{{FECHA}}"></div>
-                <div class="flex items-center"><label class="w-32 font-bold">Línea/Área:</label> <input type="text" value="{{LINEA}}"></div>
-                <div class="flex items-center"><label class="w-32 font-bold">Auditor:</label> <input type="text" value="{{AUDITOR}}"></div>
-            </div>
-            <div class="space-y-2">
-                <div class="flex items-center"><label class="w-40 font-bold">Equipo Utilizado:</label> <input type="text" value="SCS EM EYE" readonly></div>
-                <div class="flex items-center"><label class="w-40 font-bold">No. de Serie:</label> <input type="text" value="2451005" readonly></div>
-            </div>
-        </div>
-        <div class="overflow-x-auto mb-8">
-            <table class="w-full text-sm border-collapse border border-gray-800 print-border">
-                <thead>
-                    <tr class="bg-gray-200">
-                        <th class="border border-gray-800 p-2 text-center w-10">No.</th>
-                        <th class="border border-gray-800 p-2 text-left">Operación / Estación</th>
-                        <th class="border border-gray-800 p-2 text-center w-24">Tiempo (m)</th>
-                        <th class="border border-gray-800 p-2 text-center w-24">Eventos</th>
-                        <th class="border border-gray-800 p-2 text-center w-24">Voltaje Máx.</th>
-                        <th class="border border-gray-800 p-2 text-center w-24">Resultado</th>
-                        <th class="border border-gray-800 p-2 text-left">Observaciones</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {{ROWS}}
-                </tbody>
-            </table>
-        </div>
-        <div class="grid grid-cols-2 gap-8 mt-12 text-sm text-center">
-            <div><div class="border-b border-gray-800 w-3/4 mx-auto mb-2 h-8"></div><p class="font-bold">Realizado por</p></div>
-            <div><div class="border-b border-gray-800 w-3/4 mx-auto mb-2 h-8"></div><p class="font-bold">Revisado / Aprobado por</p></div>
-        </div>
-    </div>
-</body>
-</html>"""
-                    html_template = html_template.replace("{{FECHA}}", fecha_hoy_str)
-                    html_template = html_template.replace("{{LINEA}}", linea_reporte)
-                    html_template = html_template.replace("{{AUDITOR}}", auditor_name)
-                    html_template = html_template.replace("{{ROWS}}", html_rows)
-
-                    b64_html = base64.b64encode(html_template.encode('utf-8')).decode('utf-8')
-                    nombre_archivo = f"Reporte_EventMeter_{linea_reporte.replace(' ', '_')}.html"
-                    
-                    st.success("✅ Formato generado correctamente.")
-                    href = f'<a href="data:text/html;base64,{b64_html}" download="{nombre_archivo}" target="_blank" style="display: block; text-align: center; padding: 10px 20px; background-color: #2563eb; color: white; text-decoration: none; border-radius: 5px; font-weight: bold; margin-top: 10px;">📥 Descargar Reporte (Abre el archivo para Imprimir/Guardar PDF)</a>'
-                    st.markdown(href, unsafe_allow_html=True)
-
-        # --- SECCIÓN DEL TEMPORIZADOR ---
-        modo_tiempo = st.radio("Temporizador de Estudio (5 minutos)", ["⏱️ Usar Cronómetro Integrado", "⏭️ Omitir (Ya cronometrado)"], horizontal=True)
-
-        if modo_tiempo == "⏱️ Usar Cronómetro Integrado":
-            # Temporizador en HTML/JS para no bloquear Streamlit
-            html_timer = """
-            <div style="text-align:center; padding: 15px; border: 2px dashed #0052cc; border-radius: 10px; background-color: #f0f7ff;">
-                <div id="timer_display" style="font-size: 50px; font-weight: bold; font-family: monospace; color: #0052cc; margin-bottom: 10px;">05:00</div>
-                <button onclick="startTimer()" style="padding: 10px 20px; font-size: 16px; font-weight:bold; cursor: pointer; background-color: #28a745; color: white; border: none; border-radius: 5px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">▶ Iniciar</button>
-                <button onclick="stopTimer()" style="padding: 10px 20px; font-size: 16px; font-weight:bold; cursor: pointer; background-color: #dc3545; color: white; border: none; border-radius: 5px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-left: 10px;">⏹ Detener / Reset</button>
-            </div>
-            <script>
-                let timeLeft = 300; // 5 minutos en segundos
-                let timerId = null;
-
-                function updateDisplay() {
-                    let m = Math.floor(timeLeft / 60).toString().padStart(2, '0');
-                    let s = (timeLeft % 60).toString().padStart(2, '0');
-                    let display = document.getElementById('timer_display');
-                    display.innerText = m + ":" + s;
-                    
-                    if (timeLeft <= 0) {
-                        display.style.color = "#dc3545";
-                        display.innerText = "¡TIEMPO TERMINADO!";
-                        clearInterval(timerId);
-                        timerId = null;
-                    } else if (timeLeft <= 60) {
-                        display.style.color = "#ffc107"; // Advertencia en el último minuto
-                    } else {
-                        display.style.color = "#0052cc";
-                    }
-                }
-
-                function startTimer() {
-                    if (!timerId && timeLeft > 0) {
-                        timerId = setInterval(() => {
-                            timeLeft--;
-                            updateDisplay();
-                        }, 1000);
-                    }
-                }
-
-                function stopTimer() {
-                    clearInterval(timerId);
-                    timerId = null;
-                    timeLeft = 300; // Resetear
-                    updateDisplay();
-                }
-            </script>
-            """
-            components.html(html_timer, height=200)
-
-        st.divider()
-
-        # --- FORMULARIO DE CAPTURA ---
-        st.divider()
-        st.markdown("#### 📍 Ubicación y Operación")
-        c_loc1, c_loc2 = st.columns(2)
-
-        # --- LÓGICA DINÁMICA DE SELECCIÓN (AFUERA DEL FORM) ---
-        lineas_existentes = []
-        if df_em_local is not None and 'Línea' in df_em_local.columns:
-            lineas_existentes = sorted([str(x).strip() for x in df_em_local['Línea'].dropna().unique() if str(x).strip() != ''])
+        st.markdown("### ⚡ Estudio de Event Meter")
         
-        if not lineas_existentes:
-            lineas_existentes = ["Sin registros"]
-
+        c_loc1, c_loc2 = st.columns(2)
+        lineas_existentes = sorted([str(x).strip() for x in df_em_local['Línea'].dropna().unique() if str(x).strip() != '']) if not df_em_local.empty else ["N/A"]
         linea_seleccionada = c_loc1.selectbox("Línea", options=lineas_existentes)
         
-        # Checkbox para capturar opciones nuevas
-        nueva_op_check = c_loc2.checkbox("➕ Registrar nueva Operación o Línea")
-
+        nueva_op_check = c_loc2.checkbox("➕ Nueva Línea/Operación")
         if nueva_op_check:
-            linea_final = c_loc1.text_input("Ingresa Nueva Línea", value=linea_seleccionada if linea_seleccionada != "Sin registros" else "")
-            id_operacion_final = c_loc2.text_input("Ingresa Nuevo ID de Operación (Ej: OP50-AUDIO)")
+            linea_final = c_loc1.text_input("Nueva Línea")
+            id_operacion_final = c_loc2.text_input("Nuevo ID Operación")
         else:
             linea_final = linea_seleccionada
-            ops_existentes = []
-            if df_em_local is not None and 'Id de Operación' in df_em_local.columns and 'Línea' in df_em_local.columns:
-                # Filtramos las operaciones correspondientes a la línea seleccionada
-                ops_filtradas = df_em_local[df_em_local['Línea'].astype(str).str.strip() == linea_seleccionada]
-                ops_existentes = sorted([str(x).strip() for x in ops_filtradas['Id de Operación'].dropna().unique() if str(x).strip() != ''])
-            
-            if not ops_existentes:
-                id_operacion_final = c_loc2.selectbox("ID de Operación", options=["(Sin operaciones previas)"])
-            else:
-                id_operacion_final = c_loc2.selectbox("Selecciona ID de Operación", options=ops_existentes)
+            ops = sorted([str(x).strip() for x in df_em_local[df_em_local['Línea']==linea_seleccionada]['Id de Operación'].dropna().unique()]) if not df_em_local.empty else []
+            id_operacion_final = c_loc2.selectbox("Operación", options=ops if ops else ["N/A"])
 
-        # --- FORMULARIO DE CAPTURA (Mediciones) ---
-        with st.form("form_event_meter_captura"):
+        with st.form("form_em"):
             col1, col2 = st.columns(2)
+            tipo_contacto = col1.selectbox("Tipo de contacto", ["Maquinaria", "Humano", "Herramienta Manual", "Otro"])
+            deteccion = col1.number_input("Eventos", value=0)
+            voltaje = col2.number_input("Voltaje Máx (V)", value=0.0)
+            notas = st.text_area("Notas")
             
-            tipo_contacto = col1.selectbox("Tipo de contacto", options=["Maquinaria", "EOLT", "AOI", "Herramienta Manual", "Humano", "Otro"])
-            if tipo_contacto == "Otro":
-                tipo_contacto = col1.text_input("Especifique Tipo de Contacto")
-
-            st.markdown("#### ⚡ Resultados de Detección")
-            col_d1, col_d2 = st.columns(2)
-            
-            deteccion_eventos = col_d1.number_input("Cantidad de Eventos Detectados", min_value=0, step=1, value=None, placeholder="0")
-            deteccion_eventos = deteccion_eventos if deteccion_eventos is not None else 0
-            
-            voltaje_max = col_d2.number_input("Voltaje máximo de descarga (V)", min_value=0.0, max_value=999.0, step=0.1, value=None, placeholder="0.0")
-            voltaje_max = voltaje_max if voltaje_max is not None else 0.0
-
-            notas_em = st.text_area("Notas / Observaciones")
-
-            limite_maximo_v = 100.0  
-            estatus_verificacion = "APROBADO" if voltaje_max <= limite_maximo_v else "RECHAZADO"
-            fecha_hoy = datetime.today().date()
-            frecuencia_em = "Semestral" 
-            proxima_fecha = calcular_proxima_fecha(fecha_hoy, frecuencia_em)
-
-            submit_em = st.form_submit_button("💾 Guardar Registro de Event Meter", use_container_width=True)
-
-            if submit_em:
-                if not id_operacion_final or id_operacion_final == "(Sin operaciones previas)":
-                    st.error("⚠️ Debes proporcionar un ID de Operación válido.")
-                else:
-                    with st.spinner("Guardando en la hoja EVENT_METER..."):
-                        import gspread
-                        sec = dict(st.secrets["connections"]["gsheets"])
-                        gc_em = gspread.service_account_from_dict(sec)
-                        
-                        try:
-                            ws_em = gc_em.open_by_url(sec["spreadsheet"]).worksheet("EVENT_METER")
-                        except gspread.exceptions.WorksheetNotFound:
-                            st.error("❌ No se encontró la pestaña 'EVENT_METER'.")
-                            st.stop()
-                        
-                        fila_em = [
-                            linea_final,                                    # Línea
-                            id_operacion_final.upper(),                     # Id de Operación
-                            tipo_contacto,                                  # Tipo de contacto
-                            int(deteccion_eventos),                         # Detección (Cantidad)
-                            float(voltaje_max) if deteccion_eventos > 0 else 0.0, # Voltaje máximo
-                            st.session_state.usuario_nombre,                # Auditor
-                            limite_maximo_v,                                # Maximo
-                            "Volts",                                        # Unidad de aceptabilidad
-                            "Event Meter",                                  # Método
-                            fecha_hoy.strftime("%d-%b-%Y"),                 # Fecha de verificación
-                            proxima_fecha.strftime("%d-%b-%Y"),             # Fecha de próxima verificación
-                            frecuencia_em,                                  # Frecuencia de verificación
-                            estatus_verificacion,                           # Estatus de verificación
-                            "OPERATIVO",                                    # Estatus operativo
-                            notas_em                                        # Notas
-                        ]
-                        
-                        ws_em.append_row(fila_em, value_input_option="USER_ENTERED")
-                        
-                    st.success(f"✅ ¡Estudio de {id_operacion_final} registrado exitosamente! Estatus: {estatus_verificacion}")
-                    st.cache_data.clear() # Limpiamos la caché para que la nueva operación aparezca en la lista inmediatamente
-                    st.balloons()
+            if st.form_submit_button("Guardar en SQL"):
+                try:
+                    supabase.table("event_meter").insert({
+                        "fecha": datetime.now().isoformat(),
+                        "linea_ubicacion": linea_final,
+                        "id_operacion": id_operacion_final,
+                        "tipo_contacto": tipo_contacto,
+                        "cantidad_eventos": int(deteccion),
+                        "voltaje_maximo": float(voltaje),
+                        "estatus_verificacion": "APROBADO" if float(voltaje) <= 100 else "RECHAZADO",
+                        "auditor": st.session_state.usuario_nombre,
+                        "notas": notas
+                    }).execute()
+                    st.success("Guardado Exitoso!")
+                    st.cache_data.clear()
+                except Exception as e:
+                    st.error(f"Error SQL: {e}")
 
     # ==========================================
     # VISTA 4: WALKING TEST
@@ -1585,22 +795,17 @@ else:
 
         if archivos_pdf:
             st.markdown("#### Resultados Extraídos")
-            
-            # Lista para guardar los datos de todas las ubicaciones y armar el reporte final
             datos_extraidos_wt = [] 
             
             for archivo in archivos_pdf:
                 with st.expander(f"📄 Reporte: {archivo.name}", expanded=True):
                     try:
-                        # 1. Leer el PDF con PyMuPDF
                         doc = fitz.open(stream=archivo.read(), filetype="pdf")
                         pagina = doc[0] 
-
                         imagen_grafica = None
                         texto_ocr = ""
-                        img_b64 = "" # Inicializamos la variable para el reporte HTML
+                        img_b64 = "" 
 
-                        # 2. Extraer la imagen principal del PDF
                         imagenes_pdf = pagina.get_images(full=True)
                         if imagenes_pdf:
                             xref = imagenes_pdf[0][0]
@@ -1608,11 +813,9 @@ else:
                             image_bytes = base_image["image"]
                             imagen_grafica = Image.open(io.BytesIO(image_bytes))
 
-                            # 3. Aplicar OCR a la imagen extraída
                             with st.spinner("Analizando imagen con OCR..."):
                                 texto_ocr = pytesseract.image_to_string(imagen_grafica)
                             
-                            # Convertir imagen a Base64 para incrustar en el reporte HTML final
                             buffered = io.BytesIO()
                             imagen_grafica.save(buffered, format="PNG")
                             img_b64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
@@ -1620,7 +823,6 @@ else:
                             st.warning("No se detectó ninguna imagen/gráfica en este PDF para analizar.")
                             continue
 
-                        # 4. EXTRACCIÓN DE DATOS DESDE EL TEXTO OCR
                         fecha_hora_match = re.search(r"(\d{2}/\d{2}/\d{2})\s+(\d{2}:\d{2})", texto_ocr)
                         fecha = fecha_hora_match.group(1) if fecha_hora_match else "N/D"
                         hora = fecha_hora_match.group(2) if fecha_hora_match else "N/D"
@@ -1637,33 +839,24 @@ else:
                         valleys_match = re.search(r"highest valleys:\s*(.*?)(?:\(|Arithmetic|\n|$)", texto_ocr, re.IGNORECASE)
                         valles = valleys_match.group(1).strip() if valleys_match else "N/D"
 
-                        # --- PROCESAMIENTO MATEMÁTICO (MÁXIMO ABSOLUTO Y PROMEDIO DE PICOS) ---
                         max_abs = 0.0
                         promedio_picos = 0.0
                         try:
-                            # Extraer todos los números flotantes de las cadenas de picos y valles
                             p_vals = [float(x) for x in re.findall(r"[-+]?\d*\.\d+|\d+", picos)]
                             v_vals = [float(x) for x in re.findall(r"[-+]?\d*\.\d+|\d+", valles)]
-                            
                             todos_los_valores = p_vals + v_vals
                             if todos_los_valores:
-                                # Buscamos la magnitud máxima sin importar el signo (Voltaje máximo absoluto)
                                 max_abs = max(abs(x) for x in todos_los_valores)
-                                
                             if p_vals:
-                                # Promedio de los picos
                                 promedio_picos = sum(p_vals) / len(p_vals)
                         except:
                             pass
 
-                        # --- RENDERIZADO EN PANTALLA ---
                         col_datos1, col_datos2 = st.columns(2)
-                        
                         with col_datos1:
                             st.metric("📅 Fecha", fecha)
                             st.metric("🌡️ Temperatura", temperatura)
                             st.metric("⚡ Voltaje Máx (Absoluto)", f"{max_abs:.2f} V")
-                            
                         with col_datos2:
                             st.metric("🕒 Hora", hora)
                             st.metric("💧 Humedad", humedad)
@@ -1673,21 +866,15 @@ else:
                         st.markdown("**Gráfica Extraída:**")
                         st.image(imagen_grafica, use_container_width=True)
 
-                        # Guardamos los datos actualizados para el reporte final consolidado
                         datos_extraidos_wt.append({
-                            "archivo": archivo.name,
-                            "fecha": fecha,
-                            "temp": temperatura,
-                            "hum": humedad,
-                            "max_abs": max_abs,
-                            "promedio_picos": promedio_picos,
+                            "archivo": archivo.name, "fecha": fecha, "temp": temperatura,
+                            "hum": humedad, "max_abs": max_abs, "promedio_picos": promedio_picos,
                             "img_b64": img_b64
                         })
 
                     except Exception as e:
                         st.error(f"Ocurrió un error al procesar el archivo {archivo.name}: {e}")
 
-            # --- SECCIÓN: GENERADOR DE REPORTE CONSOLIDADO ---
             if datos_extraidos_wt:
                 st.divider()
                 st.markdown("### 📄 Generar Reporte Oficial Consolidado")
@@ -1731,22 +918,15 @@ else:
                         html_ubicaciones = ""
                         for idx, block in enumerate(bloques_ubicaciones, 1):
                             data = block['datos']
-                            
-                            # Lógica de aprobación actualizada (Límite S20.20 es < 100V de magnitud máxima)
                             if data['max_abs'] < 100:
-                                res_class = "result-pass"
-                                res_text = "CUMPLE (PASS)"
-                                res_color = "green"
+                                res_class, res_text, res_color = "result-pass", "CUMPLE (PASS)", "green"
                                 obs = "Ninguna anomalía. Los picos se mantuvieron por debajo del límite de 100V."
                             else:
-                                res_class = "result-fail"
-                                res_text = "NO CUMPLE (FAIL)"
-                                res_color = "red"
+                                res_class, res_text, res_color = "result-fail", "NO CUMPLE (FAIL)", "red"
                                 obs = f"ATENCIÓN: Se registró un pico absoluto de {data['max_abs']:.2f}V, superando el límite permitido de 100V. Se requiere limpieza o revisión."
 
                             img_tag = f'<img src="data:image/png;base64,{data["img_b64"]}" alt="Gráfica">' if data['img_b64'] else '<i>Sin gráfica disponible</i>'
 
-                            # Bloque HTML para cada ubicación
                             html_ubicaciones += f"""
                             <div class="location-block" style="border: 2px solid #003366; border-radius: 6px; padding: 20px; margin-bottom: 30px; page-break-inside: avoid;">
                                 <div class="location-title" style="font-size: 18px; font-weight: bold; color: white; background-color: #003366; padding: 10px; margin: -20px -20px 20px -20px; border-top-left-radius: 4px; border-top-right-radius: 4px;">Ubicación {idx}: {block['nombre']}</div>
@@ -1764,11 +944,9 @@ else:
                                         <td style="border: 1px solid #ccc; padding: 10px; text-align: left;">{data['promedio_picos']:.2f} V</td>
                                     </tr>
                                 </table>
-                                
                                 <div class="graph-placeholder" style="width: 100%; height: 250px; background-color: #fafafa; border: 2px dashed #aaa; display: flex; align-items: center; justify-content: center; color: #888; margin: 20px 0; overflow: hidden;">
                                     {img_tag}
                                 </div>
-
                                 <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
                                     <tr>
                                         <th style="border: 1px solid #ccc; padding: 10px; text-align: left; background-color: #f4f7f6; width: 20%;">Observaciones:</th>
@@ -1832,7 +1010,6 @@ else:
 </div>
 </body>
 </html>"""
-
                         b64_html = base64.b64encode(html_completo.encode('utf-8')).decode('utf-8')
                         nombre_archivo = f"Walking_Test_{fecha_gen.replace('/', '-')}_{periodo_wt.replace(' ', '')}.html"
                         
@@ -1840,279 +1017,94 @@ else:
                         href = f'<a href="data:text/html;base64,{b64_html}" download="{nombre_archivo}" target="_blank" style="display: block; text-align: center; padding: 15px; background-color: #003366; color: white; text-decoration: none; border-radius: 8px; font-weight: bold; margin-top: 10px; font-size: 16px;">📥 Descargar Reporte Completo (Abrir para imprimir PDF)</a>'
                         st.markdown(href, unsafe_allow_html=True)
 
-# ==========================================
+    # ==========================================
     # VISTA 5: VALIDACIÓN ESD (SISTEMA INTEGRAL)
     # ==========================================
     elif st.session_state.vista_actual == "Validación" and not st.session_state.modo_lectura:
         st.markdown("### ✅ Validación Integral de Elementos de Control ESD")
-        st.info("Registro de trazabilidad completa. Selecciona el equipo de medición y el elemento para autocompletar la información.")
-
-        # --- Control de llaves para limpiar el formulario tras éxito ---
-        if "val_form_key" not in st.session_state:
-            st.session_state.val_form_key = 0
-
-        # Diccionario actualizado con ref_num, tipo_material y magnitud por defecto
-        INFO_ELEMENTOS_ESD = {
-            "Pulsera antiestática": {"limite": "RS < 3.5x10^7 ohms", "ref_num": 3.5e7, "tipo_material": "Banda elástica / Metal", "magnitud": "Resistencia", "metodo": "ANSI/ESD TR53", "frecuencia": "Semestralmente"},
-            "Calzado": {"limite": "RS < 1.0x10^9 ohms", "ref_num": 1.0e9, "tipo_material": "Suela disipativa / Talón", "magnitud": "Resistencia", "metodo": "ANSI/ESD TR53", "frecuencia": "Semestralmente"},
-            "Piso ESD": {"limite": "RTG < 1.0x10^9 ohms / Walking Test < 100V", "ref_num": 1.0e9, "tipo_material": "Epóxico / Vinílico ESD", "magnitud": "Resistencia", "metodo": "ANSI/ESD TR53 / ANSI/ESD 97.2", "frecuencia": "Semestralmente"},
-            "Superficie de trabajo": {"limite": "RTG < 1.0x10^9 ohms", "ref_num": 1.0e9, "tipo_material": "Tapete disipativo / Mesa", "magnitud": "Resistencia", "metodo": "ANSI/ESD TR53", "frecuencia": "Anualmente"},
-            "Monitor Continuo": {"limite": "RTG < 2 ohms", "ref_num": 2.0, "tipo_material": "Equipo Electrónico", "magnitud": "Resistencia", "metodo": "Anexo A.1", "frecuencia": "Trimestralmente"},
-            "Ionizador": {"limite": "Descarga: <10s, Bal: +-35V", "ref_num": 10.0, "tipo_material": "Ventilador / Barra", "magnitud": "Tiempo", "metodo": "ANSI/ESD SP3.3-2016", "frecuencia": "Trimestralmente"},
-            "Bolsa disipativa": {"limite": "RS < 1.0x10^9 ohms", "ref_num": 1.0e9, "tipo_material": "Plástico disipativo", "magnitud": "Resistencia", "metodo": "ANSI/ESD STM11.11", "frecuencia": "Semestralmente"},
-            "Cautín / Estación de soldar": {"limite": "RTG < 10 ohms", "ref_num": 10.0, "tipo_material": "Metal / Punta", "magnitud": "Resistencia", "metodo": "ANSI/ESD TR53", "frecuencia": "Semestralmente"},
-            "Caja Disipativa": {"limite": "RS < 1.0x10^11 ohms", "ref_num": 1.0e11, "tipo_material": "Plástico / Cartón", "magnitud": "Resistencia", "metodo": "ANSI/ESD STM11.11", "frecuencia": "Anualmente"},
-            "Caja conductiva": {"limite": "RS < 1.0x10^4 ohms", "ref_num": 1.0e4, "tipo_material": "Plástico conductivo", "magnitud": "Resistencia", "metodo": "ANSI/ESD STM11.11", "frecuencia": "Anualmente"},
-            "Charola conductiva": {"limite": "RS < 1.0x10^4 ohms", "ref_num": 1.0e4, "tipo_material": "Plástico conductivo", "magnitud": "Resistencia", "metodo": "ANSI/ESD STM11.13/11.11", "frecuencia": "Anualmente"},
-            "Charola Disipativa": {"limite": "RS < 1.0x10^11 ohms", "ref_num": 1.0e11, "tipo_material": "Plástico disipativo", "magnitud": "Resistencia", "metodo": "ANSI/ESD STM11.13/11.11", "frecuencia": "Anualmente"},
-            "Magazine": {"limite": "RS < 1.0x10^11 ohms", "ref_num": 1.0e11, "tipo_material": "Metal / Plástico", "magnitud": "Resistencia", "metodo": "ANSI/ESD STM11.13/11.11", "frecuencia": "Anualmente"},
-            "Bata": {"limite": "RPP < 1.0x10^11 ohms", "ref_num": 1.0e11, "tipo_material": "Tela ESD", "magnitud": "Resistencia", "metodo": "ANSI/ESD TR53", "frecuencia": "Semestralmente"},
-            "Gorra": {"limite": "RPP < 1.0x10^11 ohms", "ref_num": 1.0e11, "tipo_material": "Tela ESD", "magnitud": "Resistencia", "metodo": "ANSI/ESD TR53", "frecuencia": "Semestralmente"},
-            "Rack": {"limite": "RTG < 1.0x10^9 ohms", "ref_num": 1.0e9, "tipo_material": "Metal", "magnitud": "Resistencia", "metodo": "ANSI/ESD STM4.1", "frecuencia": "Anualmente"},
-            "Carrito": {"limite": "RTG < 1.0x10^9 ohms", "ref_num": 1.0e9, "tipo_material": "Metal", "magnitud": "Resistencia", "metodo": "ANSI/ESD STM4.1", "frecuencia": "Anualmente"},
-            "Silla ESD": {"limite": "RTG < 1.0x10^9 ohms", "ref_num": 1.0e9, "tipo_material": "Tela / Vinil ESD", "magnitud": "Resistencia", "metodo": "ANSI/ESD TR53", "frecuencia": "Semestralmente"},
-            "Guantes Nitrilo": {"limite": "RTG < 1.0x10^9 ohms", "ref_num": 1.0e9, "tipo_material": "Nitrilo", "magnitud": "Resistencia", "metodo": "ANSI/ESD TR53", "frecuencia": "Semestralmente"},
-            "Guantes Tela": {"limite": "RTG < 1.0x10^9 ohms", "ref_num": 1.0e9, "tipo_material": "Tela ESD", "magnitud": "Resistencia", "metodo": "ANSI/ESD TR53", "frecuencia": "Semestralmente"},
-            "Tapete de piso": {"limite": "RTG < 1.0x10^9 ohms", "ref_num": 1.0e9, "tipo_material": "Caucho / Vinil ESD", "magnitud": "Resistencia", "metodo": "ANSI/ESD TR53", "frecuencia": "Semestralmente"},
-            "Aislantes - EPA (General)": {"limite": ">30 cm de ESDS", "ref_num": 2000.0, "tipo_material": "Material Aislante", "magnitud": "Voltaje", "metodo": "Anexo A.2", "frecuencia": "Semestralmente"},
-            "Aislantes - Conductores Aislados": {"limite": "< 35 Volts", "ref_num": 35.0, "tipo_material": "Conductor Aislado", "magnitud": "Voltaje", "metodo": "Anexo A.2", "frecuencia": "Semestralmente"},
-            "Aislantes - Contacto directo": {"limite": "<= 125 Volts/in", "ref_num": 125.0, "tipo_material": "Material Aislante", "magnitud": "Voltaje", "metodo": "Anexo A.2", "frecuencia": "Semestralmente"},
-            "Bolsas blindadas": {"limite": "Visual", "ref_num": 0.0, "tipo_material": "Plástico metalizado", "magnitud": "Otro", "metodo": "Inspección visual", "frecuencia": "Trimestralmente"}
-        }
-        st.caption("*Nota: RS se refiere a la resistencia del sistema. RTG se refiere a la resistencia a tierra.*")
         
-        # Diccionario para mapear Magnitud -> Unidad
-        MAPA_UNIDADES = {
-            "Resistencia": "Ohms",
-            "Voltaje": "Volts",
-            "Tiempo": "Segundos",
-            "Longitud": "cm",
-            "Otro": "N/A"
-        }
-
-          # --- NUEVA FORMA DE CARGAR EQUIPOS DE MEDICIÓN ---
+        # Equipos SQL
         try:
             resp_eq = supabase.table("equipos_medicion").select("*").execute()
             df_equipos = pd.DataFrame(resp_eq.data)
-            if not df_equipos.empty:
-                # Ajustamos al nombre de la columna en SQL
-                lista_equipos = df_equipos["id_equipo"].dropna().unique().tolist()
-            else:
-                lista_equipos = ["Sin equipos registrados"]
-        except Exception as e:
+            lista_equipos = df_equipos["id_equipo"].tolist() if not df_equipos.empty else ["N/A"]
+        except:
             df_equipos = pd.DataFrame()
-            lista_equipos = ["Sin conexión a 'Equipos'"]
+            lista_equipos = ["Sin conexión"]
 
         tab_registro, tab_historial = st.tabs(["📝 Registrar Validación", "🖼️ Visor de Registros"])
 
-        # ==========================================
-        # PESTAÑA 1: FORMULARIO DE CAPTURA
-        # ==========================================
         with tab_registro:
+            c1, c2 = st.columns(2)
+            elemento_sel = c1.selectbox("Elemento a validar:", ["Superficie de trabajo", "Piso ESD", "Ionizador", "Calzado"])
+            id_equipo_sel = c2.selectbox("ID del Equipo:", lista_equipos)
             
-            if "val_success_msg" in st.session_state and st.session_state.val_success_msg:
-                st.success(st.session_state.val_success_msg)
-                st.balloons()
-                st.session_state.val_success_msg = ""
-
-            st.markdown("#### 1. Selección de Parámetros Globales")
-            
-            # Selectores dinámicos FUERA del form para permitir el autocompletado interactivo
-            c_dyn1, c_dyn2, c_dyn3 = st.columns(3)
-            elemento_sel = c_dyn1.selectbox("Elemento S20.20 a validar:", options=list(INFO_ELEMENTOS_ESD.keys()))
-            info = INFO_ELEMENTOS_ESD[elemento_sel]
-            
-            id_equipo_sel = c_dyn2.selectbox("ID del Equipo de Medición:", options=lista_equipos)
-            
-            opciones_magnitud = list(MAPA_UNIDADES.keys())
-            idx_mag = opciones_magnitud.index(info["magnitud"]) if info["magnitud"] in opciones_magnitud else 0
-            magnitud_med = c_dyn3.selectbox("Magnitud Medida:", options=opciones_magnitud, index=idx_mag)
-            unidad_auto = MAPA_UNIDADES.get(magnitud_med, "")
-
-            # Extracción de datos del equipo
-            eq_data = {k: "N/D" for k in ["Tipo de equipo", "Número de reporte de calibración", "Resolución", "Fabricante", "Modelo", "Número de serie", "Fecha de calibración próxima"]}
-            if not df_equipos.empty and id_equipo_sel != "Sin conexión a 'Equipos'":
-                fila_eq = df_equipos[df_equipos["ID del equipo de medición"] == id_equipo_sel]
-                if not fila_eq.empty:
-                    eq_data = fila_eq.iloc[0].to_dict()
-
-            # --- Formulario limpio iterativo ---
-            with st.form(f"form_validacion_esd_{st.session_state.val_form_key}"):
-                st.markdown("#### 2. Datos del Elemento a Validar")
-                c1, c2 = st.columns([1, 2])
-                id_elemento = c1.text_input("ID del Elemento", placeholder="Ej: SILLA-05")
-                tipo_material = c2.text_input("Tipo de Material", value=info["tipo_material"])
+            with st.form("form_val"):
+                id_elemento = st.text_input("ID Elemento")
+                medicion_1 = st.number_input("Medición Principal", value=0.0)
+                referencia = st.number_input("Límite Permitido", value=1.0e9)
+                ubicacion = st.text_input("Ubicación")
+                temp = st.text_input("Temp")
+                hum = st.text_input("Humedad")
+                notas = st.text_area("Notas")
                 
-                c4, c5, c6 = st.columns(3)
-                fab_elem = c4.text_input("Fabricante del Elemento (Opcional)")
-                mod_elem = c5.text_input("Modelo del Elemento (Opcional)")
-                sn_elem = c6.text_input("Número de Serie (Opcional)")
-
-                st.markdown("#### 3. Condiciones Ambientales y Ubicación")
-                c7, c8, c9 = st.columns(3)
-                ubicacion = c7.text_input("Ubicación de Medición (Línea / Área)")
-                temp = c8.text_input("Temperatura", placeholder="Ej: 24.5 °C")
-                humedad = c9.text_input("Humedad Relativa", placeholder="Ej: 45 %")
-
-                st.markdown("#### 4. Detalles del Equipo de Medición")
-                st.info(f"**Tipo:** {eq_data.get('Tipo de equipo', 'N/D')} | **Fabricante:** {eq_data.get('Fabricante', 'N/D')} | **Modelo:** {eq_data.get('Modelo', 'N/D')} | **SN:** {eq_data.get('Número de serie', 'N/D')} \n\n **Reporte Calibración:** {eq_data.get('Número de reporte de calibración', 'N/D')} (Vence: {eq_data.get('Fecha de calibración próxima', 'N/D')}) | **Alcance:** {eq_data.get('Resolución', 'N/D')}")
-
-                st.markdown("#### 5. Parámetros y Medición")
-                cm1, cm2, cm3 = st.columns(3)
-                metodo_med = cm1.text_input("Método", value=info["metodo"])
-                modo_med = cm2.text_input("Modo de Medición", placeholder="Ej: PTP, RTG, Descarga")
-                unidad_med = cm3.text_input("Unidad de Medición", value=unidad_auto)
-
-                # Eliminamos Tolerancia y usamos el value en Referencia
-                referencia = st.number_input(f"Referencia Numérica / Límite Permitido", value=float(info["ref_num"]), format="%g", help="Límite S20.20: " + info["limite"])
-
-                st.markdown("##### Resultados Obtenidos")
-                cv1, cv2, cv3, cv4, cv5 = st.columns(5)
-                medicion_1 = cv1.number_input("Medición 1 (Oblig.)", value=0.0, format="%g")
-                med_2 = cv2.number_input("Medición 2 (Opc.)", value=None, format="%g", placeholder="0.0")
-                med_3 = cv3.number_input("Medición 3 (Opc.)", value=None, format="%g", placeholder="0.0")
-                med_4 = cv4.number_input("Medición 4 (Opc.)", value=None, format="%g", placeholder="0.0")
-                med_5 = cv5.number_input("Medición 5 (Opc.)", value=None, format="%g", placeholder="0.0")
-                
-                notas_val = st.text_area("Notas / Observaciones")
-
-                st.markdown("#### 6. Evidencia Fotográfica")
-                st.info("📸 Puedes usar la cámara o subir un archivo. Si usas ambos, se dará prioridad a la cámara.")
-                col_img1, col_img2 = st.columns(2)
-                imagen_camara = col_img1.camera_input("Capturar foto en vivo")
-                imagen_subida = col_img2.file_uploader("Subir archivo de imagen", type=["jpg", "jpeg", "png"])
-                imagen_final = imagen_camara if imagen_camara is not None else imagen_subida
-
-                submit_val = st.form_submit_button("💾 Evaluar y Guardar Trazabilidad", use_container_width=True)
-
-                if submit_val:
-                    if not id_elemento or not ubicacion:
-                        st.error("⚠️ Debes proporcionar un ID de elemento y la ubicación.")
-                    elif imagen_final is None:
-                        st.error("⚠️ La evidencia fotográfica es obligatoria para la auditoría.")
-                    else:
-                        with st.spinner("Evaluando límites y guardando en servidor..."):
-                            # Empaquetado de mediciones extra ignorando los campos vacíos
-                            lista_extras = [str(m) for m in [med_2, med_3, med_4, med_5] if m is not None]
-                            mediciones_extra_str = ", ".join(lista_extras)
-
-                            # Lógica de aprobación
-                            resultado_calc = "CUMPLE (APROBADO)" if medicion_1 < referencia else "NO CUMPLE (RECHAZADO)"
-                            
-                            img_b64 = procesar_imagen_b64(imagen_final)
-                            import gspread
-                            sec = dict(st.secrets["connections"]["gsheets"])
-                            gc_val = gspread.service_account_from_dict(sec)
-                            
-                            try:
-                                ws_val = gc_val.open_by_url(sec["spreadsheet"]).worksheet("VALIDACION_ESD")
-                            except gspread.exceptions.WorksheetNotFound:
-                                sheet_file = gc_val.open_by_url(sec["spreadsheet"])
-                                ws_val = sheet_file.add_worksheet(title="VALIDACION_ESD", rows="1000", cols="30")
-                                encabezados = [
-                                    "Fecha", "Auditor", "Elemento S20.20", "ID Elemento", "Tipo Material", 
-                                    "Fabricante Elem", "Modelo Elem", "SN Elem", "Temperatura", "Humedad", 
-                                    "Ubicación", "Magnitud Medida", "ID Equipo", "Tipo Equipo", "Reporte Cal", 
-                                    "Resolución", "Fabricante Eq", "Modelo Eq", "SN Eq", "Fecha Prox Cal", 
-                                    "Referencia", "Tolerancia", "Medición 1", "Mediciones Extra", "Unidad", 
-                                    "Método", "Modo Medición", "Resultado", "Fecha Prox Validación", "Notas", "Imagen (Base64)"
-                                ]
-                                ws_val.append_row(encabezados)
-                                
-                            fecha_hoy = datetime.today().date()
-                            fecha_hoy_val = datetime.today().strftime("%d-%b-%Y %H:%M")
-                            fecha_prox_val = calcular_proxima_fecha(fecha_hoy, info["frecuencia"]).strftime("%d-%b-%Y")
-                            
-                            # Nota: Se inyecta "N/A" en el índice de Tolerancia para no descuadrar Google Sheets
-                            fila_validacion = [
-                                fecha_hoy_val, st.session_state.usuario_nombre, elemento_sel, id_elemento.upper(), tipo_material,
-                                fab_elem, mod_elem, sn_elem, temp, humedad,
-                                ubicacion, magnitud_med, id_equipo_sel, eq_data.get('Tipo de equipo', 'N/D'), eq_data.get('Número de reporte de calibración', 'N/D'),
-                                eq_data.get('Resolución', 'N/D'), eq_data.get('Fabricante', 'N/D'), eq_data.get('Modelo', 'N/D'), eq_data.get('Número de serie', 'N/D'), eq_data.get('Fecha de calibración próxima', 'N/D'),
-                                float(referencia), "N/A", float(medicion_1), mediciones_extra_str, unidad_med,
-                                metodo_med, modo_med, resultado_calc, fecha_prox_val, notas_val, img_b64
-                            ]
-                            
-                            ws_val.append_row(fila_validacion, value_input_option="USER_ENTERED")
-                            
-                        # Limpiar formulario y caché
-                        st.session_state.val_success_msg = f"✅ ¡Validación registrada! Resultado: **{resultado_calc}**"
-                        st.session_state.val_form_key += 1
+                if st.form_submit_button("Guardar Validación en SQL"):
+                    resultado = "CUMPLE (APROBADO)" if medicion_1 < referencia else "NO CUMPLE (RECHAZADO)"
+                    try:
+                        supabase.table("validacion_esd").insert({
+                            "fecha_auditoria": datetime.now().isoformat(),
+                            "auditor": st.session_state.usuario_nombre,
+                            "id_elemento": id_elemento.upper(),
+                            "elemento_s20_20": elemento_sel,
+                            "temperatura": temp,
+                            "humedad": hum,
+                            "id_equipo_utilizado": id_equipo_sel,
+                            "limite_referencia": float(referencia),
+                            "medicion_1": float(medicion_1),
+                            "resultado": resultado,
+                            "notas": notas,
+                            "imagen_url": "Pendiente de Storage"
+                        }).execute()
+                        st.success("Validación Guardada!")
                         st.cache_data.clear()
-                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error SQL: {e}")
 
-        # ==========================================
-        # PESTAÑA 2: VISOR DE HISTORIAL E IMÁGENES
-        # ==========================================
         with tab_historial:
-            col_h1, col_h2 = st.columns([0.8, 0.2])
-            col_h1.markdown("#### 🗂️ Dashboard de Registros Históricos")
-            if col_h2.button("🔄 Actualizar Datos", use_container_width=True):
-                st.cache_data.clear()
-                st.rerun()
-
+            st.markdown("#### 🗂️ Historial (Directo de Supabase)")
             try:
-                df_val = conn.read(worksheet="VALIDACION_ESD")
+                resp_val = supabase.table("validacion_esd").select("*").execute()
+                df_val = pd.DataFrame(resp_val.data)
+                
                 if df_val.empty:
                     st.info("Aún no hay registros de validación.")
                 else:
-                    df_val = df_val.dropna(subset=['Fecha', 'Elemento S20.20'], how='all').iloc[::-1]
+                    df_val = df_val.dropna(subset=['fecha_auditoria', 'elemento_s20_20'], how='all').iloc[::-1]
 
                     for index, row in df_val.iterrows():
-                        resultado_str = str(row.get('Resultado', ''))
+                        resultado_str = str(row.get('resultado', ''))
                         icono_res = "🟢" if "CUMPLE" in resultado_str.upper() else "🔴"
                         
-                        with st.expander(f"{icono_res} {row.get('Fecha', '')} | {row.get('ID Elemento', 'N/D')} ({row.get('Elemento S20.20', '')}) - {row.get('Ubicación', '')}"):
-                            c_det1, c_det2, c_det3, c_img = st.columns([1, 1, 1, 1.5])
+                        with st.expander(f"{icono_res} {str(row.get('fecha_auditoria', ''))[:10]} | {row.get('id_elemento', 'N/D')} ({row.get('elemento_s20_20', '')})"):
+                            c_det1, c_det2, c_det3 = st.columns([1, 1, 1])
                             
                             with c_det1:
-                                st.markdown("##### 📦 Elemento")
-                                st.markdown(f"**Material:** {row.get('Tipo Material', 'N/D')}")
-                                st.markdown(f"**Fabricante:** {row.get('Fabricante Elem', 'N/D')}")
-                                st.markdown(f"**Modelo / SN:** {row.get('Modelo Elem', 'N/D')} / {row.get('SN Elem', 'N/D')}")
-                                st.markdown(f"**Temp/Hum:** {row.get('Temperatura', 'N/D')} | {row.get('Humedad', 'N/D')}")
+                                st.markdown("##### 📦 Detalles Generales")
+                                st.markdown(f"**Elemento:** {row.get('elemento_s20_20', 'N/D')}")
+                                st.markdown(f"**ID:** {row.get('id_elemento', 'N/D')}")
+                                st.markdown(f"**Temp/Hum:** {row.get('temperatura', 'N/D')} | {row.get('humedad', 'N/D')}")
                             
                             with c_det2:
-                                st.markdown("##### 🛠️ Equipo Utilizado")
-                                st.markdown(f"**ID:** {row.get('ID Equipo', 'N/D')}")
-                                st.markdown(f"**Tipo:** {row.get('Tipo Equipo', 'N/D')}")
-                                st.markdown(f"**Certificado:** {row.get('Reporte Cal', 'N/D')}")
-                                st.markdown(f"**Vencimiento:** {row.get('Fecha Prox Cal', 'N/D')}")
+                                st.markdown("##### 🛠️ Equipo y Límite")
+                                st.markdown(f"**Equipo Utilizado:** {row.get('id_equipo_utilizado', 'N/D')}")
+                                st.markdown(f"**Límite S20.20:** `< {row.get('limite_referencia', 'N/D')}`")
 
                             with c_det3:
                                 st.markdown("##### 📊 Resultados")
-                                st.markdown(f"**Método/Modo:** {row.get('Método', 'N/D')} / {row.get('Modo Medición', 'N/D')}")
-                                st.markdown(f"**Referencia:** `< {row.get('Referencia', 'N/D')} {row.get('Unidad', '')}`")
-                                st.markdown(f"**Medición 1:** `{row.get('Medición 1', 'N/D')} {row.get('Unidad', '')}`")
-                                if str(row.get('Mediciones Extra', '')) != "nan" and row.get('Mediciones Extra', ''):
-                                    st.markdown(f"**Extra:** {row.get('Mediciones Extra', '')}")
-                                st.markdown(f"**Notas:** {row.get('Notas', 'Ninguna')}")
-                            
-                            with c_img:
-                                b64_string = str(row.get('Imagen (Base64)', ''))
-                                if b64_string and b64_string != 'nan':
-                                    try:
-                                        img_bytes = base64.b64decode(b64_string)
-                                        st.image(img_bytes, caption=f"Evidencia - {row.get('Auditor', 'N/D')}", use_container_width=True)
-                                    except Exception:
-                                        st.error("Archivo de imagen corrupto.")
-                                else:
-                                    st.warning("Sin imagen.")
+                                st.markdown(f"**Medición:** `{row.get('medicion_1', 'N/D')}`")
+                                st.markdown(f"**Notas:** {row.get('notas', 'Ninguna')}")
                             
                             st.divider()
-                            año_actual = datetime.today().strftime("%y")
-                            html_reporte = generar_html_reporte_esd(row, index)
-                            
-                            b64_html_rep = base64.b64encode(html_reporte.encode('utf-8')).decode('utf-8')
-                            nombre_archivo_rep = f"Reporte_ESD_{safe_str(row.get('ID Elemento'))}_{safe_str(row.get('Fecha')).replace(' ', '_').replace(':', '')}.html"
-                            
-                            st.markdown(
-                                f'<a href="data:text/html;base64,{b64_html_rep}" download="{nombre_archivo_rep}" '
-                                f'style="display: block; width: 100%; text-align: center; padding: 12px; '
-                                f'background-color: #2563eb; color: white; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 16px;">'
-                                f'📥 Descargar Reporte Completo (BCS-PV-{index:03d}-{año_actual})</a>', 
-                                unsafe_allow_html=True
-                            )        
-                                    
+                            st.info("El visor de imágenes y PDFs se reactivará al implementar Supabase Storage.")
             except Exception as e:
-                st.warning("La base de datos de validaciones aún no ha sido creada o hay un error de conexión.")
+                st.warning(f"Error al cargar historial: {e}")
