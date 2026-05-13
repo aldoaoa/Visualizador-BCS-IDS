@@ -13,9 +13,7 @@ import fitz  # PyMuPDF
 import re
 import io
 import pytesseract
-from st_supabase_connection import SupabaseConnection
 from supabase import create_client, Client
-conn = st.connection("supabase", type=SupabaseConnection)
 
 @st.cache_resource
 def init_connection():
@@ -871,10 +869,11 @@ else:
             st.markdown("#### Estado Global de Elementos ESD")
             st.info("Visión general de los elementos validados. Filtra por su estatus de vigencia.")
             
+# --- NUEVA FORMA DE LEER EL HISTORIAL ---
             try:
-                df_val = conn.read(worksheet="VALIDACION_ESD")
-                if not df_val.empty and 'ID Elemento' in df_val.columns and 'Fecha Prox Validación' in df_val.columns:
-                    
+                resp_val = supabase.table("validacion_esd").select("*").execute()
+                df_val = pd.DataFrame(resp_val.data)
+                                    
                     # Convertir las fechas para ordenar y agrupar
                     df_val['Fecha Prox Validación'] = pd.to_datetime(df_val['Fecha Prox Validación'], format="%d-%b-%Y", errors='coerce')
                     df_val['Fecha'] = pd.to_datetime(df_val['Fecha'], format="%d-%b-%Y %H:%M", errors='coerce')
@@ -1891,11 +1890,16 @@ else:
             "Otro": "N/A"
         }
 
-        # Cargar Base de Datos de Equipos
+          # --- NUEVA FORMA DE CARGAR EQUIPOS DE MEDICIÓN ---
         try:
-            df_equipos = conn.read(worksheet="EQUIPOS")
-            lista_equipos = df_equipos["ID del equipo de medición"].dropna().unique().tolist()
-        except:
+            resp_eq = supabase.table("equipos_medicion").select("*").execute()
+            df_equipos = pd.DataFrame(resp_eq.data)
+            if not df_equipos.empty:
+                # Ajustamos al nombre de la columna en SQL
+                lista_equipos = df_equipos["id_equipo"].dropna().unique().tolist()
+            else:
+                lista_equipos = ["Sin equipos registrados"]
+        except Exception as e:
             df_equipos = pd.DataFrame()
             lista_equipos = ["Sin conexión a 'Equipos'"]
 
