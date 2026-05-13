@@ -569,7 +569,7 @@ else:
                 comentarios = st.text_area("Comentarios (Notas opcionales)")
                 submit_alta = st.form_submit_button("Registrar en sistema", use_container_width=True)
                 
-        if submit_alta:
+            if submit_alta:
                     if not nuevo_id or (fabricante_opc == "Otro" and not fabricante_final):
                         st.error("Por favor complete los campos obligatorios (ID y Fabricante).")
                     else:
