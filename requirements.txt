@@ -7,3 +7,4 @@ xlrd
 PyMuPDF
 pytesseract
 supabase
+st-supabase-connection
