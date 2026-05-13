@@ -8,12 +8,49 @@ import base64
 import math
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
-from streamlit_gsheets import GSheetsConnection
 import streamlit.components.v1 as components
 import fitz  # PyMuPDF
 import re
 import io
 import pytesseract
+from st_supabase_connection import SupabaseConnection
+from supabase import create_client, Client
+conn = st.connection("supabase", type=SupabaseConnection)
+
+@st.cache_resource
+def init_connection():
+    url = st.secrets["SUPABASE_URL"]
+    key = st.secrets["SUPABASE_KEY"]
+    return create_client(url, key)
+
+supabase: Client = init_connection()
+
+# --- NUEVA LECTURA DE DATOS ---
+@st.cache_data(ttl=10) 
+def cargar_datos_cloud():
+    try:
+        # 1. Traer todo el inventario unificado (Ignoramos los dados de baja por defecto para agilizar)
+        resp_inv = supabase.table("inventario_esd").select("*").execute()
+        df_inv = pd.DataFrame(resp_inv.data)
+        
+        # Separamos temporalmente en DataFrames para no romper tu UI actual
+        if not df_inv.empty:
+            df_mob = df_inv[df_inv['categoria'] == 'Mobiliario']
+            df_ion = df_inv[df_inv['categoria'] == 'Ionizador']
+            df_piso = df_inv[df_inv['categoria'] == 'Piso']
+        else:
+            df_mob, df_ion, df_piso = pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+
+        # 2. Traer Event Meter
+        resp_em = supabase.table("event_meter").select("*").execute()
+        df_em = pd.DataFrame(resp_em.data) if resp_em.data else pd.DataFrame(columns=['linea_ubicacion', 'id_operacion'])
+
+        return df_piso, df_mob, df_ion, df_em
+        
+    except Exception as e:
+        st.error(f"Error conectando a la base de datos: {e}")
+        return None, None, None, None
+
 
 # Configuración de página
 st.set_page_config(page_title="Control ESD BCS-AIS", layout="wide")
@@ -532,23 +569,19 @@ else:
                 comentarios = st.text_area("Comentarios (Notas opcionales)")
                 submit_alta = st.form_submit_button("Registrar en sistema", use_container_width=True)
                 
-                if submit_alta:
+if submit_alta:
                     if not nuevo_id or (fabricante_opc == "Otro" and not fabricante_final):
                         st.error("Por favor complete los campos obligatorios (ID y Fabricante).")
                     else:
                         id_limpio_alta = str(nuevo_id).strip().upper()
-                        ids_existentes = df_target_alta.get('Id de producto', pd.Series()).astype(str).str.strip().str.upper().values
                         
-                        if id_limpio_alta in ids_existentes:
-                            st.error(f"El ID {nuevo_id} ya existe en la base de datos de {tipo_alta}.")
+                        # Verificamos si existe en SQL directamente
+                        check_exist = supabase.table("inventario_esd").select("id_producto").eq("id_producto", id_limpio_alta).execute()
+                        
+                        if len(check_exist.data) > 0:
+                            st.error(f"El ID {nuevo_id} ya existe en la base de datos.")
                         else:
-                            with st.spinner("Creando nuevo registro..."):
-                                import gspread
-                                sec = dict(st.secrets["connections"]["gsheets"])
-                                gc_client = gspread.service_account_from_dict(sec)
-                                nombre_hoja = "MOBILIARIO" if tipo_alta == "Mobiliario" else "IONIZADORES"
-                                ws = gc_client.open_by_url(sec["spreadsheet"]).worksheet(nombre_hoja)
-                                
+                            with st.spinner("Creando nuevo registro en SQL..."):
                                 fecha_hoy = datetime.today().date()
                                 dias_map = {"Anual": 360, "Semestral": 180, "Trimestral": 90, "Mensual": 30}
                                 proxima = fecha_hoy + timedelta(days=dias_map.get(frecuencia_alta, 360))
@@ -556,41 +589,39 @@ else:
                                 unidad_medida = "Segundos" if tipo_alta == "Ionizador" else "Ohms"
                                 metodo = "CPM" if tipo_alta == "Ionizador" else "RTG"
                                 
-                                nueva_fila = [
-                                    nueva_linea,                                     
-                                    nuevo_id,                                        
-                                    nuevo_tipo,                                      
-                                    "Aprobado",                                      
-                                    fabricante_final,                                
-                                    float(nuevo_minimo),                             
-                                    float(limite_alta) if "E" in limite_alta.upper() else limite_alta, 
-                                    unidad_medida,                                         
-                                    float(valor_alta) if valor_alta > 0 else "",      
-                                    unidad_medida,                                         
-                                    metodo,                                           
-                                    fecha_hoy.strftime("%d-%b-%Y") if valor_alta > 0 else "", 
-                                    proxima.strftime("%d-%b-%Y") if valor_alta > 0 else "",   
-                                    frecuencia_alta,                                 
-                                    "Vigente" if valor_alta > 0 and fecha_hoy < proxima else "", 
-                                    "Operativo",                                     
-                                    comentarios,                                     
-                                    st.session_state.usuario_nombre                  
-                                ]
+                                # Construimos el diccionario de inserción
+                                data_insert = {
+                                    "id_producto": id_limpio_alta,
+                                    "categoria": tipo_alta,
+                                    "linea_ubicacion": nueva_linea,
+                                    "clasificacion": nuevo_tipo,
+                                    "fabricante": fabricante_final,
+                                    "limite_minimo": float(nuevo_minimo),
+                                    "limite_maximo": float(limite_alta) if "E" not in str(limite_alta).upper() else float(limite_alta), 
+                                    "unidad_medida": unidad_medida,
+                                    "valor_actual": float(valor_alta) if valor_alta > 0 else None,
+                                    "metodo_prueba": metodo,
+                                    "fecha_ultima_verif": fecha_hoy.isoformat() if valor_alta > 0 else None,
+                                    "fecha_proxima_verif": proxima.isoformat() if valor_alta > 0 else None,
+                                    "frecuencia": frecuencia_alta,
+                                    "estatus_verificacion": "VIGENTE" if valor_alta > 0 and fecha_hoy < proxima else "PENDIENTE",
+                                    "estatus_operativo": "OPERATIVO",
+                                    "comentarios": comentarios,
+                                    "auditor_responsable": st.session_state.usuario_nombre
+                                }
                                 
+                                # Campo exclusivo de ionizadores
                                 if tipo_alta == "Ionizador":
-                                    if 'Balance' in df_target_alta.columns:
-                                        bal_idx = df_target_alta.columns.get_loc('Balance')
-                                        while len(nueva_fila) <= bal_idx:
-                                            nueva_fila.append("")
-                                        nueva_fila[bal_idx] = float(balance_alta)
-                                    else:
-                                        nueva_fila.append(float(balance_alta))
+                                    data_insert["balance_ionizador"] = float(balance_alta)
                                 
-                                ws.append_row(nueva_fila, value_input_option="USER_ENTERED")
-                                
-                            st.success(f"✅ ¡Activo {nuevo_id} registrado exitosamente en {nombre_hoja}!")
-                            st.cache_data.clear()
-                            st.balloons()
+                                # Ejecutamos la inserción en Supabase
+                                try:
+                                    supabase.table("inventario_esd").insert(data_insert).execute()
+                                    st.success(f"✅ ¡Activo {nuevo_id} registrado exitosamente!")
+                                    st.cache_data.clear()
+                                    st.balloons()
+                                except Exception as e:
+                                    st.error(f"Error al guardar en base de datos: {e}")
                             
         # --- SUB-VISTA 2: BAJA (SOFT DELETE) ---
         elif accion_seleccionada == "🗑️ Dar de Baja":
@@ -734,28 +765,20 @@ else:
 
                     with st.form("form_confirmacion_baja"):
                         if st.form_submit_button("🗑️ Confirmar Baja (Soft Delete)"):
-                            with st.spinner("Actualizando estatus en el servidor..."):
-                                import gspread
-                                sec = dict(st.secrets["connections"]["gsheets"])
-                                gc_gspread = gspread.service_account_from_dict(sec)
-                                ws_baja = gc_gspread.open_by_url(sec["spreadsheet"]).worksheet(hoja_activa_baja)
-                                
+                            with st.spinner("Actualizando estatus en la base de datos..."):
                                 try:
-                                    id_idx_baja = df_actual_baja.columns.get_loc('Id de producto')
-                                    est_op_idx = df_actual_baja.columns.get_loc('Estatus operativo')
-                                    est_verif_idx = df_actual_baja.columns.get_loc('Estatus de verificación')
-                                except KeyError as e:
-                                    st.error(f"Falta columna {e} en Google Sheets.")
-                                    st.stop()
-                                
-                                ids_gsheets_baja = ws_baja.col_values(id_idx_baja + 1)
-                                ids_gsheets_limpios_baja = [str(v).strip().upper() for v in ids_gsheets_baja]
-                                
-                                try:
-                                    r_idx_baja = ids_gsheets_limpios_baja.index(id_limpio_baja) + 1
-                                except ValueError:
-                                    st.error("No se pudo encontrar la fila exacta en el servidor para modificarla.")
-                                    st.stop()
+                                    # Actualización de una sola línea en Supabase
+                                    supabase.table("inventario_esd").update({
+                                        "estatus_operativo": "NO OPERATIVO",
+                                        "estatus_verificacion": "BAJA"
+                                    }).eq("id_producto", id_limpio_baja).execute()
+                                    
+                                    st.success(f"✅ ¡Equipo {id_baja_url} desactivado correctamente!")
+                                    st.cache_data.clear()
+                                    limpiar_url_escaneo()
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Error al dar de baja: {e}")
                                 
                                 ws_baja.update_cell(r_idx_baja, est_op_idx + 1, "NO OPERATIVO")
                                 ws_baja.update_cell(r_idx_baja, est_verif_idx + 1, "BAJA")
