@@ -173,9 +173,10 @@ def subir_evidencia_storage(img_file, id_elemento):
     return ""
 
 def safe_str(val, default="N/D"):
-    if pd.isna(val) or str(val).strip().lower() == 'nan' or str(val).strip() == '':
+    val_str = str(val).strip()
+    if pd.isna(val) or val_str.lower() in ['nan', 'none', 'null', '']:
         return default
-    return str(val).strip()
+    return val_str
 
 def generar_html_reporte_esd(row, index):
     """Genera el HTML leyendo los datos de la fila de SQL."""
@@ -1265,9 +1266,13 @@ else:
                                 st.markdown(f"**Notas:** {row.get('notas', 'Ninguna')}")
                             
                             with c_img:
-                                img_url = str(row.get('imagen_url', ''))
-                                if img_url and img_url != 'nan' and img_url != 'Pendiente de Storage':
-                                    st.image(img_url, caption=f"Evidencia - {row.get('auditor', 'N/D')}", use_container_width=True)
+                                img_url = str(row.get('imagen_url', '')).strip()
+                                # Verificamos que no sea la palabra 'None' ni un string vacío
+                                if img_url and img_url.lower() not in ['nan', 'none', 'null', 'pendiente de storage']:
+                                    try:
+                                        st.image(img_url, caption=f"Evidencia - {row.get('auditor', 'N/D')}", use_container_width=True)
+                                    except Exception:
+                                        st.warning("⚠️ La imagen no se pudo cargar.")
                                 else:
                                     st.warning("Sin imagen.")
                             
