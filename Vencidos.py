@@ -641,12 +641,107 @@ else:
             except Exception as e:
                 st.error(f"Error al cargar overview: {e}")
 
-    # ==========================================
+# ==========================================
     # VISTA 2: ESCÁNER Y DETALLES
     # ==========================================
     elif st.session_state.vista_actual == "Escáner":
         if not id_escaneado_url:
             st.markdown("### 📷 Apunta al Código QR")
+            html_code_qr = """
+            <script src="https://unpkg.com/html5-qrcode"></script>
+            <div id="reader_main" style="width:100%; max-width:500px; margin:auto; border-radius:10px; overflow:hidden; border: 2px solid #0052cc; background-color: #f9f9f9;"></div>
+            
+            <div style="text-align:center; margin-top:10px; display:flex; justify-content:center; gap:5px; flex-wrap:wrap;">
+                <button type="button" id="cam_wide_main" style="padding:10px; background:#28a745; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">📸 LENTE ESTÁNDAR</button>
+                <button type="button" id="cam_cycle_main" style="padding:10px; background:#555; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">🔄 OTRA CÁMARA</button>
+            </div>
+            <div style="text-align:center; margin-top:10px; display:flex; justify-content:center; gap:5px;">
+                <button type="button" id="zoom_1x_main" style="padding:10px 20px; background:#0052cc; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">🔍 1X (NORMAL)</button>
+                <button type="button" id="zoom_3x_main" style="padding:10px 20px; background:#666; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">🔍 3X (CURVO)</button>
+            </div>
+            <p id="cam-status-main" style="text-align:center; color:#666; font-size: 14px; margin-top: 10px;">Buscando cámaras...</p>
+            
+            <script>
+            let html5QrCodeMain;
+            let rearCamsMain = [];
+            let currentIdxMain = 0;
+            let wideIdMain = null;
+
+            function applyZoomMain(scale) {
+                const vid = document.querySelector("#reader_main video");
+                if (vid) {
+                    vid.style.transform = `scale(${scale})`;
+                    vid.style.transformOrigin = "center center";
+                }
+                document.getElementById('zoom_1x_main').style.background = (scale === 1) ? "#0052cc" : "#666";
+                document.getElementById('zoom_3x_main').style.background = (scale === 3) ? "#0052cc" : "#666";
+            }
+
+            function startScannerMain(camId) {
+                if(!html5QrCodeMain) html5QrCodeMain = new Html5Qrcode("reader_main");
+                if (html5QrCodeMain.isScanning) {
+                    html5QrCodeMain.stop().then(() => { runScanMain(camId); }).catch(e => console.log(e));
+                } else {
+                    runScanMain(camId);
+                }
+            }
+
+            function runScanMain(camId) {
+                html5QrCodeMain.start(
+                    camId, { fps: 15, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 },
+                    (decodedText) => {
+                        html5QrCodeMain.stop();
+                        const url = new URL(window.parent.location.href);
+                        url.searchParams.set("qr_id", decodedText);
+                        window.parent.history.replaceState({}, "", url);
+                        window.parent.location.reload();
+                    }, (err) => {} 
+                ).then(() => { 
+                    let activeCam = rearCamsMain.find(c => c.id === camId);
+                    document.getElementById("cam-status-main").innerText = "Lente activo: " + (activeCam ? activeCam.label : "Cámara");
+                    applyZoomMain(1);
+                }).catch(err => {
+                    document.getElementById("cam-status-main").innerText = "Error iniciando lente. Intenta 'Otra Cámara'.";
+                });
+            }
+
+            Html5Qrcode.getCameras().then(devices => {
+                if (devices && devices.length) {
+                    rearCamsMain = devices.filter(c => c.label.toLowerCase().includes('back') || c.label.toLowerCase().includes('trasera') || c.label.toLowerCase().includes('environment'));
+                    if(rearCamsMain.length === 0) rearCamsMain = devices;
+
+                    // Buscar la cámara WIDE original
+                    wideIdMain = rearCamsMain[0].id;
+                    for (let c of rearCamsMain) {
+                        let lbl = c.label.toLowerCase();
+                        if (lbl.includes('wide') && !lbl.includes('ultra')) {
+                            wideIdMain = c.id; break;
+                        }
+                    }
+
+                    currentIdxMain = rearCamsMain.findIndex(c => c.id === wideIdMain);
+                    if(currentIdxMain === -1) currentIdxMain = 0;
+
+                    startScannerMain(wideIdMain);
+
+                    document.getElementById('cam_wide_main').addEventListener('click', () => {
+                        currentIdxMain = rearCamsMain.findIndex(c => c.id === wideIdMain);
+                        startScannerMain(wideIdMain);
+                    });
+
+                    document.getElementById('cam_cycle_main').addEventListener('click', () => {
+                        currentIdxMain = (currentIdxMain + 1) % rearCamsMain.length;
+                        startScannerMain(rearCamsMain[currentIdxMain].id);
+                    });
+
+                    document.getElementById('zoom_1x_main').addEventListener('click', () => applyZoomMain(1));
+                    document.getElementById('zoom_3x_main').addEventListener('click', () => applyZoomMain(3));
+                }
+            }).catch(err => { document.getElementById("cam-status-main").innerText = "Permisos de cámara denegados."; });
+            </script>
+            """
+            components.html(html_code_qr, height=750) 
+            
             id_manual = st.text_input("O ingresa el ID manual:", key="input_manual")
             if id_manual:
                 st.query_params["qr_id"] = id_manual
@@ -659,7 +754,7 @@ else:
                 if st.button("❌ Cerrar"):
                     limpiar_url_escaneo()
                     st.rerun()
-
+                    
             id_limpio = str(id_escaneado_url).strip().upper()
             mob_ids_limpios = df_mob_local.get('Id de producto', pd.Series()).astype(str).str.strip().str.upper()
             ion_ids_limpios = df_ion_local.get('Id de producto', pd.Series()).astype(str).str.strip().str.upper()
