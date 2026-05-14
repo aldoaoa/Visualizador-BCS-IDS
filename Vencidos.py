@@ -1023,16 +1023,33 @@ else:
     elif st.session_state.vista_actual == "Validación" and not st.session_state.modo_lectura:
         st.markdown("### ✅ Validación Integral de Elementos de Control ESD")
         
-        # Diccionario con los parámetros de la norma
+        # Diccionario COMPLETO con los parámetros de la norma S20.20
         INFO_ELEMENTOS_ESD = {
-            "Pulsera antiestática": {"limite": "RS < 3.5x10^7 ohms", "ref_num": 3.5e7, "metodo": "ANSI/ESD TR53", "frecuencia": "Semestralmente"},
-            "Calzado": {"limite": "RS < 1.0x10^9 ohms", "ref_num": 1.0e9, "metodo": "ANSI/ESD TR53", "frecuencia": "Semestralmente"},
-            "Piso ESD": {"limite": "RTG < 1.0x10^9 ohms", "ref_num": 1.0e9, "metodo": "ANSI/ESD TR53", "frecuencia": "Semestralmente"},
-            "Superficie de trabajo": {"limite": "RTG < 1.0x10^9 ohms", "ref_num": 1.0e9, "metodo": "ANSI/ESD TR53", "frecuencia": "Anualmente"},
-            "Ionizador": {"limite": "Descarga: <10s", "ref_num": 10.0, "metodo": "ANSI/ESD SP3.3-2016", "frecuencia": "Trimestralmente"},
-            "Bolsa disipativa": {"limite": "RS < 1.0x10^9 ohms", "ref_num": 1.0e9, "metodo": "ANSI/ESD STM11.11", "frecuencia": "Semestralmente"},
-            "Cautín / Estación de soldar": {"limite": "RTG < 10 ohms", "ref_num": 10.0, "metodo": "ANSI/ESD TR53", "frecuencia": "Semestralmente"},
-            "Silla ESD": {"limite": "RTG < 1.0x10^9 ohms", "ref_num": 1.0e9, "metodo": "ANSI/ESD TR53", "frecuencia": "Semestralmente"}
+            "Pulsera antiestática": {"limite": "RS < 3.5x10^7 ohms", "ref_num": 3.5e7, "tipo_material": "Banda elástica / Metal", "magnitud": "Resistencia", "metodo": "ANSI/ESD TR53", "frecuencia": "Semestralmente"},
+            "Calzado": {"limite": "RS < 1.0x10^9 ohms", "ref_num": 1.0e9, "tipo_material": "Suela disipativa / Talón", "magnitud": "Resistencia", "metodo": "ANSI/ESD TR53", "frecuencia": "Semestralmente"},
+            "Piso ESD": {"limite": "RTG < 1.0x10^9 ohms / Walking Test < 100V", "ref_num": 1.0e9, "tipo_material": "Epóxico / Vinílico ESD", "magnitud": "Resistencia", "metodo": "ANSI/ESD TR53 / ANSI/ESD 97.2", "frecuencia": "Semestralmente"},
+            "Superficie de trabajo": {"limite": "RTG < 1.0x10^9 ohms", "ref_num": 1.0e9, "tipo_material": "Tapete disipativo / Mesa", "magnitud": "Resistencia", "metodo": "ANSI/ESD TR53", "frecuencia": "Anualmente"},
+            "Monitor Continuo": {"limite": "RTG < 2 ohms", "ref_num": 2.0, "tipo_material": "Equipo Electrónico", "magnitud": "Resistencia", "metodo": "Anexo A.1", "frecuencia": "Trimestralmente"},
+            "Ionizador": {"limite": "Descarga: <10s, Bal: +-35V", "ref_num": 10.0, "tipo_material": "Ventilador / Barra", "magnitud": "Tiempo", "metodo": "ANSI/ESD SP3.3-2016", "frecuencia": "Trimestralmente"},
+            "Bolsa disipativa": {"limite": "RS < 1.0x10^9 ohms", "ref_num": 1.0e9, "tipo_material": "Plástico disipativo", "magnitud": "Resistencia", "metodo": "ANSI/ESD STM11.11", "frecuencia": "Semestralmente"},
+            "Cautín / Estación de soldar": {"limite": "RTG < 10 ohms", "ref_num": 10.0, "tipo_material": "Metal / Punta", "magnitud": "Resistencia", "metodo": "ANSI/ESD TR53", "frecuencia": "Semestralmente"},
+            "Caja Disipativa": {"limite": "RS < 1.0x10^11 ohms", "ref_num": 1.0e11, "tipo_material": "Plástico / Cartón", "magnitud": "Resistencia", "metodo": "ANSI/ESD STM11.11", "frecuencia": "Anualmente"},
+            "Caja conductiva": {"limite": "RS < 1.0x10^4 ohms", "ref_num": 1.0e4, "tipo_material": "Plástico conductivo", "magnitud": "Resistencia", "metodo": "ANSI/ESD STM11.11", "frecuencia": "Anualmente"},
+            "Charola conductiva": {"limite": "RS < 1.0x10^4 ohms", "ref_num": 1.0e4, "tipo_material": "Plástico conductivo", "magnitud": "Resistencia", "metodo": "ANSI/ESD STM11.13/11.11", "frecuencia": "Anualmente"},
+            "Charola Disipativa": {"limite": "RS < 1.0x10^11 ohms", "ref_num": 1.0e11, "tipo_material": "Plástico disipativo", "magnitud": "Resistencia", "metodo": "ANSI/ESD STM11.13/11.11", "frecuencia": "Anualmente"},
+            "Magazine": {"limite": "RS < 1.0x10^11 ohms", "ref_num": 1.0e11, "tipo_material": "Metal / Plástico", "magnitud": "Resistencia", "metodo": "ANSI/ESD STM11.13/11.11", "frecuencia": "Anualmente"},
+            "Bata": {"limite": "RPP < 1.0x10^11 ohms", "ref_num": 1.0e11, "tipo_material": "Tela ESD", "magnitud": "Resistencia", "metodo": "ANSI/ESD TR53", "frecuencia": "Semestralmente"},
+            "Gorra": {"limite": "RPP < 1.0x10^11 ohms", "ref_num": 1.0e11, "tipo_material": "Tela ESD", "magnitud": "Resistencia", "metodo": "ANSI/ESD TR53", "frecuencia": "Semestralmente"},
+            "Rack": {"limite": "RTG < 1.0x10^9 ohms", "ref_num": 1.0e9, "tipo_material": "Metal", "magnitud": "Resistencia", "metodo": "ANSI/ESD STM4.1", "frecuencia": "Anualmente"},
+            "Carrito": {"limite": "RTG < 1.0x10^9 ohms", "ref_num": 1.0e9, "tipo_material": "Metal", "magnitud": "Resistencia", "metodo": "ANSI/ESD STM4.1", "frecuencia": "Anualmente"},
+            "Silla ESD": {"limite": "RTG < 1.0x10^9 ohms", "ref_num": 1.0e9, "tipo_material": "Tela / Vinil ESD", "magnitud": "Resistencia", "metodo": "ANSI/ESD TR53", "frecuencia": "Semestralmente"},
+            "Guantes Nitrilo": {"limite": "RTG < 1.0x10^9 ohms", "ref_num": 1.0e9, "tipo_material": "Nitrilo", "magnitud": "Resistencia", "metodo": "ANSI/ESD TR53", "frecuencia": "Semestralmente"},
+            "Guantes Tela": {"limite": "RTG < 1.0x10^9 ohms", "ref_num": 1.0e9, "tipo_material": "Tela ESD", "magnitud": "Resistencia", "metodo": "ANSI/ESD TR53", "frecuencia": "Semestralmente"},
+            "Tapete de piso": {"limite": "RTG < 1.0x10^9 ohms", "ref_num": 1.0e9, "tipo_material": "Caucho / Vinil ESD", "magnitud": "Resistencia", "metodo": "ANSI/ESD TR53", "frecuencia": "Semestralmente"},
+            "Aislantes - EPA (General)": {"limite": ">30 cm de ESDS", "ref_num": 2000.0, "tipo_material": "Material Aislante", "magnitud": "Voltaje", "metodo": "Anexo A.2", "frecuencia": "Semestralmente"},
+            "Aislantes - Conductores Aislados": {"limite": "< 35 Volts", "ref_num": 35.0, "tipo_material": "Conductor Aislado", "magnitud": "Voltaje", "metodo": "Anexo A.2", "frecuencia": "Semestralmente"},
+            "Aislantes - Contacto directo": {"limite": "<= 125 Volts/in", "ref_num": 125.0, "tipo_material": "Material Aislante", "magnitud": "Voltaje", "metodo": "Anexo A.2", "frecuencia": "Semestralmente"},
+            "Bolsas blindadas": {"limite": "Visual", "ref_num": 0.0, "tipo_material": "Plástico metalizado", "magnitud": "Otro", "metodo": "Inspección visual", "frecuencia": "Trimestralmente"}
         }
 
         # Extraer Equipos de Supabase
@@ -1041,6 +1058,7 @@ else:
             df_equipos = pd.DataFrame(resp_eq.data)
             lista_equipos = df_equipos["id_equipo"].tolist() if not df_equipos.empty else ["N/A"]
         except:
+            df_equipos = pd.DataFrame()
             lista_equipos = ["Sin conexión"]
 
         tab_registro, tab_historial = st.tabs(["📝 Registrar Validación", "🖼️ Visor de Registros"])
@@ -1058,9 +1076,9 @@ else:
                 ubicacion = c_ub.text_input("Ubicación (Línea / Área)")
                 
                 c_fab, c_mod, c_sn = st.columns(3)
-                fab_elem = c_fab.text_input("Fabricante")
-                mod_elem = c_mod.text_input("Modelo")
-                sn_elem = c_sn.text_input("Número de Serie")
+                fab_elem = c_fab.text_input("Fabricante", value=info.get("fabricante", ""))
+                mod_elem = c_mod.text_input("Modelo", value=info.get("modelo", ""))
+                sn_elem = c_sn.text_input("Número de Serie", value=info.get("numero_serie", ""))
                 
                 st.markdown("#### Condiciones y Parámetros")
                 c_temp, c_hum, c_ref = st.columns(3)
@@ -1091,7 +1109,6 @@ else:
                         proxy_val = calcular_proxima_fecha(fecha_hoy, info["frecuencia"])
                         
                         try:
-                            # Inserción con todas las celdas independientes
                             supabase.table("validacion_esd").insert({
                                 "fecha_auditoria": datetime.now().isoformat(),
                                 "auditor": st.session_state.usuario_nombre,
@@ -1122,7 +1139,184 @@ else:
                             st.error(f"Error SQL: {e}")
 
         with tab_historial:
-            st.markdown("#### 🗂️ Historial de Trazabilidad")
+            st.markdown("#### 🗂️ Historial de Trazabilidad y Reportes PDF")
+            
+            # --- FUNCIÓN ADAPTADA PARA GENERAR EL REPORTE DESDE SQL ---
+            def generar_reporte_sql(row, index, info_dict):
+                # 1. Agrupar mediciones
+                mediciones = []
+                for col in ['medicion_1', 'medicion_2', 'medicion_3', 'medicion_4', 'medicion_5']:
+                    val = row.get(col)
+                    if pd.notna(val) and str(val).strip() != '':
+                        mediciones.append(float(val))
+                
+                promedio = sum(mediciones) / len(mediciones) if mediciones else 0
+                promedio_str = f"{promedio:.2E}" if promedio > 0 else "N/A"
+                
+                # 2. Formatear la referencia
+                ref_num = float(row.get('limite_referencia', 0))
+                ref_str = f"{ref_num:.2E}"
+                
+                # 3. Metadatos
+                elemento = str(row.get('elemento_s20_20', ''))
+                info_elem = info_dict.get(elemento, {})
+                metodo = str(row.get('modo_medicion', '')) + " / " + info_elem.get("metodo", "N/D")
+                unidad = "Segundos" if "Ionizador" in elemento else "Ohms"
+                
+                html_rows = ""
+                for i, val_num in enumerate(mediciones, 1):
+                    val_str = f"{val_num:.2E}" if val_num > 1000 or val_num < 0.01 else str(val_num)
+                    html_rows += f"""
+                    <tr class="border-b border-gray-200 hover:bg-blue-50 print:hover:bg-transparent text-center">
+                        <td class="p-1 border-r border-gray-300 font-bold">{i}</td>
+                        <td class="p-1 border-r border-gray-300 font-mono">{ref_str}</td>
+                        <td class="p-1 border-r border-gray-300 bg-yellow-50 print:bg-transparent font-mono font-bold">{val_str}</td>
+                        <td class="p-1 border-r border-gray-300">{metodo}</td>
+                        <td class="p-1 border-r border-gray-300">{unidad}</td>
+                        <td class="p-1 border-r border-gray-300">{safe_str(row.get('ubicacion'))}</td>
+                    </tr>
+                    """
+                    
+                # 4. Procesar la imagen
+                img_url = safe_str(row.get('imagen_url'), '')
+                if img_url == 'N/D' or img_url == 'Pendiente de Storage' or not img_url:
+                    img_tag = "<span class='text-gray-400 flex flex-col items-center'><br><br>Sin evidencia fotográfica</span>"
+                else:
+                    if img_url.startswith("http"):
+                        img_tag = f'<img src="{img_url}" style="height: 190px; width: auto; max-width: 100%; object-fit: contain; margin: 0 auto;" />'
+                    else:
+                        img_tag = f'<img src="data:image/png;base64,{img_url}" style="height: 190px; width: auto; max-width: 100%; object-fit: contain; margin: 0 auto;" />'
+                
+                fecha_ejecucion = str(row.get('fecha_auditoria', 'N/D'))[:10]
+                año_actual = datetime.today().strftime("%y")
+                
+                # --- PLANTILLA HTML (IDENTICA A LA ORIGINAL) ---
+                html = f"""<!DOCTYPE html>
+                <html lang="es">
+                <head>
+                    <meta charset="UTF-8">
+                    <title>Reporte de Validación S20.20</title>
+                    <script src="https://cdn.tailwindcss.com"></script>
+                    <style>@media print {{ body {{ -webkit-print-color-adjust: exact; }} }}</style>
+                </head>
+                <body class="bg-gray-100 p-4 md:p-8 font-sans text-sm print:bg-white print:p-0">
+                    <div class="max-w-5xl mx-auto mb-6 bg-white p-4 rounded-lg shadow flex justify-end print:hidden">
+                        <button onclick="window.print()" class="bg-blue-600 text-white px-6 py-2 rounded font-bold shadow-sm">🖨️ Imprimir / Guardar PDF</button>
+                    </div>
+                    
+                    <div class="max-w-5xl mx-auto bg-white shadow-xl print:shadow-none print:w-full">
+                        <div class="border-b-2 border-gray-800 p-6 flex items-start justify-between">
+                            <div class="w-1/3">
+                                <img src="https://github.com/aldoaoa/Visualizador-BCS-IDS/blob/main/BCS%20LOGO.png?raw=true" alt="BCS Logo" class="h-16 object-contain" />
+                            </div>
+                            <div class="w-1/3 text-center">
+                                <h1 class="text-lg font-bold text-gray-800">FORMATO DE VALIDACIÓN DE PRODUCTO (ESD)</h1>
+                                <p class="text-xs text-gray-600">ANSI/ESD S20.20-2021</p>
+                            </div>
+                            <div class="w-1/3 text-right text-sm">
+                                <div class="font-bold text-red-700 text-lg mb-2">Reporte: BCS-PV-{index:03d}-{año_actual}</div>
+                                <div class="flex justify-end gap-2 mb-1">
+                                    <span class="font-bold">Fecha de Ejecución:</span><span>{fecha_ejecucion}</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="p-6 space-y-6">
+                            <div class="grid grid-cols-2 gap-6">
+                                <div>
+                                    <div class="bg-gray-800 text-white font-bold px-2 py-1 uppercase text-xs">Datos del Elemento de Control</div>
+                                    <table class="w-full text-sm border-collapse border border-gray-300">
+                                        <tr class="border-b border-gray-300"><td class="w-1/3 font-bold bg-gray-100 p-1 border-r border-gray-300">ID:</td><td class="p-1">{safe_str(row.get('id_elemento'))}</td></tr>
+                                        <tr class="border-b border-gray-300"><td class="w-1/3 font-bold bg-gray-100 p-1 border-r border-gray-300">Elemento:</td><td class="p-1">{safe_str(row.get('elemento_s20_20'))}</td></tr>
+                                        <tr class="border-b border-gray-300"><td class="w-1/3 font-bold bg-gray-100 p-1 border-r border-gray-300">Fabricante:</td><td class="p-1">{safe_str(row.get('fabricante_elem'))}</td></tr>
+                                        <tr class="border-b border-gray-300"><td class="w-1/3 font-bold bg-gray-100 p-1 border-r border-gray-300">Modelo:</td><td class="p-1">{safe_str(row.get('modelo_elem'))}</td></tr>
+                                        <tr><td class="w-1/3 font-bold bg-gray-100 p-1 border-r border-gray-300">No. Serie:</td><td class="p-1">{safe_str(row.get('sn_elem'))}</td></tr>
+                                    </table>
+                                </div>
+                                <div>
+                                    <div class="bg-gray-800 text-white font-bold px-2 py-1 uppercase text-xs">Información General</div>
+                                    <table class="w-full text-sm border-collapse border border-gray-300 h-full">
+                                        <tr class="border-b border-gray-300"><td class="w-1/3 font-bold bg-gray-100 p-1 border-r border-gray-300">Temperatura:</td><td class="p-1">{safe_str(row.get('temperatura'))}</td></tr>
+                                        <tr class="border-b border-gray-300"><td class="w-1/3 font-bold bg-gray-100 p-1 border-r border-gray-300">Humedad:</td><td class="p-1">{safe_str(row.get('humedad'))}</td></tr>
+                                        <tr class="border-b border-gray-300"><td class="w-1/3 font-bold bg-gray-100 p-1 border-r border-gray-300">Ubicación:</td><td class="p-1">{safe_str(row.get('ubicacion'))}</td></tr>
+                                        <tr><td class="w-1/3 font-bold bg-gray-100 p-1 border-r border-gray-300">Magnitud:</td><td class="p-1">{unidad}</td></tr>
+                                    </table>
+                                </div>
+                            </div>
+
+                            <div>
+                                <div class="bg-gray-800 text-white font-bold px-2 py-1 uppercase text-xs">Trazabilidad (Equipo de Medición)</div>
+                                <div class="grid grid-cols-2 border-l border-t border-gray-300">
+                                    <div class="border-r border-b border-gray-300">
+                                        <table class="w-full text-sm">
+                                            <tr class="border-b border-gray-300"><td class="font-bold bg-gray-100 p-1 w-1/3 border-r border-gray-300">ID:</td><td class="p-1">{safe_str(row.get('id_equipo_utilizado'))}</td></tr>
+                                            <tr class="border-b border-gray-300"><td class="font-bold bg-gray-100 p-1 border-r border-gray-300">Equipo:</td><td class="p-1">{safe_str(row.get('tipo_equipo'))}</td></tr>
+                                            <tr class="border-b border-gray-300"><td class="font-bold bg-gray-100 p-1 border-r border-gray-300">Reporte Cal.:</td><td class="p-1">{safe_str(row.get('reporte_calibracion'))}</td></tr>
+                                            <tr><td class="font-bold bg-gray-100 p-1 border-r border-gray-300">Resolución:</td><td class="p-1">{safe_str(row.get('resolucion'))}</td></tr>
+                                        </table>
+                                    </div>
+                                    <div class="border-b border-gray-300">
+                                        <table class="w-full text-sm">
+                                            <tr class="border-b border-gray-300"><td class="font-bold bg-gray-100 p-1 w-1/3 border-r border-gray-300">Fabricante:</td><td class="p-1">{safe_str(row.get('fabricante'))}</td></tr>
+                                            <tr class="border-b border-gray-300"><td class="font-bold bg-gray-100 p-1 border-r border-gray-300">Modelo:</td><td class="p-1">{safe_str(row.get('modelo'))}</td></tr>
+                                            <tr class="border-b border-gray-300"><td class="font-bold bg-gray-100 p-1 border-r border-gray-300">No. Serie:</td><td class="p-1">{safe_str(row.get('numero_serie'))}</td></tr>
+                                            <tr><td class="font-bold bg-gray-100 p-1 border-r border-gray-300">Vigencia Cal.:</td><td class="p-1">{safe_str(row.get('fecha_proxima_calibracion'))}</td></tr>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div>
+                                <div class="bg-gray-800 text-white font-bold px-2 py-1 uppercase text-xs">Resultados (ANSI/ESD S20.20)</div>
+                                <table class="w-full text-sm border-collapse border border-gray-300 text-center">
+                                    <tr class="bg-gray-100 border-b border-gray-300">
+                                        <th class="p-2 border-r border-gray-300">No.</th>
+                                        <th class="p-2 border-r border-gray-300">Referencia</th>
+                                        <th class="p-2 border-r border-gray-300">Resultado Obtenido</th>
+                                        <th class="p-2 border-r border-gray-300">Método de Prueba</th>
+                                        <th class="p-2 border-r border-gray-300">Unidad</th>
+                                        <th class="p-2 border-r border-gray-300">Punto de Colocación</th>
+                                    </tr>
+                                    {html_rows}
+                                    <tr class="border-t-2 border-gray-400 bg-gray-50">
+                                        <td colspan="2" class="p-2 font-bold text-right border-r border-gray-300">Promedio / Final:</td>
+                                        <td class="p-2 font-mono font-bold text-center border-r border-gray-300">{promedio_str}</td>
+                                        <td colspan="3"></td>
+                                    </tr>
+                                </table>
+                            </div>
+
+                            <div class="grid grid-cols-2 gap-6 h-64">
+                                <div class="border border-gray-300 flex flex-col items-center justify-center bg-gray-50 overflow-hidden relative">
+                                    <div class="absolute top-0 left-0 bg-gray-800 text-white font-bold px-2 py-1 uppercase text-xs w-full text-left z-10">Imagen del Producto / Evidencia</div>
+                                    <div class="mt-8 flex-1 flex items-center justify-center p-2">
+                                        {img_tag}
+                                    </div>
+                                </div>
+                                <div class="border border-gray-300 flex flex-col relative">
+                                    <div class="bg-gray-800 text-white font-bold px-2 py-1 uppercase text-xs w-full">Comentarios / Observaciones</div>
+                                    <div class="p-2 text-sm">{safe_str(row.get('notas'), 'Sin observaciones adicionales.')}</div>
+                                    <div class="absolute bottom-2 right-2 text-lg font-bold text-gray-700">{safe_str(row.get('resultado'))}</div>
+                                </div>
+                            </div>
+
+                            <div class="mt-12 mb-8 pt-8">
+                                <div class="w-1/3 mx-auto text-center border-t border-gray-800 pt-2">
+                                    <div class="font-bold uppercase text-sm mb-1">APROBADO Y CERTIFICADO POR:</div>
+                                    <div class="text-center font-bold text-gray-700">{safe_str(row.get('auditor'))}</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="border-t border-gray-300 p-4 text-xs text-gray-500 flex justify-between bg-gray-50">
+                            <div>Ref: E_310_3_001_QRO_SP</div>
+                            <div>Formato: E_310_4_113_QRO_SP_Rev. A</div>
+                        </div>
+                    </div>
+                </body>
+                </html>"""
+                return html
+
             try:
                 resp_val = supabase.table("validacion_esd").select("*").execute()
                 df_val = pd.DataFrame(resp_val.data)
@@ -1131,6 +1325,10 @@ else:
                     st.info("Aún no hay registros de validación en el servidor.")
                 else:
                     df_val = df_val.dropna(subset=['fecha_auditoria', 'elemento_s20_20'], how='all').iloc[::-1]
+                    
+                    # Fusionar con equipos para traer toda la trazabilidad de la calibración al reporte
+                    if not df_equipos.empty:
+                        df_val = df_val.merge(df_equipos, left_on='id_equipo_utilizado', right_on='id_equipo', how='left')
 
                     for index, row in df_val.iterrows():
                         resultado_str = str(row.get('resultado', ''))
@@ -1145,15 +1343,13 @@ else:
                                 st.markdown(f"**Elemento:** {row.get('elemento_s20_20', 'N/D')}")
                                 st.markdown(f"**ID:** {row.get('id_elemento', 'N/D')}")
                                 st.markdown(f"**Ubicación:** {row.get('ubicacion', 'N/D')}")
-                                st.markdown(f"**Fab / Mod:** {row.get('fabricante_elem', 'N/D')} / {row.get('modelo_elem', 'N/D')}")
                                 st.markdown(f"**Temp/Hum:** {row.get('temperatura', 'N/D')} | {row.get('humedad', 'N/D')}")
                             
                             with c_det2:
                                 st.markdown("##### 🛠️ Parámetros de Prueba")
                                 st.markdown(f"**Equipo:** {row.get('id_equipo_utilizado', 'N/D')}")
-                                st.markdown(f"**Modo / Método:** {row.get('modo_medicion', 'N/D')} / {info.get('metodo', 'N/D')}")
+                                st.markdown(f"**Modo:** {row.get('modo_medicion', 'N/D')}")
                                 st.markdown(f"**Límite:** `< {row.get('limite_referencia', 'N/D')}`")
-                                st.markdown(f"**Vence:** {row.get('fecha_proxima_verif', 'N/D')}")
 
                             with c_det3:
                                 st.markdown("##### 📊 Resultados")
@@ -1169,6 +1365,20 @@ else:
                                 st.markdown(f"**Notas:** {row.get('notas', 'Ninguna')}")
                             
                             st.divider()
-                            st.info("El generador de PDFs se actualizará una vez activemos las fotos de Storage.")
+                            
+                            # GENERACIÓN Y DESCARGA DEL REPORTE
+                            html_reporte = generar_reporte_sql(row, index + 1, INFO_ELEMENTOS_ESD)
+                            b64_html_rep = base64.b64encode(html_reporte.encode('utf-8')).decode('utf-8')
+                            
+                            año_actual = datetime.today().strftime("%y")
+                            nombre_archivo_rep = f"Reporte_ESD_{safe_str(row.get('id_elemento'))}_{fecha_corta}.html"
+                            
+                            st.markdown(
+                                f'<a href="data:text/html;base64,{b64_html_rep}" download="{nombre_archivo_rep}" '
+                                f'style="display: block; width: 100%; text-align: center; padding: 12px; '
+                                f'background-color: #2563eb; color: white; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 16px;">'
+                                f'📥 Descargar Reporte Completo (BCS-PV-{(index + 1):03d}-{año_actual})</a>', 
+                                unsafe_allow_html=True
+                            )
             except Exception as e:
                 st.warning(f"Error al cargar historial: {e}")
