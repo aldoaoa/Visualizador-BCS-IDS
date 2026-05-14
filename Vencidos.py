@@ -1023,88 +1023,152 @@ else:
     elif st.session_state.vista_actual == "Validación" and not st.session_state.modo_lectura:
         st.markdown("### ✅ Validación Integral de Elementos de Control ESD")
         
-        # Equipos SQL
+        # Diccionario con los parámetros de la norma
+        INFO_ELEMENTOS_ESD = {
+            "Pulsera antiestática": {"limite": "RS < 3.5x10^7 ohms", "ref_num": 3.5e7, "metodo": "ANSI/ESD TR53", "frecuencia": "Semestralmente"},
+            "Calzado": {"limite": "RS < 1.0x10^9 ohms", "ref_num": 1.0e9, "metodo": "ANSI/ESD TR53", "frecuencia": "Semestralmente"},
+            "Piso ESD": {"limite": "RTG < 1.0x10^9 ohms", "ref_num": 1.0e9, "metodo": "ANSI/ESD TR53", "frecuencia": "Semestralmente"},
+            "Superficie de trabajo": {"limite": "RTG < 1.0x10^9 ohms", "ref_num": 1.0e9, "metodo": "ANSI/ESD TR53", "frecuencia": "Anualmente"},
+            "Ionizador": {"limite": "Descarga: <10s", "ref_num": 10.0, "metodo": "ANSI/ESD SP3.3-2016", "frecuencia": "Trimestralmente"},
+            "Bolsa disipativa": {"limite": "RS < 1.0x10^9 ohms", "ref_num": 1.0e9, "metodo": "ANSI/ESD STM11.11", "frecuencia": "Semestralmente"},
+            "Cautín / Estación de soldar": {"limite": "RTG < 10 ohms", "ref_num": 10.0, "metodo": "ANSI/ESD TR53", "frecuencia": "Semestralmente"},
+            "Silla ESD": {"limite": "RTG < 1.0x10^9 ohms", "ref_num": 1.0e9, "metodo": "ANSI/ESD TR53", "frecuencia": "Semestralmente"}
+        }
+
+        # Extraer Equipos de Supabase
         try:
             resp_eq = supabase.table("equipos_medicion").select("*").execute()
             df_equipos = pd.DataFrame(resp_eq.data)
             lista_equipos = df_equipos["id_equipo"].tolist() if not df_equipos.empty else ["N/A"]
         except:
-            df_equipos = pd.DataFrame()
             lista_equipos = ["Sin conexión"]
 
         tab_registro, tab_historial = st.tabs(["📝 Registrar Validación", "🖼️ Visor de Registros"])
 
         with tab_registro:
             c1, c2 = st.columns(2)
-            elemento_sel = c1.selectbox("Elemento a validar:", ["Superficie de trabajo", "Piso ESD", "Ionizador", "Calzado"])
-            id_equipo_sel = c2.selectbox("ID del Equipo:", lista_equipos)
+            elemento_sel = c1.selectbox("Elemento a validar:", list(INFO_ELEMENTOS_ESD.keys()))
+            info = INFO_ELEMENTOS_ESD[elemento_sel]
+            id_equipo_sel = c2.selectbox("ID del Equipo Utilizado:", lista_equipos)
             
             with st.form("form_val"):
-                id_elemento = st.text_input("ID Elemento")
-                medicion_1 = st.number_input("Medición Principal", value=0.0)
-                referencia = st.number_input("Límite Permitido", value=1.0e9)
-                ubicacion = st.text_input("Ubicación")
-                temp = st.text_input("Temp")
-                hum = st.text_input("Humedad")
-                notas = st.text_area("Notas")
+                st.markdown("#### Datos Generales")
+                c_id, c_ub = st.columns(2)
+                id_elemento = c_id.text_input("ID Elemento")
+                ubicacion = c_ub.text_input("Ubicación (Línea / Área)")
+                
+                c_fab, c_mod, c_sn = st.columns(3)
+                fab_elem = c_fab.text_input("Fabricante")
+                mod_elem = c_mod.text_input("Modelo")
+                sn_elem = c_sn.text_input("Número de Serie")
+                
+                st.markdown("#### Condiciones y Parámetros")
+                c_temp, c_hum, c_ref = st.columns(3)
+                temp = c_temp.text_input("Temperatura", placeholder="Ej: 24 °C")
+                hum = c_hum.text_input("Humedad", placeholder="Ej: 45 %")
+                referencia = c_ref.number_input("Límite Permitido", value=float(info["ref_num"]), format="%g")
+
+                c_met, c_modm = st.columns(2)
+                metodo_med = c_met.text_input("Método S20.20", value=info["metodo"])
+                modo_med = c_modm.text_input("Modo de Medición", placeholder="Ej: PTP, RTG, Voltaje")
+
+                st.markdown("#### Mediciones Obtenidas (Cada una en celda independiente)")
+                cv1, cv2, cv3, cv4, cv5 = st.columns(5)
+                medicion_1 = cv1.number_input("Medición 1 (Oblig.)", value=0.0, format="%g")
+                med_2 = cv2.number_input("Medición 2", value=None, format="%g")
+                med_3 = cv3.number_input("Medición 3", value=None, format="%g")
+                med_4 = cv4.number_input("Medición 4", value=None, format="%g")
+                med_5 = cv5.number_input("Medición 5", value=None, format="%g")
+                
+                notas = st.text_area("Notas u Observaciones")
                 
                 if st.form_submit_button("Guardar Validación en SQL"):
-                    resultado = "CUMPLE (APROBADO)" if medicion_1 < referencia else "NO CUMPLE (RECHAZADO)"
-                    try:
-                        supabase.table("validacion_esd").insert({
-                            "fecha_auditoria": datetime.now().isoformat(),
-                            "auditor": st.session_state.usuario_nombre,
-                            "id_elemento": id_elemento.upper(),
-                            "elemento_s20_20": elemento_sel,
-                            "temperatura": temp,
-                            "humedad": hum,
-                            "id_equipo_utilizado": id_equipo_sel,
-                            "limite_referencia": float(referencia),
-                            "medicion_1": float(medicion_1),
-                            "resultado": resultado,
-                            "notas": notas,
-                            "imagen_url": "Pendiente de Storage"
-                        }).execute()
-                        st.success("Validación Guardada!")
-                        st.cache_data.clear()
-                    except Exception as e:
-                        st.error(f"Error SQL: {e}")
+                    if not id_elemento or not ubicacion:
+                        st.error("⚠️ El ID del elemento y la Ubicación son obligatorios.")
+                    else:
+                        resultado = "CUMPLE (APROBADO)" if medicion_1 < referencia else "NO CUMPLE (RECHAZADO)"
+                        fecha_hoy = datetime.today().date()
+                        proxy_val = calcular_proxima_fecha(fecha_hoy, info["frecuencia"])
+                        
+                        try:
+                            # Inserción con todas las celdas independientes
+                            supabase.table("validacion_esd").insert({
+                                "fecha_auditoria": datetime.now().isoformat(),
+                                "auditor": st.session_state.usuario_nombre,
+                                "id_elemento": id_elemento.upper(),
+                                "elemento_s20_20": elemento_sel,
+                                "fabricante_elem": fab_elem,
+                                "modelo_elem": mod_elem,
+                                "sn_elem": sn_elem,
+                                "ubicacion": ubicacion,
+                                "modo_medicion": modo_med,
+                                "fecha_proxima_verif": proxy_val.isoformat(),
+                                "temperatura": temp,
+                                "humedad": hum,
+                                "id_equipo_utilizado": id_equipo_sel,
+                                "limite_referencia": float(referencia),
+                                "medicion_1": float(medicion_1),
+                                "medicion_2": float(med_2) if med_2 is not None else None,
+                                "medicion_3": float(med_3) if med_3 is not None else None,
+                                "medicion_4": float(med_4) if med_4 is not None else None,
+                                "medicion_5": float(med_5) if med_5 is not None else None,
+                                "resultado": resultado,
+                                "notas": notas,
+                                "imagen_url": "Pendiente de Storage"
+                            }).execute()
+                            st.success("¡Validación Guardada Exitosamente!")
+                            st.cache_data.clear()
+                        except Exception as e:
+                            st.error(f"Error SQL: {e}")
 
         with tab_historial:
-            st.markdown("#### 🗂️ Historial (Directo de Supabase)")
+            st.markdown("#### 🗂️ Historial de Trazabilidad")
             try:
                 resp_val = supabase.table("validacion_esd").select("*").execute()
                 df_val = pd.DataFrame(resp_val.data)
                 
                 if df_val.empty:
-                    st.info("Aún no hay registros de validación.")
+                    st.info("Aún no hay registros de validación en el servidor.")
                 else:
                     df_val = df_val.dropna(subset=['fecha_auditoria', 'elemento_s20_20'], how='all').iloc[::-1]
 
                     for index, row in df_val.iterrows():
                         resultado_str = str(row.get('resultado', ''))
                         icono_res = "🟢" if "CUMPLE" in resultado_str.upper() else "🔴"
+                        fecha_corta = str(row.get('fecha_auditoria', ''))[:10]
                         
-                        with st.expander(f"{icono_res} {str(row.get('fecha_auditoria', ''))[:10]} | {row.get('id_elemento', 'N/D')} ({row.get('elemento_s20_20', '')})"):
+                        with st.expander(f"{icono_res} {fecha_corta} | {row.get('id_elemento', 'N/D')} - {row.get('ubicacion', 'N/D')}"):
                             c_det1, c_det2, c_det3 = st.columns([1, 1, 1])
                             
                             with c_det1:
-                                st.markdown("##### 📦 Detalles Generales")
+                                st.markdown("##### 📦 Detalles del Elemento")
                                 st.markdown(f"**Elemento:** {row.get('elemento_s20_20', 'N/D')}")
                                 st.markdown(f"**ID:** {row.get('id_elemento', 'N/D')}")
+                                st.markdown(f"**Ubicación:** {row.get('ubicacion', 'N/D')}")
+                                st.markdown(f"**Fab / Mod:** {row.get('fabricante_elem', 'N/D')} / {row.get('modelo_elem', 'N/D')}")
                                 st.markdown(f"**Temp/Hum:** {row.get('temperatura', 'N/D')} | {row.get('humedad', 'N/D')}")
                             
                             with c_det2:
-                                st.markdown("##### 🛠️ Equipo y Límite")
-                                st.markdown(f"**Equipo Utilizado:** {row.get('id_equipo_utilizado', 'N/D')}")
-                                st.markdown(f"**Límite S20.20:** `< {row.get('limite_referencia', 'N/D')}`")
+                                st.markdown("##### 🛠️ Parámetros de Prueba")
+                                st.markdown(f"**Equipo:** {row.get('id_equipo_utilizado', 'N/D')}")
+                                st.markdown(f"**Modo / Método:** {row.get('modo_medicion', 'N/D')} / {info.get('metodo', 'N/D')}")
+                                st.markdown(f"**Límite:** `< {row.get('limite_referencia', 'N/D')}`")
+                                st.markdown(f"**Vence:** {row.get('fecha_proxima_verif', 'N/D')}")
 
                             with c_det3:
                                 st.markdown("##### 📊 Resultados")
-                                st.markdown(f"**Medición:** `{row.get('medicion_1', 'N/D')}`")
+                                st.markdown(f"**M1:** `{row.get('medicion_1', 'N/D')}`")
+                                
+                                extras = []
+                                for m in ['medicion_2', 'medicion_3', 'medicion_4', 'medicion_5']:
+                                    if pd.notna(row.get(m)):
+                                        extras.append(str(row.get(m)))
+                                if extras:
+                                    st.markdown(f"**Extras:** `{', '.join(extras)}`")
+                                
                                 st.markdown(f"**Notas:** {row.get('notas', 'Ninguna')}")
                             
                             st.divider()
-                            st.info("El visor de imágenes y PDFs se reactivará al implementar Supabase Storage.")
+                            st.info("El generador de PDFs se actualizará una vez activemos las fotos de Storage.")
             except Exception as e:
                 st.warning(f"Error al cargar historial: {e}")
