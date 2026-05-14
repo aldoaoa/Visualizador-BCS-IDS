@@ -1017,7 +1017,7 @@ else:
                         href = f'<a href="data:text/html;base64,{b64_html}" download="{nombre_archivo}" target="_blank" style="display: block; text-align: center; padding: 15px; background-color: #003366; color: white; text-decoration: none; border-radius: 8px; font-weight: bold; margin-top: 10px; font-size: 16px;">📥 Descargar Reporte Completo (Abrir para imprimir PDF)</a>'
                         st.markdown(href, unsafe_allow_html=True)
 
-    # ==========================================
+# ==========================================
     # VISTA 5: VALIDACIÓN ESD (SISTEMA INTEGRAL)
     # ==========================================
     elif st.session_state.vista_actual == "Validación" and not st.session_state.modo_lectura:
@@ -1118,6 +1118,7 @@ else:
                                 "modelo_elem": mod_elem,
                                 "sn_elem": sn_elem,
                                 "ubicacion": ubicacion,
+                                "metodo": metodo_med,  # <--- GUARDADO CORRECTAMENTE EN SQL
                                 "modo_medicion": modo_med,
                                 "fecha_proxima_verif": proxy_val.isoformat(),
                                 "temperatura": temp,
@@ -1142,7 +1143,7 @@ else:
             st.markdown("#### 🗂️ Historial de Trazabilidad y Reportes PDF")
             
             # --- FUNCIÓN ADAPTADA PARA GENERAR EL REPORTE DESDE SQL ---
-            def generar_reporte_sql(row, index, info_dict):
+            def generar_reporte_sql(row, index):
                 # 1. Agrupar mediciones
                 mediciones = []
                 for col in ['medicion_1', 'medicion_2', 'medicion_3', 'medicion_4', 'medicion_5']:
@@ -1157,10 +1158,12 @@ else:
                 ref_num = float(row.get('limite_referencia', 0))
                 ref_str = f"{ref_num:.2E}"
                 
-                # 3. Metadatos
+                # 3. Metadatos (Usando el Método guardado en SQL)
+                metodo_bd = safe_str(row.get('metodo', 'N/D'))
+                modo_bd = safe_str(row.get('modo_medicion', ''))
+                metodo_final = f"{metodo_bd} ({modo_bd})" if modo_bd != "N/D" and modo_bd != "" else metodo_bd
+                
                 elemento = str(row.get('elemento_s20_20', ''))
-                info_elem = info_dict.get(elemento, {})
-                metodo = str(row.get('modo_medicion', '')) + " / " + info_elem.get("metodo", "N/D")
                 unidad = "Segundos" if "Ionizador" in elemento else "Ohms"
                 
                 html_rows = ""
@@ -1171,7 +1174,7 @@ else:
                         <td class="p-1 border-r border-gray-300 font-bold">{i}</td>
                         <td class="p-1 border-r border-gray-300 font-mono">{ref_str}</td>
                         <td class="p-1 border-r border-gray-300 bg-yellow-50 print:bg-transparent font-mono font-bold">{val_str}</td>
-                        <td class="p-1 border-r border-gray-300">{metodo}</td>
+                        <td class="p-1 border-r border-gray-300">{metodo_final}</td>
                         <td class="p-1 border-r border-gray-300">{unidad}</td>
                         <td class="p-1 border-r border-gray-300">{safe_str(row.get('ubicacion'))}</td>
                     </tr>
@@ -1348,7 +1351,7 @@ else:
                             with c_det2:
                                 st.markdown("##### 🛠️ Parámetros de Prueba")
                                 st.markdown(f"**Equipo:** {row.get('id_equipo_utilizado', 'N/D')}")
-                                st.markdown(f"**Modo:** {row.get('modo_medicion', 'N/D')}")
+                                st.markdown(f"**Modo/Método:** {row.get('modo_medicion', 'N/D')} / {row.get('metodo', 'N/D')}")
                                 st.markdown(f"**Límite:** `< {row.get('limite_referencia', 'N/D')}`")
 
                             with c_det3:
@@ -1367,7 +1370,7 @@ else:
                             st.divider()
                             
                             # GENERACIÓN Y DESCARGA DEL REPORTE
-                            html_reporte = generar_reporte_sql(row, index + 1, INFO_ELEMENTOS_ESD)
+                            html_reporte = generar_reporte_sql(row, index + 1)
                             b64_html_rep = base64.b64encode(html_reporte.encode('utf-8')).decode('utf-8')
                             
                             año_actual = datetime.today().strftime("%y")
