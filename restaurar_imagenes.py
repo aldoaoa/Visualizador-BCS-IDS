@@ -2,7 +2,7 @@ import pandas as pd
 import base64
 import time
 from supabase import create_client, Client
-
+import streamlit as st
 # --- 1. PON TUS CREDENCIALES AQUÍ ---
 url = st.secrets["SUPABASE_URL"]
 key = st.secrets["SUPABASE_KEY"]
