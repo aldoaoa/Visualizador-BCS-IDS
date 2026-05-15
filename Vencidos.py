@@ -56,96 +56,210 @@ MAPA_UNIDADES = {
     "Otro": "N/A"
 }
 
+def limpiar_id(texto):
+    if not texto: return ""
+    # Convierte a texto, quita espacios raros, borra espacios al inicio/fin y lo hace mayúscula
+    return str(texto).replace('\xa0', ' ').strip().upper()
+    
 def generar_html_reporte_completo(row, index):
-    """Genera el reporte con el diseño original de BCS-AIS usando datos de SQL."""
-    # Promedio y mediciones
-    med1 = float(row.get('medicion_1', 0))
-    # ... lógica de promedio si aplica ...
+    """Genera el reporte HTML con el formato original exacto de BCS-AIS usando datos de SQL."""
     
-    img_url = row.get('imagen_url', '')
-    img_tag = f'<img src="{img_url}" style="height: 190px; object-fit: contain; margin: 0 auto;" />' if img_url else "Sin evidencia"
+    # 1. Procesar mediciones
+    med1 = safe_str(row.get('medicion_1', ''), '')
+    med_extra = safe_str(row.get('mediciones_extra', ''), '')
     
-    fecha = str(row.get('fecha_auditoria'))[:10]
-    año = datetime.today().strftime("%y")
-
-    html = f"""
-    <!DOCTYPE html>
-    <html lang="es">
-    <head><script src="https://cdn.tailwindcss.com"></script></head>
-    <body class="bg-white p-4 font-sans text-sm">
-        <div class="max-w-5xl mx-auto border-2 border-gray-800 p-6">
-            <div class="flex justify-between items-start border-b-2 border-gray-800 pb-4 mb-6">
-                <img src="https://github.com/aldoaoa/Visualizador-BCS-IDS/blob/main/BCS%20LOGO.png?raw=true" class="h-16" />
-                <div class="text-center">
-                    <h1 class="text-lg font-bold">FORMATO DE VALIDACIÓN DE PRODUCTO (ESD)</h1>
-                    <p class="text-xs">ANSI/ESD S20.20-2021</p>
-                </div>
-                <div class="text-right">
-                    <div class="text-red-700 font-bold">Reporte: BCS-PV-{index:03d}-{año}</div>
-                    <p>Fecha: {fecha}</p>
-                </div>
-            </div>
+    mediciones = [med1] if med1 else []
+    if med_extra and med_extra != 'N/D':
+        mediciones.extend([m.strip() for m in med_extra.split(',') if m.strip()])
+    
+    valid_nums = []
+    for m in mediciones:
+        try:
+            valid_nums.append(float(m))
+        except: pass
             
-            <div class="grid grid-cols-2 gap-4 mb-6">
-                <table class="w-full border-collapse border border-gray-300">
-                    <tr class="bg-gray-800 text-white"><td colspan="2" class="p-1 font-bold text-xs">DATOS DEL ELEMENTO</td></tr>
-                    <tr><td class="border p-1 font-bold bg-gray-100">ID:</td><td class="border p-1">{row.get('id_elemento')}</td></tr>
-                    <tr><td class="border p-1 font-bold bg-gray-100">Elemento:</td><td class="border p-1">{row.get('elemento_s20_20')}</td></tr>
-                    <tr><td class="border p-1 font-bold bg-gray-100">Fabricante:</td><td class="border p-1">{row.get('fabricante_elem', 'N/D')}</td></tr>
-                </table>
-                <table class="w-full border-collapse border border-gray-300">
-                    <tr class="bg-gray-800 text-white"><td colspan="2" class="p-1 font-bold text-xs">INFORMACIÓN GENERAL</td></tr>
-                    <tr><td class="border p-1 font-bold bg-gray-100">Temperatura:</td><td class="border p-1">{row.get('temperatura')}</td></tr>
-                    <tr><td class="border p-1 font-bold bg-gray-100">Humedad:</td><td class="border p-1">{row.get('humedad')}</td></tr>
-                    <tr><td class="border p-1 font-bold bg-gray-100">Ubicación:</td><td class="border p-1">{row.get('ubicacion')}</td></tr>
-                </table>
-            </div>
+    promedio = sum(valid_nums) / len(valid_nums) if valid_nums else 0
+    promedio_str = f"{promedio:.2E}" if promedio > 0 else "N/A"
+    
+    ref_raw = safe_str(row.get('limite_referencia'))
+    try:
+        ref_num = float(ref_raw)
+        # Forzamos formato científico si es muy grande (ej. 3.5e7 -> 3.50E+07) o muy pequeño
+        ref_str = f"{ref_num:.2E}" if ref_num > 1000 or ref_num < 0.01 else str(ref_num)
+    except:
+        ref_str = ref_raw
 
-            <div class="mb-6">
-                <div class="bg-gray-800 text-white p-1 font-bold text-xs">TRAZABILIDAD (EQUIPO DE MEDICIÓN)</div>
-                <div class="grid grid-cols-2">
-                    <table class="w-full border">
-                        <tr><td class="border p-1 font-bold bg-gray-100">ID:</td><td class="border p-1">{row.get('id_equipo_utilizado')}</td></tr>
-                        <tr><td class="border p-1 font-bold bg-gray-100">Reporte:</td><td class="border p-1">{row.get('reporte_cal')}</td></tr>
-                    </table>
-                    <table class="w-full border">
-                        <tr><td class="border p-1 font-bold bg-gray-100">Fabricante:</td><td class="border p-1">{row.get('fabricante_eq')}</td></tr>
-                        <tr><td class="border p-1 font-bold bg-gray-100">Vigencia:</td><td class="border p-1">{row.get('fecha_prox_cal')}</td></tr>
-                    </table>
+    # 2. Generar las filas de la tabla de resultados
+    html_rows = ""
+    for i, val in enumerate(mediciones, 1):
+        try:
+            val_num = float(val)
+            val_str = f"{val_num:.2E}" if val_num > 1000 or val_num < 0.01 else str(val)
+        except:
+            val_str = val
+            
+        html_rows += f"""
+        <tr class="border-b border-gray-200 hover:bg-blue-50 print:hover:bg-transparent text-center">
+            <td class="p-1 border-r border-gray-300 font-bold">{i}</td>
+            <td class="p-1 border-r border-gray-300">{ref_str}</td>
+            <td class="p-1 border-r border-gray-300">0.0</td>
+            <td class="p-1 border-r border-gray-300 bg-yellow-50 print:bg-transparent font-mono font-bold">{val_str}</td>
+            <td class="p-1 border-r border-gray-300">{safe_str(row.get('metodo'))}</td>
+            <td class="p-1 border-r border-gray-300">{safe_str(row.get('unidad'))}</td>
+            <td class="p-1 border-r border-gray-300">{safe_str(row.get('ubicacion'))}</td>
+        </tr>
+        """
+        
+    # 3. Procesar Imagen
+    img_url = safe_str(row.get('imagen_url', ''))
+    if img_url == 'N/D' or not img_url or img_url.lower() in ['nan', 'none', 'null', 'pendiente de storage']:
+        img_tag = "<span class='text-gray-400 flex flex-col items-center'><br><br>Sin evidencia fotográfica</span>"
+    else:
+        img_tag = f'<img src="{img_url}" style="height: 190px; width: auto; max-width: 100%; object-fit: contain; margin: 0 auto;" />'
+        
+    # 4. Formatear la fecha
+    fecha_raw = safe_str(row.get('fecha_auditoria'))
+    try:
+        dt = datetime.fromisoformat(fecha_raw.split('.')[0])
+        meses = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"]
+        fecha_ejecucion = f"{dt.day:02d}-{meses[dt.month-1]}-{dt.year}"
+    except:
+        fecha_ejecucion = fecha_raw.split('T')[0] if 'T' in fecha_raw else fecha_raw
+
+    año_actual = datetime.today().strftime("%y")
+    
+    # 5. Extraer magnitud basada en el elemento
+    elemento = safe_str(row.get('elemento_s20_20', ''))
+    magnitud = INFO_ELEMENTOS_ESD.get(elemento, {}).get("magnitud", "N/D")
+    
+    # --- PLANTILLA HTML EXACTA ---
+    html = f"""<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Reporte de Validación S20.20</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @media print {{ body {{ -webkit-print-color-adjust: exact; }} }}
+    </style>
+</head>
+<body class="bg-gray-100 p-4 md:p-8 font-sans text-sm print:bg-white print:p-0">
+    <div class="max-w-5xl mx-auto mb-6 bg-white p-4 rounded-lg shadow flex justify-end print:hidden">
+        <button onclick="window.print()" class="bg-blue-600 text-white px-6 py-2 rounded font-bold shadow-sm">🖨️ Imprimir / Guardar PDF</button>
+    </div>
+    
+    <div class="max-w-5xl mx-auto bg-white shadow-xl print:shadow-none print:w-full">
+        <div class="border-b-2 border-gray-800 p-6 flex items-start justify-between">
+            <div class="w-1/3">
+                <img src="https://github.com/aldoaoa/Visualizador-BCS-IDS/blob/main/BCS%20LOGO.png?raw=true" alt="BCS Logo" class="h-16 object-contain" />
+            </div>
+            <div class="w-1/3 text-center">
+                <h1 class="text-lg font-bold text-gray-800">FORMATO DE VALIDACIÓN DE PRODUCTO (ESD)</h1>
+                <p class="text-xs text-gray-600">ANSI/ESD S20.20-2021</p>
+            </div>
+            <div class="w-1/3 text-right text-sm">
+                <div class="font-bold text-red-700 text-lg mb-2">Reporte: BCS-PV-{index:03d}-{año_actual}</div>
+                <div class="flex justify-end gap-2 mb-1">
+                    <span class="font-bold">Fecha de Ejecución:</span><span>{fecha_ejecucion}</span>
                 </div>
-            </div>
-
-            <table class="w-full border-collapse border border-gray-800 text-center mb-6">
-                <tr class="bg-gray-200">
-                    <th class="border p-2">Referencia</th>
-                    <th class="border p-2">Resultado</th>
-                    <th class="border p-2">Método</th>
-                    <th class="border p-2">Unidad</th>
-                </tr>
-                <tr>
-                    <td class="border p-2">{row.get('limite_referencia'):.2E}</td>
-                    <td class="border p-2 font-bold">{row.get('medicion_1'):.2E}</td>
-                    <td class="border p-2">{row.get('metodo')}</td>
-                    <td class="border p-2">{row.get('unidad')}</td>
-                </tr>
-            </table>
-
-            <div class="grid grid-cols-2 gap-4 h-64 border p-2">
-                <div class="flex items-center justify-center border">{img_tag}</div>
-                <div class="border p-2 relative">
-                    <p class="font-bold text-xs uppercase underline">Notas:</p>
-                    <p class="text-xs">{row.get('notas')}</p>
-                    <p class="absolute bottom-2 right-2 font-bold text-lg">{row.get('resultado')}</p>
-                </div>
-            </div>
-
-            <div class="mt-10 text-center">
-                <div class="border-t border-black w-64 mx-auto pt-1 font-bold">APROBADO POR: {row.get('auditor')}</div>
             </div>
         </div>
-    </body>
-    </html>
-    """
+
+        <div class="p-6 space-y-6">
+            <div class="grid grid-cols-2 gap-6">
+                <div>
+                    <div class="bg-gray-800 text-white font-bold px-2 py-1 uppercase text-xs">Datos del Elemento de Control</div>
+                    <table class="w-full text-sm border-collapse border border-gray-300">
+                        <tr class="border-b border-gray-300"><td class="w-1/3 font-bold bg-gray-100 p-1 border-r border-gray-300">ID:</td><td class="p-1">{safe_str(row.get('id_elemento'))}</td></tr>
+                        <tr class="border-b border-gray-300"><td class="w-1/3 font-bold bg-gray-100 p-1 border-r border-gray-300">Elemento:</td><td class="p-1">{safe_str(row.get('elemento_s20_20'))}</td></tr>
+                        <tr class="border-b border-gray-300"><td class="w-1/3 font-bold bg-gray-100 p-1 border-r border-gray-300">Fabricante:</td><td class="p-1">{safe_str(row.get('fabricante_elem'))}</td></tr>
+                        <tr class="border-b border-gray-300"><td class="w-1/3 font-bold bg-gray-100 p-1 border-r border-gray-300">Modelo:</td><td class="p-1">{safe_str(row.get('modelo_elem'))}</td></tr>
+                        <tr><td class="w-1/3 font-bold bg-gray-100 p-1 border-r border-gray-300">No. Serie:</td><td class="p-1">{safe_str(row.get('sn_elem'))}</td></tr>
+                    </table>
+                </div>
+                <div>
+                    <div class="bg-gray-800 text-white font-bold px-2 py-1 uppercase text-xs">Información General</div>
+                    <table class="w-full text-sm border-collapse border border-gray-300 h-full">
+                        <tr class="border-b border-gray-300"><td class="w-1/3 font-bold bg-gray-100 p-1 border-r border-gray-300">Temperatura:</td><td class="p-1">{safe_str(row.get('temperatura'))}</td></tr>
+                        <tr class="border-b border-gray-300"><td class="w-1/3 font-bold bg-gray-100 p-1 border-r border-gray-300">Humedad:</td><td class="p-1">{safe_str(row.get('humedad'))}</td></tr>
+                        <tr class="border-b border-gray-300"><td class="w-1/3 font-bold bg-gray-100 p-1 border-r border-gray-300">Ubicación:</td><td class="p-1">{safe_str(row.get('ubicacion'))}</td></tr>
+                        <tr><td class="w-1/3 font-bold bg-gray-100 p-1 border-r border-gray-300">Magnitud:</td><td class="p-1">{magnitud}</td></tr>
+                    </table>
+                </div>
+            </div>
+
+            <div>
+                <div class="bg-gray-800 text-white font-bold px-2 py-1 uppercase text-xs">Trazabilidad (Equipo de Medición)</div>
+                <div class="grid grid-cols-2 border-l border-t border-gray-300">
+                    <div class="border-r border-b border-gray-300">
+                        <table class="w-full text-sm">
+                            <tr class="border-b border-gray-300"><td class="font-bold bg-gray-100 p-1 w-1/3 border-r border-gray-300">ID:</td><td class="p-1">{safe_str(row.get('id_equipo_utilizado'))}</td></tr>
+                            <tr class="border-b border-gray-300"><td class="font-bold bg-gray-100 p-1 border-r border-gray-300">Equipo:</td><td class="p-1">{safe_str(row.get('tipo_equipo'))}</td></tr>
+                            <tr class="border-b border-gray-300"><td class="font-bold bg-gray-100 p-1 border-r border-gray-300">Reporte Cal.:</td><td class="p-1">{safe_str(row.get('reporte_cal'))}</td></tr>
+                            <tr><td class="font-bold bg-gray-100 p-1 border-r border-gray-300">Resolución:</td><td class="p-1">{safe_str(row.get('resolucion'))}</td></tr>
+                        </table>
+                    </div>
+                    <div class="border-b border-gray-300">
+                        <table class="w-full text-sm">
+                            <tr class="border-b border-gray-300"><td class="font-bold bg-gray-100 p-1 w-1/3 border-r border-gray-300">Fabricante:</td><td class="p-1">{safe_str(row.get('fabricante_eq'))}</td></tr>
+                            <tr class="border-b border-gray-300"><td class="font-bold bg-gray-100 p-1 border-r border-gray-300">Modelo:</td><td class="p-1">{safe_str(row.get('modelo_eq'))}</td></tr>
+                            <tr class="border-b border-gray-300"><td class="font-bold bg-gray-100 p-1 border-r border-gray-300">No. Serie:</td><td class="p-1">{safe_str(row.get('sn_eq'))}</td></tr>
+                            <tr><td class="font-bold bg-gray-100 p-1 border-r border-gray-300">Vigencia Cal.:</td><td class="p-1">{safe_str(row.get('fecha_prox_cal'))}</td></tr>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div>
+                <div class="bg-gray-800 text-white font-bold px-2 py-1 uppercase text-xs">Resultados (ANSI/ESD S20.20)</div>
+                <table class="w-full text-sm border-collapse border border-gray-300 text-center">
+                    <tr class="bg-gray-100 border-b border-gray-300">
+                        <th class="p-2 border-r border-gray-300">No.</th>
+                        <th class="p-2 border-r border-gray-300">Referencia</th>
+                        <th class="p-2 border-r border-gray-300">Tolerancia</th>
+                        <th class="p-2 border-r border-gray-300">Resultado Obtenido</th>
+                        <th class="p-2 border-r border-gray-300">Método de Prueba</th>
+                        <th class="p-2 border-r border-gray-300">Unidad</th>
+                        <th class="p-2 border-r border-gray-300">Punto de Colocación</th>
+                    </tr>
+                    {html_rows}
+                    <tr class="border-t-2 border-gray-400 bg-gray-50">
+                        <td colspan="3" class="p-2 font-bold text-right border-r border-gray-300">Promedio / Final:</td>
+                        <td class="p-2 font-mono font-bold text-center border-r border-gray-300">{promedio_str}</td>
+                        <td colspan="3"></td>
+                    </tr>
+                </table>
+            </div>
+
+            <div class="grid grid-cols-2 gap-6 h-64">
+                <div class="border border-gray-300 flex flex-col items-center justify-center bg-gray-50 overflow-hidden relative">
+                    <div class="absolute top-0 left-0 bg-gray-800 text-white font-bold px-2 py-1 uppercase text-xs w-full text-left z-10">Imagen del Producto / Evidencia</div>
+                    <div class="mt-8 flex-1 flex items-center justify-center p-2">
+                        {img_tag}
+                    </div>
+                </div>
+                <div class="border border-gray-300 flex flex-col relative">
+                    <div class="bg-gray-800 text-white font-bold px-2 py-1 uppercase text-xs w-full">Comentarios / Observaciones</div>
+                    <div class="p-2 text-sm">{safe_str(row.get('notas'), 'Sin observaciones adicionales.')}</div>
+                    <div class="absolute bottom-2 right-2 text-lg font-bold text-gray-700">{safe_str(row.get('resultado'))}</div>
+                </div>
+            </div>
+
+            <div class="mt-12 mb-8 pt-8">
+                <div class="w-1/3 mx-auto text-center border-t border-gray-800 pt-2">
+                    <div class="font-bold uppercase text-sm mb-1">APROBADO Y CERTIFICADO POR:</div>
+                    <div class="text-center font-bold text-gray-700">{safe_str(row.get('auditor'))}</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="border-t border-gray-300 p-4 text-xs text-gray-500 flex justify-between bg-gray-50">
+            <div>Ref: E_310_3_001_QRO_SP</div>
+            <div>Formato: E_310_4_113_QRO_SP_Rev. A</div>
+        </div>
+    </div>
+</body>
+</html>"""
     return html
     
 # --- CONEXIÓN A SUPABASE ---
