@@ -4,8 +4,8 @@ import time
 from supabase import create_client, Client
 
 # --- 1. PON TUS CREDENCIALES AQUÍ ---
-    url = st.secrets["SUPABASE_URL"]
-    key = st.secrets["SUPABASE_KEY"]
+url = st.secrets["SUPABASE_URL"]
+key = st.secrets["SUPABASE_KEY"]
 
 supabase: Client = create_client(url, key)
 
