@@ -56,6 +56,98 @@ MAPA_UNIDADES = {
     "Otro": "N/A"
 }
 
+def generar_html_reporte_completo(row, index):
+    """Genera el reporte con el diseño original de BCS-AIS usando datos de SQL."""
+    # Promedio y mediciones
+    med1 = float(row.get('medicion_1', 0))
+    # ... lógica de promedio si aplica ...
+    
+    img_url = row.get('imagen_url', '')
+    img_tag = f'<img src="{img_url}" style="height: 190px; object-fit: contain; margin: 0 auto;" />' if img_url else "Sin evidencia"
+    
+    fecha = str(row.get('fecha_auditoria'))[:10]
+    año = datetime.today().strftime("%y")
+
+    html = f"""
+    <!DOCTYPE html>
+    <html lang="es">
+    <head><script src="https://cdn.tailwindcss.com"></script></head>
+    <body class="bg-white p-4 font-sans text-sm">
+        <div class="max-w-5xl mx-auto border-2 border-gray-800 p-6">
+            <div class="flex justify-between items-start border-b-2 border-gray-800 pb-4 mb-6">
+                <img src="https://github.com/aldoaoa/Visualizador-BCS-IDS/blob/main/BCS%20LOGO.png?raw=true" class="h-16" />
+                <div class="text-center">
+                    <h1 class="text-lg font-bold">FORMATO DE VALIDACIÓN DE PRODUCTO (ESD)</h1>
+                    <p class="text-xs">ANSI/ESD S20.20-2021</p>
+                </div>
+                <div class="text-right">
+                    <div class="text-red-700 font-bold">Reporte: BCS-PV-{index:03d}-{año}</div>
+                    <p>Fecha: {fecha}</p>
+                </div>
+            </div>
+            
+            <div class="grid grid-cols-2 gap-4 mb-6">
+                <table class="w-full border-collapse border border-gray-300">
+                    <tr class="bg-gray-800 text-white"><td colspan="2" class="p-1 font-bold text-xs">DATOS DEL ELEMENTO</td></tr>
+                    <tr><td class="border p-1 font-bold bg-gray-100">ID:</td><td class="border p-1">{row.get('id_elemento')}</td></tr>
+                    <tr><td class="border p-1 font-bold bg-gray-100">Elemento:</td><td class="border p-1">{row.get('elemento_s20_20')}</td></tr>
+                    <tr><td class="border p-1 font-bold bg-gray-100">Fabricante:</td><td class="border p-1">{row.get('fabricante_elem', 'N/D')}</td></tr>
+                </table>
+                <table class="w-full border-collapse border border-gray-300">
+                    <tr class="bg-gray-800 text-white"><td colspan="2" class="p-1 font-bold text-xs">INFORMACIÓN GENERAL</td></tr>
+                    <tr><td class="border p-1 font-bold bg-gray-100">Temperatura:</td><td class="border p-1">{row.get('temperatura')}</td></tr>
+                    <tr><td class="border p-1 font-bold bg-gray-100">Humedad:</td><td class="border p-1">{row.get('humedad')}</td></tr>
+                    <tr><td class="border p-1 font-bold bg-gray-100">Ubicación:</td><td class="border p-1">{row.get('ubicacion')}</td></tr>
+                </table>
+            </div>
+
+            <div class="mb-6">
+                <div class="bg-gray-800 text-white p-1 font-bold text-xs">TRAZABILIDAD (EQUIPO DE MEDICIÓN)</div>
+                <div class="grid grid-cols-2">
+                    <table class="w-full border">
+                        <tr><td class="border p-1 font-bold bg-gray-100">ID:</td><td class="border p-1">{row.get('id_equipo_utilizado')}</td></tr>
+                        <tr><td class="border p-1 font-bold bg-gray-100">Reporte:</td><td class="border p-1">{row.get('reporte_cal')}</td></tr>
+                    </table>
+                    <table class="w-full border">
+                        <tr><td class="border p-1 font-bold bg-gray-100">Fabricante:</td><td class="border p-1">{row.get('fabricante_eq')}</td></tr>
+                        <tr><td class="border p-1 font-bold bg-gray-100">Vigencia:</td><td class="border p-1">{row.get('fecha_prox_cal')}</td></tr>
+                    </table>
+                </div>
+            </div>
+
+            <table class="w-full border-collapse border border-gray-800 text-center mb-6">
+                <tr class="bg-gray-200">
+                    <th class="border p-2">Referencia</th>
+                    <th class="border p-2">Resultado</th>
+                    <th class="border p-2">Método</th>
+                    <th class="border p-2">Unidad</th>
+                </tr>
+                <tr>
+                    <td class="border p-2">{row.get('limite_referencia'):.2E}</td>
+                    <td class="border p-2 font-bold">{row.get('medicion_1'):.2E}</td>
+                    <td class="border p-2">{row.get('metodo')}</td>
+                    <td class="border p-2">{row.get('unidad')}</td>
+                </tr>
+            </table>
+
+            <div class="grid grid-cols-2 gap-4 h-64 border p-2">
+                <div class="flex items-center justify-center border">{img_tag}</div>
+                <div class="border p-2 relative">
+                    <p class="font-bold text-xs uppercase underline">Notas:</p>
+                    <p class="text-xs">{row.get('notas')}</p>
+                    <p class="absolute bottom-2 right-2 font-bold text-lg">{row.get('resultado')}</p>
+                </div>
+            </div>
+
+            <div class="mt-10 text-center">
+                <div class="border-t border-black w-64 mx-auto pt-1 font-bold">APROBADO POR: {row.get('auditor')}</div>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+    return html
+    
 # --- CONEXIÓN A SUPABASE ---
 @st.cache_resource
 def init_connection():
@@ -1159,77 +1251,140 @@ else:
                         href = f'<a href="data:text/html;base64,{b64_html}" download="{nombre_archivo}" target="_blank" style="display: block; text-align: center; padding: 15px; background-color: #003366; color: white; text-decoration: none; border-radius: 8px; font-weight: bold; margin-top: 10px; font-size: 16px;">📥 Descargar Reporte Completo (Abrir para imprimir PDF)</a>'
                         st.markdown(href, unsafe_allow_html=True)
 
-    # ==========================================
+# ==========================================
     # VISTA 5: VALIDACIÓN ESD (SISTEMA INTEGRAL)
     # ==========================================
     elif st.session_state.vista_actual == "Validación" and not st.session_state.modo_lectura:
         st.markdown("### ✅ Validación Integral de Elementos de Control ESD")
-        
+        st.info("Registro de trazabilidad completa. Selecciona el equipo de medición y el elemento para autocompletar la información.")
+
+        if "val_form_key" not in st.session_state:
+            st.session_state.val_form_key = 0
+
+        # --- CARGAR EQUIPOS DESDE SQL ---
         try:
             resp_eq = supabase.table("equipos_medicion").select("*").execute()
             df_equipos = pd.DataFrame(resp_eq.data)
-            lista_equipos = df_equipos["id_equipo"].tolist() if not df_equipos.empty else ["N/A"]
+            lista_equipos = df_equipos["id_equipo"].dropna().unique().tolist() if not df_equipos.empty else []
         except:
             df_equipos = pd.DataFrame()
-            lista_equipos = ["Sin conexión"]
+            lista_equipos = ["Error de conexión"]
 
         tab_registro, tab_historial = st.tabs(["📝 Registrar Validación", "🖼️ Visor de Registros"])
 
         with tab_registro:
-            c1, c2 = st.columns(2)
-            elemento_sel = c1.selectbox("Elemento a validar:", list(INFO_ELEMENTOS_ESD.keys()))
-            id_equipo_sel = c2.selectbox("ID del Equipo:", lista_equipos)
+            if "val_success_msg" in st.session_state and st.session_state.val_success_msg:
+                st.success(st.session_state.val_success_msg)
+                st.session_state.val_success_msg = ""
+
+            st.markdown("#### 1. Selección de Parámetros Globales")
+            c_dyn1, c_dyn2, c_dyn3 = st.columns(3)
+            elemento_sel = c_dyn1.selectbox("Elemento S20.20 a validar:", options=list(INFO_ELEMENTOS_ESD.keys()))
+            info = INFO_ELEMENTOS_ESD[elemento_sel]
             
-            with st.form("form_val"):
-                id_elemento = st.text_input("ID Elemento")
-                medicion_1 = st.number_input("Medición Principal", value=0.0)
-                referencia = st.number_input("Límite Permitido", value=float(INFO_ELEMENTOS_ESD[elemento_sel]["ref_num"]))
-                ubicacion = st.text_input("Ubicación")
-                temp = st.text_input("Temp")
-                hum = st.text_input("Humedad")
-                notas = st.text_area("Notas")
+            id_equipo_sel = c_dyn2.selectbox("ID del Equipo de Medición:", options=lista_equipos)
+            
+            opciones_magnitud = list(MAPA_UNIDADES.keys())
+            idx_mag = opciones_magnitud.index(info["magnitud"]) if info["magnitud"] in opciones_magnitud else 0
+            magnitud_med = c_dyn3.selectbox("Magnitud Medida:", options=opciones_magnitud, index=idx_mag)
+            unidad_auto = MAPA_UNIDADES.get(magnitud_med, "")
+
+            # Obtener metadata del equipo seleccionado
+            eq_data = {k: "N/D" for k in ["tipo_equipo", "reporte_calibracion", "resolucion", "fabricante", "modelo", "numero_serie", "fecha_proxima_calibracion"]}
+            if not df_equipos.empty and id_equipo_sel in lista_equipos:
+                fila_eq = df_equipos[df_equipos["id_equipo"] == id_equipo_sel]
+                if not fila_eq.empty:
+                    eq_data = fila_eq.iloc[0].to_dict()
+
+            with st.form(f"form_validacion_esd_{st.session_state.val_form_key}"):
+                st.markdown("#### 2. Datos del Elemento a Validar")
+                c1, c2 = st.columns([1, 2])
+                id_elemento = c1.text_input("ID del Elemento", placeholder="Ej: SILLA-05")
+                tipo_material = c2.text_input("Tipo de Material", value=info["tipo_material"])
                 
-                st.markdown("#### 📸 Evidencia Fotográfica")
+                c4, c5, c6 = st.columns(3)
+                fab_elem = c4.text_input("Fabricante del Elemento")
+                mod_elem = c5.text_input("Modelo del Elemento")
+                sn_elem = c6.text_input("Número de Serie")
+
+                st.markdown("#### 3. Condiciones Ambientales y Ubicación")
+                c7, c8, c9 = st.columns(3)
+                ubicacion = c7.text_input("Ubicación de Medición (Línea / Área)")
+                temp = c8.text_input("Temperatura", value="23.5 °C")
+                humedad = c9.text_input("Humedad Relativa", value="45 %")
+
+                st.markdown("#### 4. Parámetros y Medición")
+                cm1, cm2, cm3 = st.columns(3)
+                metodo_med = cm1.text_input("Método", value=info["metodo"])
+                modo_med = cm2.text_input("Modo de Medición", placeholder="Ej: RTG")
+                unidad_med = cm3.text_input("Unidad", value=unidad_auto)
+
+                referencia = st.number_input("Límite Permitido (Referencia)", value=float(info["ref_num"]), format="%g")
+
+                st.markdown("##### Resultados")
+                cv1, cv2 = st.columns(2)
+                medicion_1 = cv1.number_input("Medición 1 (Obligatoria)", value=0.0, format="%g")
+                med_extra = cv2.text_input("Mediciones Extra (opcional, separar por comas)")
+                
+                notas_val = st.text_area("Notas / Observaciones")
+
+                st.markdown("#### 5. Evidencia")
                 col_img1, col_img2 = st.columns(2)
-                imagen_camara = col_img1.camera_input("Capturar foto")
-                imagen_subida = col_img2.file_uploader("Subir archivo", type=["jpg", "jpeg", "png"])
-                imagen_final = imagen_camara if imagen_camara is not None else imagen_subida
-                
-                if st.form_submit_button("Guardar Validación en SQL"):
-                    if not id_elemento:
-                        st.error("⚠️ El ID del elemento es obligatorio.")
-                    elif imagen_final is None:
-                        st.error("⚠️ La evidencia fotográfica es obligatoria.")
+                imagen_camara = col_img1.camera_input("Foto")
+                imagen_subida = col_img2.file_uploader("Subir imagen", type=["jpg", "png"])
+                imagen_final = imagen_camara if imagen_camara else imagen_subida
+
+                if st.form_submit_button("💾 Evaluar y Guardar Trazabilidad Completa", use_container_width=True):
+                    if not id_elemento or not ubicacion or not imagen_final:
+                        st.error("⚠️ ID, Ubicación y Foto son obligatorios.")
                     else:
-                        with st.spinner("Subiendo foto y guardando registro..."):
-                            resultado = "CUMPLE (APROBADO)" if medicion_1 < referencia else "NO CUMPLE (RECHAZADO)"
-                            url_evidencia = subir_evidencia_storage(imagen_final, id_elemento.upper())
+                        with st.spinner("Procesando..."):
+                            resultado_calc = "CUMPLE (APROBADO)" if medicion_1 < referencia else "NO CUMPLE (RECHAZADO)"
+                            url_foto = subir_evidencia_storage(imagen_final, id_elemento.upper())
                             
                             try:
                                 supabase.table("validacion_esd").insert({
                                     "fecha_auditoria": datetime.now().isoformat(),
                                     "auditor": st.session_state.usuario_nombre,
-                                    "id_elemento": id_elemento.upper(),
                                     "elemento_s20_20": elemento_sel,
+                                    "id_elemento": id_elemento.upper(),
+                                    "tipo_material": tipo_material,
+                                    "fabricante_elem": fab_elem,
+                                    "modelo_elem": mod_elem,
+                                    "sn_elem": sn_elem,
                                     "temperatura": temp,
-                                    "humedad": hum,
+                                    "humedad": humedad,
+                                    "ubicacion": ubicacion,
                                     "id_equipo_utilizado": id_equipo_sel,
+                                    "tipo_equipo": eq_data.get('tipo_equipo'),
+                                    "reporte_cal": eq_data.get('reporte_calibracion'),
+                                    "resolucion": eq_data.get('resolucion'),
+                                    "fabricante_eq": eq_data.get('fabricante'),
+                                    "modelo_eq": eq_data.get('modelo'),
+                                    "sn_eq": eq_data.get('numero_serie'),
+                                    "fecha_prox_cal": str(eq_data.get('fecha_proxima_calibracion')),
                                     "limite_referencia": float(referencia),
                                     "medicion_1": float(medicion_1),
-                                    "resultado": resultado,
-                                    "notas": notas,
-                                    "imagen_url": url_evidencia 
+                                    "mediciones_extra": med_extra,
+                                    "unidad": unidad_med,
+                                    "metodo": metodo_med,
+                                    "modo_medicion": modo_med,
+                                    "resultado": resultado_calc,
+                                    "notas": notas_val,
+                                    "imagen_url": url_foto
                                 }).execute()
                                 
-                                st.success("✅ ¡Validación y foto guardadas con éxito!")
+                                st.session_state.val_success_msg = f"✅ Guardado. Resultado: {resultado_calc}"
+                                st.session_state.val_form_key += 1
                                 st.cache_data.clear()
+                                st.rerun()
                             except Exception as e:
                                 st.error(f"Error SQL: {e}")
 
         with tab_historial:
             col_h1, col_h2 = st.columns([0.8, 0.2])
-            col_h1.markdown("#### 🗂️ Historial (Directo de Supabase)")
-            if col_h2.button("🔄 Actualizar", use_container_width=True):
+            col_h1.markdown("#### 🗂️ Dashboard de Registros Históricos")
+            if col_h2.button("🔄 Actualizar Datos", use_container_width=True):
                 st.cache_data.clear()
                 st.rerun()
 
@@ -1238,58 +1393,55 @@ else:
                 df_val = pd.DataFrame(resp_val.data)
                 
                 if df_val.empty:
-                    st.info("Aún no hay registros de validación.")
+                    st.info("Aún no hay registros.")
                 else:
-                    df_val = df_val.dropna(subset=['fecha_auditoria', 'elemento_s20_20'], how='all').iloc[::-1]
+                    df_val = df_val.sort_values('fecha_auditoria', ascending=False)
 
                     for index, row in df_val.iterrows():
-                        resultado_str = str(row.get('resultado', ''))
-                        icono_res = "🟢" if "CUMPLE" in resultado_str.upper() else "🔴"
+                        res = safe_str(row.get('resultado', ''))
+                        icono = "🟢" if "CUMPLE" in res.upper() else "🔴"
+                        fecha_corta = str(row.get('fecha_auditoria'))[:10]
                         
-                        with st.expander(f"{icono_res} {str(row.get('fecha_auditoria', ''))[:10]} | {row.get('id_elemento', 'N/D')} ({row.get('elemento_s20_20', '')})"):
+                        with st.expander(f"{icono} {fecha_corta} | {row.get('id_elemento')} ({row.get('elemento_s20_20')}) - {row.get('ubicacion')}"):
                             c_det1, c_det2, c_det3, c_img = st.columns([1, 1, 1, 1.5])
                             
                             with c_det1:
-                                st.markdown("##### 📦 Detalles Generales")
-                                st.markdown(f"**Elemento:** {row.get('elemento_s20_20', 'N/D')}")
-                                st.markdown(f"**ID:** {row.get('id_elemento', 'N/D')}")
-                                st.markdown(f"**Temp/Hum:** {row.get('temperatura', 'N/D')} | {row.get('humedad', 'N/D')}")
+                                st.markdown("##### 📦 Elemento")
+                                st.write(f"**ID:** {row.get('id_elemento')}")
+                                st.write(f"**Fabricante:** {row.get('fabricante_elem')}")
+                                st.write(f"**Modelo:** {row.get('modelo_elem')}")
+                                st.write(f"**Material:** {row.get('tipo_material')}")
                             
                             with c_det2:
-                                st.markdown("##### 🛠️ Equipo y Límite")
-                                st.markdown(f"**Equipo Utilizado:** {row.get('id_equipo_utilizado', 'N/D')}")
-                                st.markdown(f"**Límite S20.20:** `< {row.get('limite_referencia', 'N/D')}`")
-
+                                st.markdown("##### 🛠️ Trazabilidad")
+                                st.write(f"**Equipo:** {row.get('id_equipo_utilizado')}")
+                                st.write(f"**Certificado:** {row.get('reporte_cal')}")
+                                st.write(f"**Próx. Cal:** {row.get('fecha_prox_cal')}")
+                            
                             with c_det3:
                                 st.markdown("##### 📊 Resultados")
-                                st.markdown(f"**Medición:** `{row.get('medicion_1', 'N/D')}`")
-                                st.markdown(f"**Notas:** {row.get('notas', 'Ninguna')}")
-                            
+                                st.write(f"**Medición:** {row.get('medicion_1')} {row.get('unidad')}")
+                                st.write(f"**Límite:** < {row.get('limite_referencia')}")
+                                st.write(f"**Resultado:** {res}")
+
                             with c_img:
-                                img_url = str(row.get('imagen_url', '')).strip()
-                                # Verificamos que no sea la palabra 'None' ni un string vacío
-                                if img_url and img_url.lower() not in ['nan', 'none', 'null', 'pendiente de storage']:
-                                    try:
-                                        st.image(img_url, caption=f"Evidencia - {row.get('auditor', 'N/D')}", use_container_width=True)
-                                    except Exception:
-                                        st.warning("⚠️ La imagen no se pudo cargar.")
+                                url = row.get('imagen_url')
+                                if url and url.startswith('http'):
+                                    st.image(url, use_container_width=True)
                                 else:
-                                    st.warning("Sin imagen.")
-                            
+                                    st.warning("Sin imagen")
+
                             st.divider()
-                            año_actual = datetime.today().strftime("%y")
-                            
-                            # AQUÍ SE GENERA EL REPORTE HTML FINAL PARA ESTE REGISTRO
-                            html_reporte = generar_html_reporte_esd(row, index)
-                            b64_html_rep = base64.b64encode(html_reporte.encode('utf-8')).decode('utf-8')
-                            nombre_archivo_rep = f"Reporte_ESD_{safe_str(row.get('id_elemento'))}.html"
+                            # GENERADOR DE REPORTE CON FORMATO COMPLETO
+                            html_reporte = generar_html_reporte_completo(row, index)
+                            b64_html = base64.b64encode(html_reporte.encode('utf-8')).decode('utf-8')
                             
                             st.markdown(
-                                f'<a href="data:text/html;base64,{b64_html_rep}" download="{nombre_archivo_rep}" '
+                                f'<a href="data:text/html;base64,{b64_html}" download="Reporte_{row.get("id_elemento")}.html" '
                                 f'style="display: block; width: 100%; text-align: center; padding: 12px; '
-                                f'background-color: #2563eb; color: white; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 16px;">'
-                                f'📥 Descargar Reporte Completo (BCS-PV-{index:03d}-{año_actual})</a>', 
+                                f'background-color: #2563eb; color: white; text-decoration: none; border-radius: 8px; font-weight: bold;">'
+                                f'📥 Descargar Reporte Original Completo</a>', 
                                 unsafe_allow_html=True
                             )
             except Exception as e:
-                st.warning(f"Error al cargar historial: {e}")
+                st.error(f"Error cargando historial: {e}")
