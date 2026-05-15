@@ -25,7 +25,7 @@ def restaurar_desde_csv():
         return
 
     # Validar que existan las columnas necesarias
-    if 'ID Elemento' not in df.columns or 'Imagen (Base64)' not in df.columns:
+    if 'ID_Elemento' not in df.columns or 'Imagen(Base64)' not in df.columns:
         st.error("❌ El CSV no tiene las columnas 'ID Elemento' o 'Imagen (Base64)'. Verifica los nombres en la primera fila de tu CSV.")
         return
 
@@ -37,8 +37,8 @@ def restaurar_desde_csv():
     log_container = st.container()
 
     for index, row in df.iterrows():
-        id_elemento = str(row.get('ID Elemento', '')).strip().upper()
-        img_data = str(row.get('Imagen (Base64)', '')).strip()
+        id_elemento = str(row.get('ID_Elemento', '')).strip().upper()
+        img_data = str(row.get('Imagen(Base64)', '')).strip()
 
         # Solo procesamos si hay un ID válido y el texto parece un Base64 largo
         if id_elemento and id_elemento != 'NAN' and len(img_data) > 100:
