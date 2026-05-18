@@ -883,7 +883,7 @@ else:
                     conteo_tipos = vencidos.groupby(['Línea']).size().reset_index(name='Total Vencidos')
                     conteo_tipos['Etiqueta'] = ("M: " if tipo_mapa == "Mobiliario" else "I: ") + conteo_tipos['Total Vencidos'].astype(str)
                 
-                        if os.path.exists(RUTA_MAPA) and os.path.exists(RUTA_COORDENADAS):
+                    if os.path.exists(RUTA_MAPA) and os.path.exists(RUTA_COORDENADAS):
                         img = Image.open(RUTA_MAPA)
                         width, height = img.size # Obtenemos el tamaño real de la imagen
                         df_coords = pd.read_csv(RUTA_COORDENADAS)
