@@ -312,7 +312,7 @@ supabase: Client = init_connection()
 @st.cache_data(ttl=10) 
 def cargar_datos_cloud():
     try:
-        resp_inv = supabase.table("inventario_esd").select("*").execute()
+        resp_inv = supabase.table("inventario_esd").select("*").limit(3000).execute()
         df_inv = pd.DataFrame(resp_inv.data)
         
         if not df_inv.empty:
@@ -928,7 +928,7 @@ else:
         with tab_overview:
             st.markdown("#### Estado Global de Elementos ESD")
             try:
-                resp_inv2 = supabase.table("inventario_esd").select("id_producto, clasificacion, linea_ubicacion, estatus_verificacion, fecha_proxima_verif").execute()
+                resp_inv2 = supabase.table("inventario_esd").select("id_producto, clasificacion, linea_ubicacion, estatus_verificacion, fecha_proxima_verif").limit(3000).execute()
                 df_ov = pd.DataFrame(resp_inv2.data)
                 
                 if not df_ov.empty:
@@ -1580,7 +1580,7 @@ else:
                 st.rerun()
 
             try:
-                resp_val = supabase.table("validacion_esd").select("*").execute()
+                resp_val = supabase.table("validacion_esd").select("*").limit(10000).execute()
                 df_val = pd.DataFrame(resp_val.data)
                 
                 if df_val.empty:
