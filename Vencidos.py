@@ -1155,7 +1155,7 @@ else:
             else:
                 st.error("❌ El ID no se encontró en la base de datos.")
 
-# ==========================================
+    # ==========================================
     # VISTA 3: EVENT METER
     # ==========================================
     elif st.session_state.vista_actual == "Event Meter" and not st.session_state.modo_lectura:
@@ -1197,8 +1197,15 @@ else:
                             for i, row in enumerate(df_filtrado.to_dict('records'), 1):
                                 op = str(row.get('Id de Operación', 'N/A'))
                                 tipo_c = str(row.get('Tipo de contacto', 'N/D'))
-                                eventos = int(row.get('Detección (Cantidad)', 0))
-                                vmax = float(row.get('Voltaje máximo', 0.0))
+                                
+                                # --- EXTRACCIÓN SEGURA DE NÚMEROS ---
+                                raw_eventos = row.get('Detección (Cantidad)', 0)
+                                eventos = int(float(raw_eventos)) if pd.notna(raw_eventos) and str(raw_eventos).strip() != '' else 0
+                                
+                                raw_vmax = row.get('Voltaje máximo', 0.0)
+                                vmax = float(raw_vmax) if pd.notna(raw_vmax) and str(raw_vmax).strip() != '' else 0.0
+                                # ------------------------------------
+                                
                                 estatus = str(row.get('Estatus de verificación', '')).upper()
                                 notas = str(row.get('Notas', ''))
                                 if notas.lower() in ['nan', 'none', 'null']: 
