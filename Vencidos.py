@@ -64,24 +64,25 @@ def limpiar_id(texto):
 def generar_html_reporte_completo(row, index):
     """Genera el reporte HTML con el formato original exacto de BCS-AIS usando datos de SQL."""
     
-    # 1. Procesar mediciones (Extraemos usando llaves SQL o Sheets)
+    # 1. Procesar mediciones (Extraemos usando llaves SQL o Sheets por compatibilidad)
     med1 = safe_str(row.get('medicion_1', row.get('Medición 1', '')))
-    med_extra = safe_str(row.get('mediciones_extra', row.get('Mediciones Extra', '')))
+    
+    raw_extra = row.get('mediciones_extra', row.get('Mediciones Extra', ''))
+    med_extra = str(raw_extra).strip() if pd.notna(raw_extra) else ''
     
     mediciones = []
-    if med1 and med1 != 'N/D':
+    if med1 and med1.lower() not in ['n/d', 'nan', 'none', 'null', '']:
         mediciones.append(med1)
         
-    if med_extra and med_extra != 'N/D':
-        extras = [m.strip() for m in str(med_extra).split(',') if m.strip() and m.strip().lower() not in ['nan', 'none', 'null']]
+    if med_extra and med_extra.lower() not in ['n/d', 'nan', 'none', 'null', '']:
+        extras = [m.strip() for m in med_extra.split(',') if m.strip() and m.strip().lower() not in ['nan', 'none', 'null']]
         mediciones.extend(extras)
     
     valid_nums = []
     for m in mediciones:
         try:
             valid_nums.append(float(m))
-        except: 
-            pass
+        except: pass
             
     promedio = sum(valid_nums) / len(valid_nums) if valid_nums else 0
     promedio_str = f"{promedio:.2E}" if promedio > 0 else "N/A"
@@ -94,11 +95,10 @@ def generar_html_reporte_completo(row, index):
     except:
         ref_str = ref_raw
 
-    # Variables repetidas en las filas
     metodo_prueba = safe_str(row.get('metodo', row.get('Método', '')))
     unidad_medida = safe_str(row.get('unidad', row.get('Unidad', '')))
 
-    # 2. Generar las filas de la tabla de resultados (SIN Punto de Colocación)
+    # 2. Generar las filas de la tabla de resultados (AHORA CON EXACTAMENTE 6 COLUMNAS)
     html_rows = ""
     for i, val in enumerate(mediciones, 1):
         try:
@@ -125,7 +125,7 @@ def generar_html_reporte_completo(row, index):
     else:
         img_tag = f'<img src="{img_url}" style="height: 190px; width: auto; max-width: 100%; object-fit: contain; margin: 0 auto;" />'
         
-    # 4. Formatear la fecha para que se vea como en tu captura original (ej. 11-may-2026)
+    # 4. Formatear la fecha
     fecha_raw = safe_str(row.get('fecha_auditoria', row.get('Fecha', '')))
     try:
         dt = datetime.fromisoformat(fecha_raw.split('.')[0])
@@ -163,7 +163,7 @@ def generar_html_reporte_completo(row, index):
     resultado = safe_str(row.get('resultado', row.get('Resultado', '')))
     auditor = safe_str(row.get('auditor', row.get('Auditor', '')))
 
-    # --- PLANTILLA HTML EXACTA ---
+    # --- PLANTILLA HTML ---
     html = f"""<!DOCTYPE html>
 <html lang="es">
 <head>
@@ -1465,10 +1465,14 @@ else:
 
                 referencia = st.number_input("Límite Permitido (Referencia)", value=float(info["ref_num"]), format="%g")
 
+                # RE-INCORPORAMOS LAS 5 MEDICIONES ORIGINALES
                 st.markdown("##### Resultados")
-                cv1, cv2 = st.columns(2)
-                medicion_1 = cv1.number_input("Medición 1 (Obligatoria)", value=0.0, format="%g")
-                med_extra = cv2.text_input("Mediciones Extra (opcional, separar por comas)")
+                cv1, cv2, cv3, cv4, cv5 = st.columns(5)
+                medicion_1 = cv1.number_input("Medición 1 (Oblig.)", value=0.0, format="%g")
+                med_2 = cv2.number_input("Medición 2 (Opc.)", value=None, format="%g", placeholder="0.0")
+                med_3 = cv3.number_input("Medición 3 (Opc.)", value=None, format="%g", placeholder="0.0")
+                med_4 = cv4.number_input("Medición 4 (Opc.)", value=None, format="%g", placeholder="0.0")
+                med_5 = cv5.number_input("Medición 5 (Opc.)", value=None, format="%g", placeholder="0.0")
                 
                 notas_val = st.text_area("Notas / Observaciones")
 
@@ -1486,6 +1490,10 @@ else:
                             resultado_calc = "CUMPLE (APROBADO)" if medicion_1 < referencia else "NO CUMPLE (RECHAZADO)"
                             url_foto = subir_evidencia_storage(imagen_final, id_elemento.upper())
                             
+                            # EMPAQUETAMOS LAS MEDICIONES EXTRAS
+                            lista_extras = [str(m) for m in [med_2, med_3, med_4, med_5] if pd.notna(m) and m is not None]
+                            mediciones_extra_str = ", ".join(lista_extras)
+
                             try:
                                 supabase.table("validacion_esd").insert({
                                     "fecha_auditoria": datetime.now().isoformat(),
@@ -1509,7 +1517,7 @@ else:
                                     "fecha_prox_cal": str(eq_data.get('fecha_proxima_calibracion')),
                                     "limite_referencia": float(referencia),
                                     "medicion_1": float(medicion_1),
-                                    "mediciones_extra": med_extra,
+                                    "mediciones_extra": mediciones_extra_str,
                                     "unidad": unidad_med,
                                     "metodo": metodo_med,
                                     "modo_medicion": modo_med,
