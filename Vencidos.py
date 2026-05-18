@@ -171,6 +171,9 @@ def generar_html_reporte_completo(row, index):
     resultado = get_sql_val('resultado')
     auditor = get_sql_val('auditor')
 
+# Generar fecha en formato YYYY/MM/DD para el pie de página
+    fecha_pie_str = datetime.today().strftime("%Y/%m/%d")
+
     # --- PLANTILLA HTML ---
     html = f"""<!DOCTYPE html>
 <html lang="es">
@@ -283,17 +286,28 @@ def generar_html_reporte_completo(row, index):
                 </div>
             </div>
 
-            <div class="mt-12 mb-8 pt-8">
+            <div class="mt-12 mb-8 pt-8 [page-break-inside:avoid]">
                 <div class="w-1/3 mx-auto text-center border-t border-gray-800 pt-2">
                     <div class="font-bold uppercase text-sm mb-1">APROBADO Y CERTIFICADO POR:</div>
                     <div class="text-center font-bold text-gray-700">{auditor}</div>
                 </div>
             </div>
-        </div>
-
-        <div class="border-t border-gray-300 p-4 text-xs text-gray-500 flex justify-between bg-gray-50">
-            <div>Ref: E_310_3_001_QRO_SP</div>
-            <div>Formato: E_310_4_113_QRO_SP_Rev. A</div>
+            
+            <div class="border-t-[3px] border-b-[3px] border-black mt-16 py-1 text-[11px] font-sans [page-break-inside:avoid]">
+                <div class="flex justify-between items-end">
+                    <div class="text-left leading-tight">
+                        <div>E_310_4_113_QRO_SP_Rev. A</div>
+                        <div>Formato de Validación de producto.</div>
+                    </div>
+                    <div class="text-center leading-tight">
+                        <div>Fecha: {fecha_pie_str}</div>
+                    </div>
+                    <div class="text-right leading-tight">
+                        <div>Ref.E_310_3_001_QRO_SP</div>
+                    </div>
+                </div>
+            </div>
+            
         </div>
     </div>
 </body>
