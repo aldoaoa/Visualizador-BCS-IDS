@@ -57,6 +57,45 @@ MAPA_UNIDADES = {
     "Otro": "N/A"
 }
 
+def ejecutar_automigracion_lineas():
+    """Extrae líneas únicas de las tablas históricas y las inserta en catalogo_lineas."""
+    lineas_encontradas = set()
+
+    # 1. Extraer ubicaciones de la tabla de validación general
+    try:
+        resp_val = supabase.table("validacion_esd").select("ubicacion").execute()
+        if resp_val.data:
+            for reg in resp_val.data:
+                linea = str(reg.get("ubicacion", "")).strip().upper()
+                if linea and linea not in ["NONE", "NAN", "NULL", "N/D", "", "SIN REGISTROS"]:
+                    lineas_encontradas.add(linea)
+    except Exception as e:
+        st.write(f"Nota informativa (Validación): {e}")
+
+    # 2. Extraer ubicaciones de la tabla de Event Meter
+    try:
+        resp_em = supabase.table("event_meter").select("linea_ubicacion").execute()
+        if resp_em.data:
+            for reg in resp_em.data:
+                linea = str(reg.get("linea_ubicacion", "")).strip().upper()
+                if linea and linea not in ["NONE", "NAN", "NULL", "N/D", "", "SIN REGISTROS"]:
+                    lineas_encontradas.add(linea)
+    except Exception as e:
+        st.write(f"Nota informativa (Event Meter): {e}")
+
+    # 3. Insertar registros en la tabla catálogo maestro
+    nuevos_registros = 0
+    for linea_nombre in sorted(lineas_encontradas):
+        try:
+            # Si el registro ya existe, la base de datos lanzará un error por el constraint UNIQUE,
+            # lo cual es perfecto ya que el bloque except lo controlará sin detener el ciclo.
+            supabase.table("catalogo_lineas").insert({"nombre_linea": linea_nombre}).execute()
+            nuevos_registros += 1
+        except:
+            pass # Ya existía en el catálogo maestro, se omite de forma segura.
+
+    return nuevos_registros, len(lineas_encontradas)
+    
 def obtener_catalogo_lineas():
     """Descarga el catálogo maestro de líneas de Supabase"""
     try:
@@ -1951,12 +1990,29 @@ else:
 
         tab_ubicaciones, tab_equipos = st.tabs(["📍 Líneas y Ubicaciones", "🛠️ Equipos de Medición"])
 
-        # --- PESTAÑA 1: UBICACIONES ---
+# --- PESTAÑA 1: UBICACIONES ---
         with tab_ubicaciones:
+            # Panel de herramientas automáticas (Migración del Historial)
+            st.markdown("#### 🔄 Herramientas de Inicialización")
+            st.caption("Utiliza esta utilidad para escanear de forma automática tus registros anteriores e inicializar el catálogo de líneas.")
+            
+            if st.button("🔍 Escanear e Importar Líneas del Historial Automáticamente", width="stretch"):
+                with st.spinner("Analizando base de datos histórica..."):
+                    insertados, totales = ejecutar_automigracion_lineas()
+                    if totales > 0:
+                        st.success(f"🎉 ¡Migración completada con éxito! Se detectaron {totales} líneas únicas. Se registraron {insertados} nuevas ubicaciones que no existían en el catálogo.")
+                    else:
+                        st.info("No se detectaron líneas nuevas o el historial se encuentra vacío.")
+                    st.cache_data.clear()
+                    st.rerun()
+            
+            st.divider()
+            
+            # Formulario manual y visualización
             col_u1, col_u2 = st.columns([1, 1])
             
             with col_u1:
-                st.markdown("#### ➕ Agregar Nueva Ubicación")
+                st.markdown("#### ➕ Agregar Nueva Ubicación Manual")
                 with st.form("form_nueva_ubicacion"):
                     nueva_ub = st.text_input("Nombre de la Línea o Ubicación", placeholder="Ej: SMT 1, CR3, Metrology Lab")
                     if st.form_submit_button("💾 Guardar Ubicación", width="stretch"):
@@ -1967,12 +2023,12 @@ else:
                                 st.cache_data.clear()
                                 st.rerun()
                             except Exception as e:
-                                st.error("⚠️ Error (¿Quizás la ubicación ya existe?). Detalles: " + str(e))
+                                st.error("⚠️ Error (¿Quizás la ubicación ya existe?).")
                         else:
                             st.error("El nombre no puede estar vacío.")
             
             with col_u2:
-                st.markdown("#### 📋 Ubicaciones Registradas")
+                st.markdown("#### 📋 Ubicaciones en el Catálogo Maestro")
                 try:
                     resp_ub = supabase.table("catalogo_lineas").select("nombre_linea").order("nombre_linea").execute()
                     df_ub = pd.DataFrame(resp_ub.data)
