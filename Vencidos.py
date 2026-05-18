@@ -883,14 +883,43 @@ else:
                     conteo_tipos = vencidos.groupby(['Línea']).size().reset_index(name='Total Vencidos')
                     conteo_tipos['Etiqueta'] = ("M: " if tipo_mapa == "Mobiliario" else "I: ") + conteo_tipos['Total Vencidos'].astype(str)
                 
-                    if os.path.exists(RUTA_MAPA) and os.path.exists(RUTA_COORDENADAS):
+                        if os.path.exists(RUTA_MAPA) and os.path.exists(RUTA_COORDENADAS):
                         img = Image.open(RUTA_MAPA)
+                        width, height = img.size # Obtenemos el tamaño real de la imagen
                         df_coords = pd.read_csv(RUTA_COORDENADAS)
                         mapa_data = pd.merge(conteo_tipos, df_coords, on='Línea', how='inner')
+                        
                         if not mapa_data.empty:
-                            fig = px.scatter(mapa_data, x="X", y="Y", color="Total Vencidos", text="Etiqueta")
-                            fig.update_traces(textposition='middle center', marker=dict(size=45))
-                            fig.update_layout(images=[dict(source=img, xref="x", yref="y", x=0, y=0, sizex=img.size[0], sizey=img.size[1], sizing="stretch", opacity=1, layer="below")], xaxis=dict(visible=False), yaxis=dict(visible=False, autorange="reversed"))
+                            fig = px.scatter(
+                                mapa_data, x="X", y="Y", color="Total Vencidos", text="Etiqueta",
+                                hover_data={"X": False, "Y": False, "Etiqueta": False, "Total Vencidos": True},
+                                color_continuous_scale="Reds"
+                            )
+                            
+                            # --- DISEÑO DE LOS PUNTOS ---
+                            fig.update_traces(
+                                textposition='middle center', 
+                                textfont=dict(color='white', size=14, weight='bold'), 
+                                marker=dict(symbol='circle', size=45, opacity=0.9, line=dict(width=2, color='black'))
+                            )
+                            
+                            # --- CÁLCULO DE PROPORCIÓN PARA EVITAR ESTIRAMIENTO ---
+                            aspect_ratio = height / width
+                            plot_height = int(1000 * aspect_ratio) # 1000px es el ancho base de uso de Streamlit
+
+                            fig.update_layout(
+                                height=plot_height,
+                                images=[dict(
+                                    source=img, xref="x", yref="y", 
+                                    x=0, y=0, sizex=width, sizey=height, 
+                                    sizing="stretch", opacity=1, layer="below"
+                                )], 
+                                xaxis=dict(visible=False, range=[0, width]), 
+                                # scaleanchor="x" y scaleratio=1 son la magia que bloquea la proporción
+                                yaxis=dict(visible=False, range=[height, 0], scaleanchor="x", scaleratio=1), 
+                                margin=dict(l=0, r=0, t=0, b=0),
+                                coloraxis_showscale=False
+                            )
                             st.plotly_chart(fig, use_container_width=True)
                     st.dataframe(vencidos[['Línea', 'Id de producto', 'Clasificación', 'Estatus de verificación']], use_container_width=True, hide_index=True)
                 else:
