@@ -1537,63 +1537,73 @@ else:
                     temp_gen = col_amb2.text_input("Temperatura", value=temp_defecto)
                     hum_gen = col_amb3.text_input("Humedad", value=hum_defecto)
                     
-                    st.markdown("#### Configuración de Ubicaciones")
-                    bloques_ubicaciones = []
+                st.markdown("#### Configuración de Ubicaciones")
+                bloques_ubicaciones = []
+                
+                for i, dato in enumerate(datos_extraidos_wt):
+                    st.markdown(f"**Ubicación {i+1} (Archivo: {dato['archivo']})**")
+                    # Se añade una tercera columna para alojar el control de limpieza previa
+                    c_ub1, c_ub2, c_ub3 = st.columns([1.5, 1.5, 1])
+                    nombre_ub = c_ub1.text_input(f"Nombre de Línea/Área", value=dato['archivo'].replace(".pdf", ""), key=f"nombre_{i}")
+                    tipo_piso = c_ub2.selectbox(f"Tipo de Piso", ["Piso Epóxico ESD", "Loseta Vinílica Conductiva", "Tapete Antifatiga ESD", "Otro"], key=f"piso_{i}")
                     
-                    for i, dato in enumerate(datos_extraidos_wt):
-                        st.markdown(f"**Ubicación {i+1} (Archivo: {dato['archivo']})**")
-                        c_ub1, c_ub2 = st.columns(2)
-                        nombre_ub = c_ub1.text_input(f"Nombre de Línea/Área", value=dato['archivo'].replace(".pdf", ""), key=f"nombre_{i}")
-                        tipo_piso = c_ub2.selectbox(f"Tipo de Piso", ["Piso Epóxico ESD", "Loseta Vinílica Conductiva", "Tapete Antifatiga ESD", "Otro"], key=f"piso_{i}")
-                        bloques_ubicaciones.append({"nombre": nombre_ub, "piso": tipo_piso, "datos": dato})
-                        st.write("") 
-
-                    submit_reporte = st.form_submit_button("Generar Reporte Consolidado en PDF/HTML", use_container_width=True)
+                    # Control interactivo que no se activa por defecto (asigna 'No')
+                    limpieza_chk = c_ub3.checkbox("Limpieza previa", value=False, key=f"limpieza_{i}")
                     
-                    if submit_reporte:
-                        html_ubicaciones = ""
-                        for idx, block in enumerate(bloques_ubicaciones, 1):
-                            data = block['datos']
-                            if data['max_abs'] < 100:
-                                res_text, res_color = "CUMPLE (PASS)", "text-green-600"
-                                obs = "Ninguna anomalía. Los picos se mantuvieron por debajo del límite normativo de 100V."
-                            else:
-                                res_text, res_color = "NO CUMPLE (FAIL)", "text-red-600"
-                                obs = f"ATENCIÓN: Se registró un pico absoluto de {data['max_abs']:.2f}V, superando el límite permitido de 100V. Se requiere limpieza o revisión."
+                    bloques_ubicaciones.append({
+                        "nombre": nombre_ub, 
+                        "piso": tipo_piso, 
+                        "limpieza": "Sí" if limpieza_chk else "No",
+                        "datos": dato
+                    })
+                    st.write("") 
 
-                            img_tag = f'<img src="data:image/png;base64,{data["img_b64"]}" class="max-w-full max-h-full object-contain" alt="Gráfica">' if data['img_b64'] else '<i class="text-gray-400">Sin gráfica disponible</i>'
+                submit_reporte = st.form_submit_button("Generar Reporte Consolidado en PDF/HTML", use_container_width=True)
+                
+                if submit_reporte:
+                    html_ubicaciones = ""
+                    for idx, block in enumerate(bloques_ubicaciones, 1):
+                        data = block['datos']
+                        if data['max_abs'] < 100:
+                            res_text, res_color = "CUMPLE (PASS)", "text-green-600"
+                            obs = "Ninguna anomalía. Los picos se mantuvieron por debajo del límite normativo de 100V."
+                        else:
+                            res_text, res_color = "NO CUMPLE (FAIL)", "text-red-600"
+                            obs = f"ATENCIÓN: Se registró un pico absoluto de {data['max_abs']:.2f}V, superando el límite permitido de 100V. Se requiere limpieza o revisión."
 
-                            # --- BLOQUES DINÁMICOS DE UBICACIÓN EN TAILWIND ---
-                            html_ubicaciones += f"""
-                            <div class="border-2 border-[#003366] rounded-md p-5 mb-8 [page-break-inside:avoid] print:border-black">
-                                <div class="text-[18px] font-bold text-white bg-[#003366] p-2.5 -mx-5 -mt-5 mb-5 rounded-t-sm print:bg-black">Ubicación {idx}: {block['nombre']}</div>
-                                <table class="w-full text-sm border-collapse mb-5 text-center">
-                                    <tr>
-                                        <th class="border border-gray-300 p-2 text-left bg-gray-50 font-bold w-1/4 print:border-black">Tipo de Piso:</th>
-                                        <td class="border border-gray-300 p-2 text-left w-1/4 print:border-black">{block['piso']}</td>
-                                        <th class="border border-gray-300 p-2 text-left bg-gray-50 font-bold w-1/4 print:border-black">Limpieza previa:</th>
-                                        <td class="border border-gray-300 p-2 text-left w-1/4 print:border-black">Sí</td>
-                                    </tr>
-                                    <tr>
-                                        <th class="border border-gray-300 p-2 text-left bg-gray-50 font-bold print:border-black">Voltaje Máx (Abs):</th>
-                                        <td class="border border-gray-300 p-2 text-left font-mono font-bold print:border-black">{data['max_abs']:.2f} V</td>
-                                        <th class="border border-gray-300 p-2 text-left bg-gray-50 font-bold print:border-black">Promedio de Picos:</th>
-                                        <td class="border border-gray-300 p-2 text-left font-mono print:border-black">{data['promedio_picos']:.2f} V</td>
-                                    </tr>
-                                </table>
-                                <div class="w-full h-64 bg-gray-50 border-2 border-dashed border-gray-300 flex items-center justify-center my-5 overflow-hidden print:border-black">
-                                    {img_tag}
-                                </div>
-                                <table class="w-full text-sm border-collapse">
-                                    <tr>
-                                        <th class="border border-gray-300 p-2 text-left bg-gray-50 font-bold w-1/5 print:border-black">Observaciones:</th>
-                                        <td class="border border-gray-300 p-2 text-left print:border-black">{obs}</td>
-                                        <th class="border border-gray-300 p-2 text-left bg-gray-50 font-bold w-1/5 print:border-black">Resultado Final:</th>
-                                        <td class="border border-gray-300 p-2 text-center font-bold text-base print:border-black {res_color}">{res_text}</td>
-                                    </tr>
-                                </table>
+                        img_tag = f'<img src="data:image/png;base64,{data["img_b64"]}" class="max-w-full max-h-full object-contain" alt="Gráfica">' if data['img_b64'] else '<i class="text-gray-400">Sin gráfica disponible</i>'
+
+                        # --- BLOQUES DINÁMICOS DE UBICACIÓN EN TAILWIND ---
+                        html_ubicaciones += f"""
+                        <div class="border-2 border-[#003366] rounded-md p-5 mb-8 [page-break-inside:avoid] print:border-black">
+                            <div class="text-[18px] font-bold text-white bg-[#003366] p-2.5 -mx-5 -mt-5 mb-5 rounded-t-sm print:bg-black">Ubicación {idx}: {block['nombre']}</div>
+                            <table class="w-full text-sm border-collapse mb-5 text-center">
+                                <tr>
+                                    <th class="border border-gray-300 p-2 text-left bg-gray-50 font-bold w-1/4 print:border-black">Tipo de Piso:</th>
+                                    <td class="border border-gray-300 p-2 text-left w-1/4 print:border-black">{block['piso']}</td>
+                                    <th class="border border-gray-300 p-2 text-left bg-gray-50 font-bold w-1/4 print:border-black">Limpieza previa:</th>
+                                    <td class="border border-gray-300 p-2 text-left w-1/4 print:border-black">{block['limpieza']}</td>
+                                </tr>
+                                <tr>
+                                    <th class="border border-gray-300 p-2 text-left bg-gray-50 font-bold print:border-black">Voltaje Máx (Abs):</th>
+                                    <td class="border border-gray-300 p-2 text-left font-mono font-bold print:border-black">{data['max_abs']:.2f} V</td>
+                                    <th class="border border-gray-300 p-2 text-left bg-gray-50 font-bold print:border-black">Promedio de Picos:</th>
+                                    <td class="border border-gray-300 p-2 text-left font-mono print:border-black">{data['promedio_picos']:.2f} V</td>
+                                </tr>
+                            </table>
+                            <div class="w-full h-64 bg-gray-50 border-2 border-dashed border-gray-300 flex items-center justify-center my-5 overflow-hidden print:border-black">
+                                {img_tag}
                             </div>
-                            """
+                            <table class="w-full text-sm border-collapse">
+                                <tr>
+                                    <th class="border border-gray-300 p-2 text-left bg-gray-50 font-bold w-1/5 print:border-black">Observaciones:</th>
+                                    <td class="border border-gray-300 p-2 text-left print:border-black">{obs}</td>
+                                    <th class="border border-gray-300 p-2 text-left bg-gray-50 font-bold w-1/5 print:border-black">Resultado Final:</th>
+                                    <td class="border border-gray-300 p-2 text-center font-bold text-base print:border-black {res_color}">{res_text}</td>
+                                </tr>
+                            </table>
+                        </div>
+                        """
 
                         fecha_pie_str = datetime.today().strftime("%Y/%m/%d")
 
