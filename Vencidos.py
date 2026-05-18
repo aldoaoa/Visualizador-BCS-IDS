@@ -13,6 +13,7 @@ import re
 import io
 import pytesseract
 from supabase import create_client, Client
+import time
 
 # Configuración de página
 st.set_page_config(page_title="Control ESD BCS-AIS", layout="wide")
@@ -1158,46 +1159,263 @@ else:
     # VISTA 3: EVENT METER
     # ==========================================
     elif st.session_state.vista_actual == "Event Meter" and not st.session_state.modo_lectura:
-        st.markdown("### ⚡ Estudio de Event Meter")
+        st.markdown("### ⚡ Estudio de Event Meter (PCBA)")
+        st.info("Mide descargas electrostáticas y transitorios durante la operación normal de la maquinaria/proceso.")
+
+        # --- SECCIÓN: GENERADOR DE REPORTE POR LÍNEA (ESTILO WALKING TEST) ---
+        with st.expander("📄 Generar Reporte Oficial por Línea (Estilo Walking Test)", expanded=False):
+            st.write("Selecciona una línea para consolidar todas sus operaciones guardadas en la base de datos en un único reporte oficial.")
+            
+            lineas_reporte = []
+            if df_em_local is not None and not df_em_local.empty and 'Línea' in df_em_local.columns:
+                lineas_reporte = sorted([str(x).strip() for x in df_em_local['Línea'].dropna().unique() if str(x).strip() != ''])
+            
+            if not lineas_reporte:
+                st.warning("⚠️ No hay registros históricos en 'event_meter' para generar reportes consolidados.")
+            else:
+                linea_rep_sel = st.selectbox("Seleccionar Línea para el Reporte Consolidado:", options=lineas_reporte, key="em_linea_rep_sel")
+                
+                with st.form("form_reporte_em_consolidado"):
+                    st.markdown("#### Datos Generales del Estudio")
+                    col_g1, col_g2, col_g3 = st.columns(3)
+                    auditor_em = col_g1.text_input("Auditor / Técnico", value=st.session_state.usuario_nombre if st.session_state.usuario_nombre else "")
+                    operador_em = col_g2.text_input("Operador de Prueba", placeholder="Ej: Técnico de Línea SMT")
+                    periodo_em = col_g3.selectbox("Periodo de Evaluación", ["Semestre 1", "Semestre 2", "Evaluación Anual"])
+                    
+                    col_g4, col_g5 = st.columns(2)
+                    equipo_em = col_g4.text_input("Equipo de Medición Utilizado", value="SCS EM EYE")
+                    serial_em = col_g5.text_input("No. de Serie del Equipo", value="2451005")
+                    
+                    submit_reporte_em = st.form_submit_button("Generar Reporte Consolidado por Línea", use_container_width=True)
+                    
+                    if submit_reporte_em:
+                        # Filtrar datos locales correspondientes a la línea elegida
+                        df_filtrado = df_em_local[df_em_local['Línea'].astype(str).str.strip() == linea_rep_sel].copy()
+                        
+                        if df_filtrado.empty:
+                            st.error("No se encontraron registros en la base de datos para la línea seleccionada.")
+                        else:
+                            html_rows = ""
+                            # Recorremos cada registro guardado para construir la tabla dinámica
+                            for i, row in enumerate(df_filtrado.to_dict('records'), 1):
+                                op = str(row.get('Id de Operación', 'N/A'))
+                                tipo_c = str(row.get('Tipo de contacto', 'N/D'))
+                                eventos = int(row.get('Detección (Cantidad)', 0))
+                                vmax = float(row.get('Voltaje máximo', 0.0))
+                                estatus = str(row.get('Estatus de verificación', '')).upper()
+                                notas = str(row.get('Notas', ''))
+                                if notas.lower() in ['nan', 'none', 'null']: 
+                                    notas = ""
+                                
+                                color_estatus = "text-green-600" if "APROBADO" in estatus else "text-red-600"
+                                pass_fail = "PASA" if "APROBADO" in estatus else "FALLA"
+                                
+                                html_rows += f"""
+                                <tr class="text-center border-b border-gray-300">
+                                    <td class="border border-gray-800 p-2 font-bold text-gray-600">{i}</td>
+                                    <td class="border border-gray-800 p-2 text-left">{op}</td>
+                                    <td class="border border-gray-800 p-2">{tipo_c}</td>
+                                    <td class="border border-gray-800 p-2 font-mono">{eventos}</td>
+                                    <td class="border border-gray-800 p-2 font-mono font-bold">{vmax}V</td>
+                                    <td class="border border-gray-800 p-2 font-bold {color_estatus}">{pass_fail}</td>
+                                    <td class="border border-gray-800 p-2 text-left text-xs">{notas}</td>
+                                </tr>
+                                """
+                            
+                            fecha_hoy_str = datetime.today().strftime("%Y-%m-%d")
+                            fecha_pie_str = datetime.today().strftime("%Y/%m/%d")
+                            
+                            # --- PLANTILLA HTML OFICIAL CON FILAS DINÁMICAS Y PIE DE PÁGINA REQUERIDO ---
+                            html_template = f"""<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reporte Event Meter - {linea_rep_sel}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @media print {{
+            body {{ background-color: white; padding: 0; }}
+            .no-print {{ display: none !important; }}
+            .print-border {{ border: 1px solid #000; }}
+            .shadow-lg {{ box-shadow: none; }}
+        }}
+    </style>
+</head>
+<body class="bg-gray-100 p-4 md:p-8 text-gray-800 font-sans">
+    <div class="max-w-5xl mx-auto bg-white p-8 shadow-lg print:shadow-none print:p-0">
+        <div class="flex justify-end space-x-4 mb-6 no-print">
+            <button onclick="window.print()" class="bg-gray-800 text-white px-4 py-2 rounded shadow hover:bg-gray-900 transition flex items-center font-bold">
+                🖨️ Imprimir / Guardar PDF
+            </button>
+        </div>
         
+        <div class="border-2 border-gray-800 mb-6 flex flex-col md:flex-row text-sm print-border">
+            <div class="p-4 border-b-2 md:border-b-0 md:border-r-2 border-gray-800 flex items-center justify-center w-full md:w-1/4">
+                <img src="https://github.com/aldoaoa/Visualizador-BCS-IDS/blob/main/BCS%20LOGO.png?raw=true" alt="Logo BCS" class="max-h-20 object-contain">
+            </div>
+            <div class="p-4 flex-1 border-b-2 md:border-b-0 md:border-r-2 border-gray-800 text-center flex flex-col justify-center">
+                <h1 class="text-lg font-bold uppercase">Registro de Estudio de Eventos ESD (Event Meter)</h1>
+                <p class="text-gray-600 font-semibold">Norma de Referencia: ANSI/ESD S20.20</p>
+            </div>
+            <div class="p-2 w-full md:w-1/4 flex flex-col justify-center text-xs space-y-1">
+                <div class="flex justify-between"><span class="font-bold">Código:</span> <span>F-ESD-001</span></div>
+                <div class="flex justify-between"><span class="font-bold">Límite Permitido:</span> <span class="font-bold text-red-600">&lt; 100V</span></div>
+            </div>
+        </div>
+        
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6 text-sm">
+            <div class="space-y-2">
+                <div class="flex justify-between border-b pb-1"><span class="font-bold">Fecha de Estudio:</span><span>{fecha_hoy_str}</span></div>
+                <div class="flex justify-between border-b pb-1"><span class="font-bold">Línea / Área Evaluada:</span><span>{linea_rep_sel}</span></div>
+                <div class="flex justify-between border-b pb-1"><span class="font-bold">Auditor / Técnico:</span><span>{auditor_em}</span></div>
+            </div>
+            <div class="space-y-2">
+                <div class="flex justify-between border-b pb-1"><span class="font-bold">Operador de Prueba:</span><span>{operador_em}</span></div>
+                <div class="flex justify-between border-b pb-1"><span class="font-bold">Periodo de Evaluación:</span><span>{periodo_em}</span></div>
+                <div class="flex justify-between border-b pb-1"><span class="font-bold">Equipo de Medición (SN):</span><span>{equipo_em} ({serial_em})</span></div>
+            </div>
+        </div>
+        
+        <div class="overflow-x-auto mb-8">
+            <table class="w-full text-sm border-collapse border border-gray-800 print-border">
+                <thead>
+                    <tr class="bg-gray-200 text-center">
+                        <th class="border border-gray-800 p-2 w-10">No.</th>
+                        <th class="border border-gray-800 p-2 text-left">Operación / Estación</th>
+                        <th class="border border-gray-800 p-2">Tipo de Contacto</th>
+                        <th class="border border-gray-800 p-2 w-24">Eventos</th>
+                        <th class="border border-gray-800 p-2 w-24">Voltaje Máx.</th>
+                        <th class="border border-gray-800 p-2 w-24">Resultado</th>
+                        <th class="border border-gray-800 p-2 text-left">Observaciones</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {html_rows}
+                </tbody>
+            </table>
+        </div>
+        
+        <div class="grid grid-cols-2 gap-8 mt-12 text-sm text-center">
+            <div><div class="border-b border-gray-800 w-3/4 mx-auto mb-2 h-8"></div><p class="font-bold">Realizado por: {auditor_em}</p></div>
+            <div><div class="border-b border-gray-800 w-3/4 mx-auto mb-2 h-8"></div><p class="font-bold">Revisado / Aprobado por: Coordinador ESD</p></div>
+        </div>
+
+        <div class="border-t-[3px] border-b-[3px] border-black mt-16 py-1 text-[11px] font-sans">
+            <div class="flex justify-between items-end">
+                <div class="text-left leading-tight">
+                    <div>E_310_4_111_QRO_SP_Rev.A</div>
+                    <div>Registro de estudio de eventos ESD.</div>
+                </div>
+                <div class="text-center leading-tight">
+                    <div>Fecha:{fecha_pie_str}</div>
+                </div>
+                <div class="text-right leading-tight">
+                    <div>Ref.E_310_3_001_QRO_SP</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>"""
+                            b64_html = base64.b64encode(html_template.encode('utf-8')).decode('utf-8')
+                            nombre_archivo = f"Reporte_Consolidado_EventMeter_{linea_rep_sel.replace(' ', '_')}.html"
+                            
+                            st.success(f"✅ ¡Reporte consolidado para la línea {linea_rep_sel} generado con éxito!")
+                            href = f'<a href="data:text/html;base64,{b64_html}" download="{nombre_archivo}" target="_blank" style="display: block; text-align: center; padding: 15px; background-color: #003366; color: white; text-decoration: none; border-radius: 8px; font-weight: bold; margin-top: 10px; font-size: 16px;">📥 Descargar Reporte Completo de la Línea (Abrir para imprimir PDF)</a>'
+                            st.markdown(href, unsafe_allow_html=True)
+
+        # --- FORMULARIO DE CAPTURA DE NUEVOS REGISTROS ---
+        # --- SECCIÓN DEL TEMPORIZADOR (5 MINUTOS) ---
+        st.divider()
+        st.markdown("#### ⏱️ Temporizador de Medición")
+        st.info("Utiliza este temporizador para asegurar la medición estándar de 5 minutos por estación antes de guardar el registro.")
+        
+        col_t1, col_t2 = st.columns([1, 2])
+        with col_t1:
+            iniciar_timer = st.button("▶️ Iniciar 5 Minutos", use_container_width=True)
+        with col_t2:
+            timer_placeholder = st.empty()
+            if iniciar_timer:
+                for t in range(300, -1, -1):
+                    mins, secs = divmod(t, 60)
+                    # Muestra la cuenta regresiva en grande
+                    timer_placeholder.markdown(f"### ⏳ Tiempo restante: {mins:02d}:{secs:02d}")
+                    time.sleep(1)
+                
+                timer_placeholder.success("✅ ¡Tiempo de medición completado! Procede a registrar los datos.")
+                st.balloons()
+        st.divider()
+        st.markdown("#### 📍 Ubicación y Operación")
         c_loc1, c_loc2 = st.columns(2)
-        lineas_existentes = sorted([str(x).strip() for x in df_em_local['Línea'].dropna().unique() if str(x).strip() != '']) if not df_em_local.empty else ["N/A"]
-        linea_seleccionada = c_loc1.selectbox("Línea", options=lineas_existentes)
-        
-        nueva_op_check = c_loc2.checkbox("➕ Nueva Línea/Operación")
+
+        lineas_existentes = sorted([str(x).strip() for x in df_em_local['Línea'].dropna().unique() if str(x).strip() != '']) if not df_em_local.empty else []
+        if not lineas_existentes:
+            lineas_existentes = ["Sin registros"]
+
+        linea_seleccionada = c_loc1.selectbox("Línea", options=lineas_existentes, key="em_linea_seleccionada_captura")
+        nueva_op_check = c_loc2.checkbox("➕ Registrar nueva Operación o Línea")
+
         if nueva_op_check:
-            linea_final = c_loc1.text_input("Nueva Línea")
-            id_operacion_final = c_loc2.text_input("Nuevo ID Operación")
+            linea_final = c_loc1.text_input("Ingresa Nueva Línea", value=linea_seleccionada if linea_seleccionada != "Sin registros" else "")
+            id_operacion_final = c_loc2.text_input("Ingresa Nuevo ID de Operación (Ej: OP50-AUDIO)")
         else:
             linea_final = linea_seleccionada
-            ops = sorted([str(x).strip() for x in df_em_local[df_em_local['Línea']==linea_seleccionada]['Id de Operación'].dropna().unique()]) if not df_em_local.empty else []
-            id_operacion_final = c_loc2.selectbox("Operación", options=ops if ops else ["N/A"])
-
-        with st.form("form_em"):
-            col1, col2 = st.columns(2)
-            tipo_contacto = col1.selectbox("Tipo de contacto", ["Maquinaria", "Humano", "Herramienta Manual", "Otro"])
-            deteccion = col1.number_input("Eventos", value=0)
-            voltaje = col2.number_input("Voltaje Máx (V)", value=0.0)
-            notas = st.text_area("Notas")
+            ops_existentes = []
+            if not df_em_local.empty and 'Id de Operación' in df_em_local.columns:
+                ops_filtradas = df_em_local[df_em_local['Línea'].astype(str).str.strip() == linea_seleccionada]
+                ops_existentes = sorted([str(x).strip() for x in ops_filtradas['Id de Operación'].dropna().unique() if str(x).strip() != ''])
             
-            if st.form_submit_button("Guardar en SQL"):
-                try:
-                    supabase.table("event_meter").insert({
-                        "fecha": datetime.now().isoformat(),
-                        "linea_ubicacion": linea_final,
-                        "id_operacion": id_operacion_final,
-                        "tipo_contacto": tipo_contacto,
-                        "cantidad_eventos": int(deteccion),
-                        "voltaje_maximo": float(voltaje),
-                        "estatus_verificacion": "APROBADO" if float(voltaje) <= 100 else "RECHAZADO",
-                        "auditor": st.session_state.usuario_nombre,
-                        "notas": notas
-                    }).execute()
-                    st.success("Guardado Exitoso!")
-                    st.cache_data.clear()
-                except Exception as e:
-                    st.error(f"Error SQL: {e}")
+            if not ops_existentes:
+                id_operacion_final = c_loc2.selectbox("ID de Operación", options=["(Sin operaciones previas)"])
+            else:
+                id_operacion_final = c_loc2.selectbox("Selecciona ID de Operación", options=ops_existentes)
 
+        with st.form("form_event_meter_captura"):
+            col1, col2 = st.columns(2)
+            tipo_contacto = col1.selectbox("Tipo de contacto", options=["Maquinaria", "EOLT", "AOI", "Herramienta Manual", "Humano", "Otro"])
+            if tipo_contacto == "Otro":
+                tipo_contacto = col1.text_input("Especifique Tipo de Contacto")
+
+            st.markdown("#### ⚡ Resultados de Detección")
+            col_d1, col_d2 = st.columns(2)
+            deteccion_eventos = col_d1.number_input("Cantidad de Eventos Detectados", min_value=0, step=1, value=0)
+            voltaje_max = col_d2.number_input("Voltaje máximo de descarga (V)", min_value=0.0, max_value=999.0, step=0.1, value=0.0)
+
+            notas_em = st.text_area("Notas / Observaciones")
+
+            limite_maximo_v = 100.0  
+            estatus_verificacion = "APROBADO" if voltaje_max <= limite_maximo_v else "RECHAZADO"
+            fecha_hoy = datetime.today().date()
+            frecuencia_em = "Semestral" 
+            proxima_fecha = calcular_proxima_fecha(fecha_hoy, frecuencia_em)
+
+            submit_em = st.form_submit_button("💾 Guardar Registro de Event Meter", use_container_width=True)
+
+            if submit_em:
+                if not id_operacion_final or id_operacion_final == "(Sin operaciones previas)":
+                    st.error("⚠️ Debes proporcionar un ID de Operación válido.")
+                else:
+                    with st.spinner("Guardando en la tabla EVENT_METER de SQL..."):
+                        try:
+                            supabase.table("event_meter").insert({
+                                "linea_ubicacion": linea_final,
+                                "id_operacion": id_operacion_final.upper(),
+                                "tipo_contacto": tipo_contacto,
+                                "cantidad_eventos": int(deteccion_eventos),
+                                "voltaje_maximo": float(voltaje_max),
+                                "estatus_verificacion": estatus_verificacion,
+                                "notas": notas_em,
+                                "auditor": st.session_state.usuario_nombre,
+                                "fecha": datetime.now().isoformat()
+                            }).execute()
+                            
+                            st.success(f"✅ ¡Estudio de {id_operacion_final} registrado exitosamente! Estatus: {estatus_verificacion}")
+                            st.cache_data.clear()
+                            st.balloons()
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Error SQL al guardar en Event Meter: {e}")
     # ==========================================
     # VISTA 4: WALKING TEST
     # ==========================================
