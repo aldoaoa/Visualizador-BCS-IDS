@@ -57,6 +57,14 @@ MAPA_UNIDADES = {
     "Otro": "N/A"
 }
 
+def obtener_catalogo_lineas():
+    """Descarga el catálogo maestro de líneas de Supabase"""
+    try:
+        resp = supabase.table("catalogo_lineas").select("nombre_linea").order("nombre_linea").execute()
+        return [x['nombre_linea'] for x in resp.data] if resp.data else ["Sin Ubicaciones"]
+    except:
+        return ["Sin Ubicaciones"]
+        
 def limpiar_id(texto):
     if not texto: return ""
     # Convierte a texto, quita espacios raros, borra espacios al inicio/fin y lo hace mayúscula
@@ -624,13 +632,23 @@ else:
     RUTA_MAPA = "mapa.jpg" 
     RUTA_COORDENADAS = "coordenadas.csv"
 
-    with st.sidebar:
+with st.sidebar:
         st.image("https://raw.githubusercontent.com/aldoaoa/Visualizador-BCS-IDS/refs/heads/main/Logo_BCS_transparent%20(1).png", use_container_width=True)
         st.divider()
+        
         if st.session_state.modo_lectura:
             st.warning("👁️ Modo Consulta Activo")
         else:
             st.success(f"👤 Auditor: {st.session_state.usuario_nombre}")
+            
+            # --- NUEVO BOTÓN DE AJUSTES (SOLO EN EL SIDEBAR) ---
+            st.divider()
+            if st.button("⚙️ Ajustes (Catálogos)", use_container_width=True, type="primary" if st.session_state.vista_actual == "Ajustes" else "secondary"):
+                st.session_state.vista_actual = "Ajustes"
+                limpiar_url_escaneo()
+                st.rerun()
+            st.divider()
+
         if st.button("Salir al Menú Principal", use_container_width=True):
             st.session_state.usuario_nombre = None
             st.session_state.modo_lectura = False
@@ -1776,7 +1794,7 @@ else:
 
                 st.markdown("#### 3. Condiciones Ambientales y Ubicación")
                 c7, c8, c9 = st.columns(3)
-                ubicacion = c7.text_input("Ubicación de Medición (Línea / Área)")
+                ubicacion = st.selectbox("Ubicación de Medición (Línea / Área)", options=obtener_catalogo_lineas())
                 temp = c8.text_input("Temperatura", value="23.5 °C")
                 humedad = c9.text_input("Humedad Relativa", value="45 %")
 
@@ -1923,3 +1941,95 @@ else:
                             )
             except Exception as e:
                 st.error(f"Error cargando historial: {e}")
+
+    # ==========================================
+    # VISTA 6: AJUSTES (CATÁLOGOS MAESTROS)
+    # ==========================================
+    elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_lectura:
+        st.markdown("### ⚙️ Ajustes del Sistema (Catálogos)")
+        st.info("Administra de forma centralizada las Líneas/Ubicaciones y los Equipos de Medición para que estén disponibles en todos los módulos de captura.")
+
+        tab_ubicaciones, tab_equipos = st.tabs(["📍 Líneas y Ubicaciones", "🛠️ Equipos de Medición"])
+
+        # --- PESTAÑA 1: UBICACIONES ---
+        with tab_ubicaciones:
+            col_u1, col_u2 = st.columns([1, 1])
+            
+            with col_u1:
+                st.markdown("#### ➕ Agregar Nueva Ubicación")
+                with st.form("form_nueva_ubicacion"):
+                    nueva_ub = st.text_input("Nombre de la Línea o Ubicación", placeholder="Ej: SMT 1, CR3, Metrology Lab")
+                    if st.form_submit_button("💾 Guardar Ubicación", width="stretch"):
+                        if nueva_ub:
+                            try:
+                                supabase.table("catalogo_lineas").insert({"nombre_linea": nueva_ub.strip().upper()}).execute()
+                                st.success(f"✅ Ubicación '{nueva_ub.upper()}' guardada.")
+                                st.cache_data.clear()
+                                st.rerun()
+                            except Exception as e:
+                                st.error("⚠️ Error (¿Quizás la ubicación ya existe?). Detalles: " + str(e))
+                        else:
+                            st.error("El nombre no puede estar vacío.")
+            
+            with col_u2:
+                st.markdown("#### 📋 Ubicaciones Registradas")
+                try:
+                    resp_ub = supabase.table("catalogo_lineas").select("nombre_linea").order("nombre_linea").execute()
+                    df_ub = pd.DataFrame(resp_ub.data)
+                    if not df_ub.empty:
+                        st.dataframe(df_ub, use_container_width=True, hide_index=True)
+                    else:
+                        st.info("No hay ubicaciones registradas aún.")
+                except Exception as e:
+                    st.error(f"Error al cargar ubicaciones: {e}")
+
+        # --- PESTAÑA 2: EQUIPOS DE MEDICIÓN ---
+        with tab_equipos:
+            st.markdown("#### ➕ Agregar Nuevo Equipo de Medición")
+            with st.form("form_nuevo_equipo"):
+                c_eq1, c_eq2, c_eq3 = st.columns(3)
+                id_eq = c_eq1.text_input("ID del Equipo (Obligatorio)", placeholder="Ej: BCS-QRO-LAB-01")
+                tipo_eq = c_eq2.text_input("Tipo de Equipo", placeholder="Ej: Medidor de Resistencia")
+                rep_cal = c_eq3.text_input("Reporte de Calibración")
+                
+                c_eq4, c_eq5, c_eq6 = st.columns(3)
+                res_eq = c_eq4.text_input("Resolución / Alcance")
+                fab_eq = c_eq5.text_input("Fabricante")
+                mod_eq = c_eq6.text_input("Modelo")
+                
+                c_eq7, c_eq8 = st.columns(2)
+                sn_eq = c_eq7.text_input("Número de Serie")
+                venc_cal = c_eq8.date_input("Fecha de Próxima Calibración")
+                
+                if st.form_submit_button("💾 Guardar Equipo", width="stretch"):
+                    if id_eq:
+                        try:
+                            supabase.table("equipos_medicion").insert({
+                                "id_equipo": id_eq.strip().upper(),
+                                "tipo_equipo": tipo_eq,
+                                "reporte_calibracion": rep_cal,
+                                "resolucion": res_eq,
+                                "fabricante": fab_eq,
+                                "modelo": mod_eq,
+                                "numero_serie": sn_eq,
+                                "fecha_proxima_calibracion": str(venc_cal)
+                            }).execute()
+                            st.success(f"✅ Equipo '{id_eq.upper()}' guardado exitosamente.")
+                            st.cache_data.clear()
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"⚠️ Error al guardar (¿El ID ya existe?): {e}")
+                    else:
+                        st.error("El ID del equipo es obligatorio.")
+            
+            st.divider()
+            st.markdown("#### 📋 Equipos Registrados")
+            try:
+                resp_eq_list = supabase.table("equipos_medicion").select("id_equipo, tipo_equipo, fabricante, fecha_proxima_calibracion").order("id_equipo").execute()
+                df_eq_list = pd.DataFrame(resp_eq_list.data)
+                if not df_eq_list.empty:
+                    st.dataframe(df_eq_list, use_container_width=True, hide_index=True)
+                else:
+                    st.info("No hay equipos registrados aún.")
+            except Exception as e:
+                st.error(f"Error al cargar equipos: {e}")
