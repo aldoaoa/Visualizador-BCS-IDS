@@ -62,28 +62,29 @@ def limpiar_id(texto):
     return str(texto).replace('\xa0', ' ').strip().upper()
     
 def generar_html_reporte_completo(row, index):
-    """Genera el reporte HTML 100% nativo usando solo datos del esquema SQL en Supabase."""
+    """Genera el reporte HTML nativo leyendo las columnas individuales de medición en Supabase."""
     
-    # 1. Extracción directa y limpia de SQL
     def get_sql_val(key, default="N/D"):
         v = row.get(key)
         if pd.isna(v) or v is None:
             return default
         return str(v).strip()
 
-    med1 = get_sql_val('medicion_1', '')
-    med_extra = get_sql_val('mediciones_extra', '')
+    # 1. Extraer las 5 columnas directamente
+    mediciones_raw = [
+        get_sql_val('medicion_1', ''),
+        get_sql_val('medicion_2', ''),
+        get_sql_val('medicion_3', ''),
+        get_sql_val('medicion_4', ''),
+        get_sql_val('medicion_5', '')
+    ]
     
-    # Construcción de la lista de mediciones
     mediciones = []
-    if med1 and med1.lower() not in ['n/d', 'nan', 'none', 'null', '']:
-        mediciones.append(med1)
-        
-    if med_extra and med_extra.lower() not in ['n/d', 'nan', 'none', 'null', '']:
-        extras = [m.strip() for m in med_extra.split(',') if m.strip() and m.strip().lower() not in ['nan', 'none', 'null']]
-        mediciones.extend(extras)
+    for m in mediciones_raw:
+        if m and m.lower() not in ['n/d', 'nan', 'none', 'null', '']:
+            mediciones.append(m)
     
-    # Calcular promedio
+    # 2. Calcular promedio
     valid_nums = []
     for m in mediciones:
         try:
@@ -104,7 +105,7 @@ def generar_html_reporte_completo(row, index):
     metodo_prueba = get_sql_val('metodo', '')
     unidad_medida = get_sql_val('unidad', '')
 
-    # 2. Generar las filas de la tabla de resultados
+    # 3. Generar las filas de la tabla
     html_rows = ""
     for i, val in enumerate(mediciones, 1):
         try:
@@ -124,14 +125,14 @@ def generar_html_reporte_completo(row, index):
         </tr>
         """
         
-    # 3. Procesar Imagen
+    # 4. Procesar Imagen
     img_url = get_sql_val('imagen_url', '')
     if img_url == 'N/D' or not img_url or img_url.lower() in ['nan', 'none', 'null', 'pendiente de storage']:
         img_tag = "<span class='text-gray-400 flex flex-col items-center'><br><br>Sin evidencia fotográfica</span>"
     else:
         img_tag = f'<img src="{img_url}" style="height: 190px; width: auto; max-width: 100%; object-fit: contain; margin: 0 auto;" />'
         
-    # 4. Formatear la fecha
+    # 5. Formatear la fecha
     fecha_raw = get_sql_val('fecha_auditoria', '')
     try:
         dt = datetime.fromisoformat(fecha_raw.split('.')[0])
@@ -142,7 +143,7 @@ def generar_html_reporte_completo(row, index):
 
     año_actual = datetime.today().strftime("%y")
     
-    # 5. Extraer variables generales directo de las columnas SQL
+    # 6. Extraer variables generales
     elemento = get_sql_val('elemento_s20_20', 'N/D')
     magnitud = INFO_ELEMENTOS_ESD.get(elemento, {}).get("magnitud", "N/D")
 
@@ -169,7 +170,7 @@ def generar_html_reporte_completo(row, index):
     resultado = get_sql_val('resultado')
     auditor = get_sql_val('auditor')
 
-    # --- PLANTILLA HTML EXACTA ---
+    # --- PLANTILLA HTML ---
     html = f"""<!DOCTYPE html>
 <html lang="es">
 <head>
@@ -1522,8 +1523,11 @@ else:
                                     "sn_eq": eq_data.get('numero_serie'),
                                     "fecha_prox_cal": str(eq_data.get('fecha_proxima_calibracion')),
                                     "limite_referencia": float(referencia),
-                                    "medicion_1": float(medicion_1),
-                                    "mediciones_extra": mediciones_extra_str,
+                                    "medicion_1": float(medicion_1) if medicion_1 else None,
+                                    "medicion_2": float(med_2) if med_2 is not None else None,
+                                    "medicion_3": float(med_3) if med_3 is not None else None,
+                                    "medicion_4": float(med_4) if med_4 is not None else None,
+                                    "medicion_5": float(med_5) if med_5 is not None else None,
                                     "unidad": unidad_med,
                                     "metodo": metodo_med,
                                     "modo_medicion": modo_med,
