@@ -1155,7 +1155,7 @@ else:
             else:
                 st.error("❌ El ID no se encontró en la base de datos.")
 
-    # ==========================================
+# ==========================================
     # VISTA 3: EVENT METER
     # ==========================================
     elif st.session_state.vista_actual == "Event Meter" and not st.session_state.modo_lectura:
@@ -1163,8 +1163,8 @@ else:
         st.info("Mide descargas electrostáticas y transitorios durante la operación normal de la maquinaria/proceso.")
 
         # --- SECCIÓN: GENERADOR DE REPORTE POR LÍNEA (ESTILO WALKING TEST) ---
-        with st.expander("📄 Generar Reporte por Línea", expanded=False):
-            st.write("Selecciona una línea para consolidar todas sus operaciones guardadas en la base de datos en un único reporte.")
+        with st.expander("📄 Generar Reporte Oficial por Línea (Estilo Walking Test)", expanded=False):
+            st.write("Selecciona una línea para consolidar todas sus operaciones guardadas en la base de datos en un único reporte oficial.")
             
             lineas_reporte = []
             if df_em_local is not None and not df_em_local.empty and 'Línea' in df_em_local.columns:
@@ -1177,26 +1177,23 @@ else:
                 
                 with st.form("form_reporte_em_consolidado"):
                     st.markdown("#### Datos Generales del Estudio")
-                    col_g1, col_g2, col_g3 = st.columns(3)
+                    col_g1, col_g2 = st.columns(2)
                     auditor_em = col_g1.text_input("Auditor / Técnico", value=st.session_state.usuario_nombre if st.session_state.usuario_nombre else "")
-                    operador_em = col_g2.text_input("Operador de Prueba", placeholder="Ej: Técnico de Línea SMT")
-                    periodo_em = col_g3.selectbox("Periodo de Evaluación", ["Semestre 1", "Semestre 2", "Evaluación Anual"])
+                    periodo_em = col_g2.selectbox("Periodo de Evaluación", ["Semestre 1", "Semestre 2", "Evaluación Anual"])
                     
-                    col_g4, col_g5 = st.columns(2)
-                    equipo_em = col_g4.text_input("Equipo de Medición Utilizado", value="SCS EM EYE")
-                    serial_em = col_g5.text_input("No. de Serie del Equipo", value="2451005")
+                    col_g3, col_g4 = st.columns(2)
+                    equipo_em = col_g3.text_input("Equipo de Medición Utilizado", value="SCS EM EYE")
+                    serial_em = col_g4.text_input("No. de Serie del Equipo", value="2451005")
                     
                     submit_reporte_em = st.form_submit_button("Generar Reporte Consolidado por Línea", use_container_width=True)
                     
                     if submit_reporte_em:
-                        # Filtrar datos locales correspondientes a la línea elegida
                         df_filtrado = df_em_local[df_em_local['Línea'].astype(str).str.strip() == linea_rep_sel].copy()
                         
                         if df_filtrado.empty:
                             st.error("No se encontraron registros en la base de datos para la línea seleccionada.")
                         else:
                             html_rows = ""
-                            # Recorremos cada registro guardado para construir la tabla dinámica
                             for i, row in enumerate(df_filtrado.to_dict('records'), 1):
                                 op = str(row.get('Id de Operación', 'N/A'))
                                 tipo_c = str(row.get('Tipo de contacto', 'N/D'))
@@ -1225,7 +1222,7 @@ else:
                             fecha_hoy_str = datetime.today().strftime("%Y-%m-%d")
                             fecha_pie_str = datetime.today().strftime("%Y/%m/%d")
                             
-                            # --- PLANTILLA HTML OFICIAL CON FILAS DINÁMICAS Y PIE DE PÁGINA REQUERIDO ---
+                            # --- PLANTILLA HTML OFICIAL SIN OPERADOR DE PRUEBA ---
                             html_template = f"""<!DOCTYPE html>
 <html lang="es">
 <head>
@@ -1243,7 +1240,7 @@ else:
     </style>
 </head>
 <body class="bg-gray-100 p-4 md:p-8 text-gray-800 font-sans">
-    <div class="max-w-5xl mx-auto bg-white p-8 shadow-lg print:shadow-none print:p-0">
+    <div class="max-w-5xl mx-auto bg-white p-8 shadow-lg print:shadow-none print:w-full">
         <div class="flex justify-end space-x-4 mb-6 no-print">
             <button onclick="window.print()" class="bg-gray-800 text-white px-4 py-2 rounded shadow hover:bg-gray-900 transition flex items-center font-bold">
                 🖨️ Imprimir / Guardar PDF
@@ -1271,7 +1268,6 @@ else:
                 <div class="flex justify-between border-b pb-1"><span class="font-bold">Auditor / Técnico:</span><span>{auditor_em}</span></div>
             </div>
             <div class="space-y-2">
-                <div class="flex justify-between border-b pb-1"><span class="font-bold">Operador de Prueba:</span><span>{operador_em}</span></div>
                 <div class="flex justify-between border-b pb-1"><span class="font-bold">Periodo de Evaluación:</span><span>{periodo_em}</span></div>
                 <div class="flex justify-between border-b pb-1"><span class="font-bold">Equipo de Medición (SN):</span><span>{equipo_em} ({serial_em})</span></div>
             </div>
@@ -1325,7 +1321,6 @@ else:
                             href = f'<a href="data:text/html;base64,{b64_html}" download="{nombre_archivo}" target="_blank" style="display: block; text-align: center; padding: 15px; background-color: #003366; color: white; text-decoration: none; border-radius: 8px; font-weight: bold; margin-top: 10px; font-size: 16px;">📥 Descargar Reporte Completo de la Línea (Abrir para imprimir PDF)</a>'
                             st.markdown(href, unsafe_allow_html=True)
 
-        # --- FORMULARIO DE CAPTURA DE NUEVOS REGISTROS ---
         # --- SECCIÓN DEL TEMPORIZADOR (5 MINUTOS) ---
         st.divider()
         st.markdown("#### ⏱️ Temporizador de Medición")
@@ -1339,12 +1334,13 @@ else:
             if iniciar_timer:
                 for t in range(300, -1, -1):
                     mins, secs = divmod(t, 60)
-                    # Muestra la cuenta regresiva en grande
                     timer_placeholder.markdown(f"### ⏳ Tiempo restante: {mins:02d}:{secs:02d}")
                     time.sleep(1)
                 
                 timer_placeholder.success("✅ ¡Tiempo de medición completado! Procede a registrar los datos.")
                 st.balloons()
+
+        # --- FORMULARIO DE CAPTURA DE NUEVOS REGISTROS ---
         st.divider()
         st.markdown("#### 📍 Ubicación y Operación")
         c_loc1, c_loc2 = st.columns(2)
@@ -1416,6 +1412,7 @@ else:
                             st.rerun()
                         except Exception as e:
                             st.error(f"Error SQL al guardar en Event Meter: {e}")
+    
     # ==========================================
     # VISTA 4: WALKING TEST
     # ==========================================
