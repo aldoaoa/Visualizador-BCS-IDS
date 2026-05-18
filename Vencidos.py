@@ -1555,102 +1555,143 @@ else:
                         for idx, block in enumerate(bloques_ubicaciones, 1):
                             data = block['datos']
                             if data['max_abs'] < 100:
-                                res_class, res_text, res_color = "result-pass", "CUMPLE (PASS)", "green"
-                                obs = "Ninguna anomalía. Los picos se mantuvieron por debajo del límite de 100V."
+                                res_text, res_color = "CUMPLE (PASS)", "text-green-600"
+                                obs = "Ninguna anomalía. Los picos se mantuvieron por debajo del límite normativo de 100V."
                             else:
-                                res_class, res_text, res_color = "result-fail", "NO CUMPLE (FAIL)", "red"
+                                res_text, res_color = "NO CUMPLE (FAIL)", "text-red-600"
                                 obs = f"ATENCIÓN: Se registró un pico absoluto de {data['max_abs']:.2f}V, superando el límite permitido de 100V. Se requiere limpieza o revisión."
 
-                            img_tag = f'<img src="data:image/png;base64,{data["img_b64"]}" alt="Gráfica">' if data['img_b64'] else '<i>Sin gráfica disponible</i>'
+                            img_tag = f'<img src="data:image/png;base64,{data["img_b64"]}" class="max-w-full max-h-full object-contain" alt="Gráfica">' if data['img_b64'] else '<i class="text-gray-400">Sin gráfica disponible</i>'
 
+                            # --- BLOQUES DINÁMICOS DE UBICACIÓN EN TAILWIND ---
                             html_ubicaciones += f"""
-                            <div class="location-block" style="border: 2px solid #003366; border-radius: 6px; padding: 20px; margin-bottom: 30px; page-break-inside: avoid;">
-                                <div class="location-title" style="font-size: 18px; font-weight: bold; color: white; background-color: #003366; padding: 10px; margin: -20px -20px 20px -20px; border-top-left-radius: 4px; border-top-right-radius: 4px;">Ubicación {idx}: {block['nombre']}</div>
-                                <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 14px;">
+                            <div class="border-2 border-[#003366] rounded-md p-5 mb-8 [page-break-inside:avoid] print:border-black">
+                                <div class="text-[18px] font-bold text-white bg-[#003366] p-2.5 -mx-5 -mt-5 mb-5 rounded-t-sm print:bg-black">Ubicación {idx}: {block['nombre']}</div>
+                                <table class="w-full text-sm border-collapse mb-5 text-center">
                                     <tr>
-                                        <th style="border: 1px solid #ccc; padding: 10px; text-align: left; background-color: #f4f7f6; width: 25%;">Tipo de Piso:</th>
-                                        <td style="border: 1px solid #ccc; padding: 10px; text-align: left;">{block['piso']}</td>
-                                        <th style="border: 1px solid #ccc; padding: 10px; text-align: left; background-color: #f4f7f6; width: 25%;">Limpieza previa:</th>
-                                        <td style="border: 1px solid #ccc; padding: 10px; text-align: left;">Sí</td>
+                                        <th class="border border-gray-300 p-2 text-left bg-gray-50 font-bold w-1/4 print:border-black">Tipo de Piso:</th>
+                                        <td class="border border-gray-300 p-2 text-left w-1/4 print:border-black">{block['piso']}</td>
+                                        <th class="border border-gray-300 p-2 text-left bg-gray-50 font-bold w-1/4 print:border-black">Limpieza previa:</th>
+                                        <td class="border border-gray-300 p-2 text-left w-1/4 print:border-black">Sí</td>
                                     </tr>
                                     <tr>
-                                        <th style="border: 1px solid #ccc; padding: 10px; text-align: left; background-color: #f4f7f6;">Voltaje Máx (Abs):</th>
-                                        <td style="border: 1px solid #ccc; padding: 10px; text-align: left; font-weight: bold;">{data['max_abs']:.2f} V</td>
-                                        <th style="border: 1px solid #ccc; padding: 10px; text-align: left; background-color: #f4f7f6;">Promedio de Picos:</th>
-                                        <td style="border: 1px solid #ccc; padding: 10px; text-align: left;">{data['promedio_picos']:.2f} V</td>
+                                        <th class="border border-gray-300 p-2 text-left bg-gray-50 font-bold print:border-black">Voltaje Máx (Abs):</th>
+                                        <td class="border border-gray-300 p-2 text-left font-mono font-bold print:border-black">{data['max_abs']:.2f} V</td>
+                                        <th class="border border-gray-300 p-2 text-left bg-gray-50 font-bold print:border-black">Promedio de Picos:</th>
+                                        <td class="border border-gray-300 p-2 text-left font-mono print:border-black">{data['promedio_picos']:.2f} V</td>
                                     </tr>
                                 </table>
-                                <div class="graph-placeholder" style="width: 100%; height: 250px; background-color: #fafafa; border: 2px dashed #aaa; display: flex; align-items: center; justify-content: center; color: #888; margin: 20px 0; overflow: hidden;">
+                                <div class="w-full h-64 bg-gray-50 border-2 border-dashed border-gray-300 flex items-center justify-center my-5 overflow-hidden print:border-black">
                                     {img_tag}
                                 </div>
-                                <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+                                <table class="w-full text-sm border-collapse">
                                     <tr>
-                                        <th style="border: 1px solid #ccc; padding: 10px; text-align: left; background-color: #f4f7f6; width: 20%;">Observaciones:</th>
-                                        <td style="border: 1px solid #ccc; padding: 10px; text-align: left;">{obs}</td>
-                                        <th style="border: 1px solid #ccc; padding: 10px; text-align: left; background-color: #f4f7f6; width: 20%;">Resultado Final:</th>
-                                        <td style="border: 1px solid #ccc; padding: 10px; text-align: left; color: {res_color}; font-weight: bold; font-size: 16px;">{res_text}</td>
+                                        <th class="border border-gray-300 p-2 text-left bg-gray-50 font-bold w-1/5 print:border-black">Observaciones:</th>
+                                        <td class="border border-gray-300 p-2 text-left print:border-black">{obs}</td>
+                                        <th class="border border-gray-300 p-2 text-left bg-gray-50 font-bold w-1/5 print:border-black">Resultado Final:</th>
+                                        <td class="border border-gray-300 p-2 text-center font-bold text-base print:border-black {res_color}">{res_text}</td>
                                     </tr>
                                 </table>
                             </div>
                             """
 
+                        fecha_pie_str = datetime.today().strftime("%Y/%m/%d")
+
+                        # --- PLANTILLA MAESTRA CON TAILWIND CSS ---
                         html_completo = f"""<!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
     <title>Reporte de Walking Test</title>
+    <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        body {{ font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #333; margin: 0; padding: 20px; background-color: white; }}
-        .container {{ max-width: 900px; margin: 0 auto; padding: 20px; }}
-        header {{ text-align: center; border-bottom: 3px solid #003366; padding-bottom: 20px; margin-bottom: 30px; }}
-        h1 {{ color: #003366; margin: 0 0 10px 0; font-size: 24px; }}
-        h2 {{ font-size: 18px; color: #003366; border-bottom: 1px solid #ccc; padding-bottom: 5px; margin-top: 30px; }}
-        table {{ width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 14px; }}
-        th, td {{ border: 1px solid #ccc; padding: 10px; text-align: left; }}
-        th {{ background-color: #f4f7f6; font-weight: bold; width: 25%; }}
-        .signatures {{ display: flex; justify-content: space-between; margin-top: 50px; page-break-inside: avoid; }}
-        .signature-box {{ width: 45%; text-align: center; }}
-        .signature-line {{ border-top: 1px solid black; margin-top: 50px; padding-top: 5px; font-size: 14px; }}
-        img {{ max-width: 100%; max-height: 100%; object-fit: contain; }}
-        @media print {{ body {{ padding: 0; }} .no-print {{ display: none; }} }}
+        @media print {{ body {{ -webkit-print-color-adjust: exact; }} }}
     </style>
 </head>
-<body>
-<div class="container">
-    <header>
-        <h1>Reporte de Walking Test (Prueba de Caminado)</h1>
-        <p style="margin: 0; color: #666; font-size: 14px;">Evaluación de Sistema de Piso y Calzado ESD</p>
-        <p style="margin: 0; color: #666; font-size: 14px;"><strong>Estándares aplicables:</strong> ANSI/ESD S20.20 y ANSI/ESD STM97.2</p>
-    </header>
-
-    <h2>1. Información General y Condiciones Ambientales</h2>
-    <table>
-        <tr><th>Fecha de Prueba:</th><td>{fecha_gen}</td><th>Periodo:</th><td>{periodo_wt}</td></tr>
-        <tr><th>Auditor / Técnico:</th><td>{auditor_wt}</td><th>Operador de Prueba:</th><td>{operador_wt}</td></tr>
-        <tr><th>Temperatura:</th><td>{temp_gen}</td><th>Humedad:</th><td>{hum_gen}</td></tr>
-    </table>
-
-    <h2>2. Equipo de Medición y Sistema Evaluado</h2>
-    <table>
-        <tr><th>Equipo Utilizado:</th><td>{equipo_wt}</td><th>Criterio de Aceptación:</th><td style="font-weight:bold; color:#003366;">&lt; 100 Voltios (Absoluto)</td></tr>
-        <tr><th>Calzado ESD:</th><td colspan="3">{calzado_wt}</td></tr>
-    </table>
-
-    <h2>3. Resultados por Ubicación</h2>
-    {html_ubicaciones}
-
-    <div class="signatures">
-        <div class="signature-box"><div class="signature-line"><strong>Realizado por:</strong><br>{auditor_wt}</div></div>
-        <div class="signature-box"><div class="signature-line"><strong>Revisado / Aprobado por:</strong><br>Coordinador ESD</div></div>
+<body class="bg-gray-100 p-4 md:p-8 font-sans text-sm print:bg-white print:p-0">
+    <div class="max-w-5xl mx-auto mb-6 bg-white p-4 rounded-lg shadow flex justify-end print:hidden">
+        <button onclick="window.print()" class="bg-blue-600 text-white px-6 py-2 rounded font-bold shadow-sm hover:bg-blue-700 transition">🖨️ Imprimir / Guardar PDF</button>
     </div>
-</div>
+    
+    <div class="max-w-5xl mx-auto bg-white p-8 shadow-lg print:shadow-none print:p-0">
+        <div class="border-b-4 border-[#003366] pb-4 mb-6 text-center print:border-black">
+            <h1 class="text-2xl font-bold text-[#003366] mb-1 print:text-black">Reporte de Walking Test (Prueba de Caminado)</h1>
+            <p class="text-gray-600 text-sm font-medium">Evaluación de Sistema de Piso y Calzado ESD</p>
+            <p class="text-gray-500 text-xs mt-1"><strong>Estándares aplicables:</strong> ANSI/ESD S20.20 y ANSI/ESD STM97.2</p>
+        </div>
+
+        <h2 class="text-base font-bold text-[#003366] border-b border-gray-300 pb-1 mt-6 mb-3 uppercase tracking-wide print:text-black print:border-black">1. Información General y Condiciones Ambientales</h2>
+        <table class="w-full text-sm border-collapse mb-6">
+            <tr>
+                <th class="border border-gray-300 p-2 bg-gray-50 font-bold w-1/4 print:border-black">Fecha de Prueba:</th>
+                <td class="border border-gray-300 p-2 w-1/4 print:border-black">{fecha_gen}</td>
+                <th class="border border-gray-300 p-2 bg-gray-50 font-bold w-1/4 print:border-black">Periodo:</th>
+                <td class="border border-gray-300 p-2 w-1/4 print:border-black">{periodo_wt}</td>
+            </tr>
+            <tr>
+                <th class="border border-gray-300 p-2 bg-gray-50 font-bold print:border-black">Auditor / Técnico:</th>
+                <td class="border border-gray-300 p-2 print:border-black">{auditor_wt}</td>
+                <th class="border border-gray-300 p-2 bg-gray-50 font-bold print:border-black">Operador de Prueba:</th>
+                <td class="border border-gray-300 p-2 print:border-black">{operador_wt}</td>
+            </tr>
+            <tr>
+                <th class="border border-gray-300 p-2 bg-gray-50 font-bold print:border-black">Temperatura:</th>
+                <td class="border border-gray-300 p-2 print:border-black">{temp_gen}</td>
+                <th class="border border-gray-300 p-2 bg-gray-50 font-bold print:border-black">Humedad:</th>
+                <td class="border border-gray-300 p-2 print:border-black">{hum_gen}</td>
+            </tr>
+        </table>
+
+        <h2 class="text-base font-bold text-[#003366] border-b border-gray-300 pb-1 mt-6 mb-3 uppercase tracking-wide print:text-black print:border-black">2. Equipo de Medición y Sistema Evaluado</h2>
+        <table class="w-full text-sm border-collapse mb-6">
+            <tr>
+                <th class="border border-gray-300 p-2 bg-gray-50 font-bold w-1/4 print:border-black">Equipo Utilizado:</th>
+                <td class="border border-gray-300 p-2 w-1/4 print:border-black">{equipo_wt}</td>
+                <th class="border border-gray-300 p-2 bg-gray-50 font-bold w-1/4 print:border-black">Criterio Aceptación:</th>
+                <td class="border border-gray-300 p-2 w-1/4 font-bold text-[#003366] print:border-black print:text-black">&lt; 100 Voltios (Absoluto)</td>
+            </tr>
+            <tr>
+                <th class="border border-gray-300 p-2 bg-gray-50 font-bold print:border-black">Calzado ESD Evaluado:</th>
+                <td colspan="3" class="border border-gray-300 p-2 print:border-black">{calzado_wt}</td>
+            </tr>
+        </table>
+
+        <h2 class="text-base font-bold text-[#003366] border-b border-gray-300 pb-1 mt-6 mb-4 uppercase tracking-wide print:text-black print:border-black">3. Resultados Consolidados por Ubicación</h2>
+        {html_ubicaciones}
+
+        <div class="flex justify-between mt-12 [page-break-inside:avoid]">
+            <div class="w-[45%] text-center">
+                <div class="border-t border-black mt-10 pt-1.5 text-sm"><strong>Realizado por:</strong><br>{auditor_wt}</div>
+            </div>
+            <div class="w-[45%] text-center">
+                <div class="border-t border-black mt-10 pt-1.5 text-sm"><strong>Revisado / Aprobado por:</strong><br>Coordinador ESD</div>
+            </div>
+        </div>
+
+        <div class="border-t-[3px] border-b-[3px] border-black mt-16 py-1 text-[11px] font-sans [page-break-inside:avoid]">
+            <div class="flex justify-between items-end">
+                <div class="text-left leading-tight">
+                    <div>E_310_4_116_QRO_EN_Rev. A</div>
+                    <div>Formato de Walking Test.</div>
+                </div>
+                <div class="text-center leading-tight">
+                    <div>Fecha: {fecha_pie_str}</div>
+                </div>
+                <div class="text-right leading-tight">
+                    <div>Ref.E_310_3_001_QRO_SP</div>
+                </div>
+            </div>
+        </div>
+
+    </div>
 </body>
 </html>"""
+                        
                         b64_html = base64.b64encode(html_completo.encode('utf-8')).decode('utf-8')
                         nombre_archivo = f"Walking_Test_{fecha_gen.replace('/', '-')}_{periodo_wt.replace(' ', '')}.html"
                         
-                        st.success("✅ ¡Reporte consolidado generado exitosamente!")
-                        href = f'<a href="data:text/html;base64,{b64_html}" download="{nombre_archivo}" target="_blank" style="display: block; text-align: center; padding: 15px; background-color: #003366; color: white; text-decoration: none; border-radius: 8px; font-weight: bold; margin-top: 10px; font-size: 16px;">📥 Descargar Reporte Completo (Abrir para imprimir PDF)</a>'
+                        st.success("✅ ¡Reporte de Walking Test estandarizado y migrado a Tailwind con éxito!")
+                        href = f'<a href="data:text/html;base64,{b64_html}" download="{nombre_archivo}" target="_blank" style="display: block; text-align: center; padding: 15px; background-color: #003366; color: white; text-decoration: none; border-radius: 8px; font-weight: bold; margin-top: 10px; font-size: 16px;">📥 Descargar Reporte Estandarizado (Tailwind)</a>'
                         st.markdown(href, unsafe_allow_html=True)
 
 # ==========================================
