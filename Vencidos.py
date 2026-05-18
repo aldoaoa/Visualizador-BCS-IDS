@@ -62,14 +62,19 @@ def limpiar_id(texto):
     return str(texto).replace('\xa0', ' ').strip().upper()
     
 def generar_html_reporte_completo(row, index):
-    """Genera el reporte HTML con el formato original exacto de BCS-AIS usando datos de SQL."""
+    """Genera el reporte HTML 100% nativo usando solo datos del esquema SQL en Supabase."""
     
-    # 1. Procesar mediciones (Extraemos usando llaves SQL o Sheets por compatibilidad)
-    med1 = safe_str(row.get('medicion_1', row.get('Medición 1', '')))
+    # 1. Extracción directa y limpia de SQL
+    def get_sql_val(key, default="N/D"):
+        v = row.get(key)
+        if pd.isna(v) or v is None:
+            return default
+        return str(v).strip()
+
+    med1 = get_sql_val('medicion_1', '')
+    med_extra = get_sql_val('mediciones_extra', '')
     
-    raw_extra = row.get('mediciones_extra', row.get('Mediciones Extra', ''))
-    med_extra = str(raw_extra).strip() if pd.notna(raw_extra) else ''
-    
+    # Construcción de la lista de mediciones
     mediciones = []
     if med1 and med1.lower() not in ['n/d', 'nan', 'none', 'null', '']:
         mediciones.append(med1)
@@ -78,6 +83,7 @@ def generar_html_reporte_completo(row, index):
         extras = [m.strip() for m in med_extra.split(',') if m.strip() and m.strip().lower() not in ['nan', 'none', 'null']]
         mediciones.extend(extras)
     
+    # Calcular promedio
     valid_nums = []
     for m in mediciones:
         try:
@@ -87,18 +93,18 @@ def generar_html_reporte_completo(row, index):
     promedio = sum(valid_nums) / len(valid_nums) if valid_nums else 0
     promedio_str = f"{promedio:.2E}" if promedio > 0 else "N/A"
     
-    ref_raw = safe_str(row.get('limite_referencia', row.get('Referencia', '')))
+    # Formato de Referencia
+    ref_raw = get_sql_val('limite_referencia', '')
     try:
         ref_num = float(ref_raw)
-        # Forzamos formato científico si es muy grande o muy pequeño
         ref_str = f"{ref_num:.2E}" if ref_num > 1000 or ref_num < 0.01 else str(ref_num)
     except:
         ref_str = ref_raw
 
-    metodo_prueba = safe_str(row.get('metodo', row.get('Método', '')))
-    unidad_medida = safe_str(row.get('unidad', row.get('Unidad', '')))
+    metodo_prueba = get_sql_val('metodo', '')
+    unidad_medida = get_sql_val('unidad', '')
 
-    # 2. Generar las filas de la tabla de resultados (AHORA CON EXACTAMENTE 6 COLUMNAS)
+    # 2. Generar las filas de la tabla de resultados
     html_rows = ""
     for i, val in enumerate(mediciones, 1):
         try:
@@ -119,14 +125,14 @@ def generar_html_reporte_completo(row, index):
         """
         
     # 3. Procesar Imagen
-    img_url = safe_str(row.get('imagen_url', row.get('Imagen (Base64)', '')))
+    img_url = get_sql_val('imagen_url', '')
     if img_url == 'N/D' or not img_url or img_url.lower() in ['nan', 'none', 'null', 'pendiente de storage']:
         img_tag = "<span class='text-gray-400 flex flex-col items-center'><br><br>Sin evidencia fotográfica</span>"
     else:
         img_tag = f'<img src="{img_url}" style="height: 190px; width: auto; max-width: 100%; object-fit: contain; margin: 0 auto;" />'
         
     # 4. Formatear la fecha
-    fecha_raw = safe_str(row.get('fecha_auditoria', row.get('Fecha', '')))
+    fecha_raw = get_sql_val('fecha_auditoria', '')
     try:
         dt = datetime.fromisoformat(fecha_raw.split('.')[0])
         meses = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"]
@@ -136,34 +142,34 @@ def generar_html_reporte_completo(row, index):
 
     año_actual = datetime.today().strftime("%y")
     
-    # 5. Extraer y mapear variables de la base de datos
-    elemento = safe_str(row.get('elemento_s20_20', row.get('Elemento S20.20', '')))
+    # 5. Extraer variables generales directo de las columnas SQL
+    elemento = get_sql_val('elemento_s20_20', 'N/D')
     magnitud = INFO_ELEMENTOS_ESD.get(elemento, {}).get("magnitud", "N/D")
 
-    id_elemento = safe_str(row.get('id_elemento', row.get('ID Elemento', '')))
-    fabricante_elem = safe_str(row.get('fabricante_elem', row.get('Fabricante Elem', '')))
-    modelo_elem = safe_str(row.get('modelo_elem', row.get('Modelo Elem', '')))
-    sn_elem = safe_str(row.get('sn_elem', row.get('SN Elem', '')))
+    id_elemento = get_sql_val('id_elemento')
+    fabricante_elem = get_sql_val('fabricante_elem')
+    modelo_elem = get_sql_val('modelo_elem')
+    sn_elem = get_sql_val('sn_elem')
     
-    temperatura = safe_str(row.get('temperatura', row.get('Temperatura', '')))
-    humedad = safe_str(row.get('humedad', row.get('Humedad', '')))
-    ubicacion = safe_str(row.get('ubicacion', row.get('Ubicación', '')))
+    temperatura = get_sql_val('temperatura')
+    humedad = get_sql_val('humedad')
+    ubicacion = get_sql_val('ubicacion')
     
-    id_equipo = safe_str(row.get('id_equipo_utilizado', row.get('ID Equipo', '')))
-    tipo_equipo = safe_str(row.get('tipo_equipo', row.get('Tipo Equipo', '')))
-    reporte_cal = safe_str(row.get('reporte_cal', row.get('Reporte Cal', '')))
-    resolucion = safe_str(row.get('resolucion', row.get('Resolución', '')))
+    id_equipo = get_sql_val('id_equipo_utilizado')
+    tipo_equipo = get_sql_val('tipo_equipo')
+    reporte_cal = get_sql_val('reporte_cal')
+    resolucion = get_sql_val('resolucion')
     
-    fabricante_eq = safe_str(row.get('fabricante_eq', row.get('Fabricante Eq', '')))
-    modelo_eq = safe_str(row.get('modelo_eq', row.get('Modelo Eq', '')))
-    sn_eq = safe_str(row.get('sn_eq', row.get('SN Eq', '')))
-    fecha_prox_cal = safe_str(row.get('fecha_prox_cal', row.get('Fecha Prox Cal', '')))
+    fabricante_eq = get_sql_val('fabricante_eq')
+    modelo_eq = get_sql_val('modelo_eq')
+    sn_eq = get_sql_val('sn_eq')
+    fecha_prox_cal = get_sql_val('fecha_prox_cal')
     
-    notas = safe_str(row.get('notas', row.get('Notas', 'Sin observaciones adicionales.')))
-    resultado = safe_str(row.get('resultado', row.get('Resultado', '')))
-    auditor = safe_str(row.get('auditor', row.get('Auditor', '')))
+    notas = get_sql_val('notas', 'Sin observaciones adicionales.')
+    resultado = get_sql_val('resultado')
+    auditor = get_sql_val('auditor')
 
-    # --- PLANTILLA HTML ---
+    # --- PLANTILLA HTML EXACTA ---
     html = f"""<!DOCTYPE html>
 <html lang="es">
 <head>
