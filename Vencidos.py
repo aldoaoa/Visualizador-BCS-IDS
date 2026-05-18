@@ -1163,8 +1163,8 @@ else:
         st.info("Mide descargas electrostáticas y transitorios durante la operación normal de la maquinaria/proceso.")
 
         # --- SECCIÓN: GENERADOR DE REPORTE POR LÍNEA (ESTILO WALKING TEST) ---
-        with st.expander("📄 Generar Reporte Oficial por Línea (Estilo Walking Test)", expanded=False):
-            st.write("Selecciona una línea para consolidar todas sus operaciones guardadas en la base de datos en un único reporte oficial.")
+        with st.expander("📄 Generar Reporte por Línea", expanded=False):
+            st.write("Selecciona una línea para consolidar todas sus operaciones guardadas en la base de datos en un único reporte.")
             
             lineas_reporte = []
             if df_em_local is not None and not df_em_local.empty and 'Línea' in df_em_local.columns:
