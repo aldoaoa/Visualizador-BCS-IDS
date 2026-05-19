@@ -2282,9 +2282,13 @@ else:
             df_med_maq = pd.DataFrame()
 
         # Extraer líneas y clasificaciones únicas basadas exclusivamente en las mediciones registradas
-        if not df_med_maq.empty:
+        if not df_med_maq.empty and 'linea_ubicacion' in df_med_maq.columns:
             lineas_disp = sorted([str(x).strip() for x in df_med_maq['linea_ubicacion'].dropna().unique() if str(x).strip() != ''])
-            clasificaciones_dinamicas = sorted([str(x).strip() for x in df_med_maq['clasificacion'].dropna().unique() if str(x).strip() not in ['None', 'nan', '']])
+            
+            if 'clasificacion' in df_med_maq.columns:
+                clasificaciones_dinamicas = sorted([str(x).strip() for x in df_med_maq['clasificacion'].dropna().unique() if str(x).strip() not in ['None', 'nan', '']])
+            else:
+                clasificaciones_dinamicas = ["Maquinaria"]
         else:
             lineas_disp = ["Sin registros previos"]
             clasificaciones_dinamicas = ["Maquinaria"]
@@ -2303,10 +2307,10 @@ else:
             if not df_historico_linea.empty:
                 st.markdown(f"**Historial de operaciones en la línea {linea_sel}:**")
                 
-                # Preparar un DataFrame limpio para mostrar al usuario
+                # BLINDAJE CONSTRUIDO CON .get() EVITA EL KEYERROR DE PANDAS
                 df_mostrar = pd.DataFrame()
-                df_mostrar["Operación / ID"] = df_historico_linea["id_maquinaria"]
-                df_mostrar["Clasificación"] = df_historico_linea["clasificacion"]
+                df_mostrar["Operación / ID"] = df_historico_linea.get("id_maquinaria", pd.Series(dtype=str))
+                df_mostrar["Clasificación"] = df_historico_linea.get("clasificacion", pd.Series(dtype=str))
                 
                 # Aplicar formato condicional a la resistencia (2 decimales si es < 10, exponencial si es mayor)
                 def formatear_resistencia(val):
@@ -2314,16 +2318,33 @@ else:
                         v = float(val)
                         return f"{v:.2f} Ω" if v < 10 else f"{v:.2E} Ω"
                     except:
-                        return str(val)
+                        return "N/D"
                 
-                df_mostrar["Resistencia Tierra"] = df_historico_linea["resistencia_tierra"].apply(formatear_resistencia)
-                df_mostrar["Estatus Red"] = df_historico_linea["tomacorriente_estatus"]
-                df_mostrar["Campo Estático"] = df_historico_linea["campo_estatico_voltaje"].astype(str) + " V"
-                df_mostrar["Estatus Final"] = df_historico_linea["resultado_estatus"]
+                if "resistencia_tierra" in df_historico_linea.columns:
+                    df_mostrar["Resistencia Tierra"] = df_historico_linea["resistencia_tierra"].apply(formatear_resistencia)
+                else:
+                    df_mostrar["Resistencia Tierra"] = "N/D"
+
+                df_mostrar["Estatus Red"] = df_historico_linea.get("tomacorriente_estatus", "N/A")
                 
-                # Formatear la fecha para que sea legible
-                df_mostrar["Fecha Medición"] = pd.to_datetime(df_historico_linea["fecha_medicion"]).dt.strftime('%d-%b-%Y %H:%M')
-                df_mostrar["Auditor"] = df_historico_linea["auditor"]
+                if "campo_estatico_voltaje" in df_historico_linea.columns:
+                    df_mostrar["Campo Estático"] = df_historico_linea["campo_estatico_voltaje"].astype(str) + " V"
+                else:
+                    df_mostrar["Campo Estático"] = "0.0 V"
+                
+                # Aquí estaba el quiebre; ahora usa .get() de forma segura si la columna falta en SQL
+                df_mostrar["Estatus Final"] = df_historico_linea.get("resultado_estatus", "PENDIENTE")
+                
+                # Formatear la fecha para que sea legible de forma segura
+                if "fecha_medicion" in df_historico_linea.columns:
+                    df_mostrar["Fecha Medición"] = pd.to_datetime(df_historico_linea["fecha_medicion"]).dt.strftime('%d-%b-%Y %H:%M')
+                else:
+                    df_mostrar["Fecha Medición"] = "N/D"
+                    
+                df_mostrar["Auditor"] = df_historico_linea.get("auditor", "N/D")
+
+                # Limpieza final de NaN por si cayeron valores vacíos devueltos por .get()
+                df_mostrar = df_mostrar.fillna("N/D")
 
                 st.dataframe(df_mostrar, use_container_width=True, hide_index=True)
             else:
@@ -2338,7 +2359,7 @@ else:
         
         # Habilitar el flujo de actualización basado en las operaciones que pertenecen a esa línea
         maquinas_en_linea = []
-        if not df_med_maq.empty and linea_sel != "Sin registros previos":
+        if not df_med_maq.empty and linea_sel != "Sin registros previos" and 'id_maquinaria' in df_med_maq.columns:
             df_filtrado = df_med_maq[df_med_maq['linea_ubicacion'] == linea_sel]
             maquinas_en_linea = sorted([str(x).strip() for x in df_filtrado['id_maquinaria'].dropna().unique() if str(x).strip() != ''])
 
@@ -2348,7 +2369,7 @@ else:
             maquina_sel = st.selectbox("2. Selecciona la Maquinaria específica a actualizar", options=maquinas_en_linea)
 
         if maquina_sel:
-            # Consultamos el Inventario Maestro solo para traer los límites técnicos fijos (Marca / Máximo permitido)
+            # Consultamos el Inventario Maestro solo para traer los límites técnicos fijos
             info_maq = {}
             limite_fijo = 1.0e9
             marca_defecto = ""
@@ -2436,7 +2457,7 @@ else:
                                     "marca": marca_maq,
                                     "status_operativo": status_maq,
                                     "temperatura": temperatura_maq,
-                                    "humedad": humidity_maq if 'humidity_maq' in locals() else humedad_maq,
+                                    "humedad":  humedad_maq,
                                     "frecuencia_verificacion": frecuencia_maq,
                                     "fecha_proxima": proxima_fecha.isoformat(),
                                     "resistencia_tierra": float(resistencia),
@@ -2457,6 +2478,7 @@ else:
                                 st.success(f"✅ ¡Medición guardada! Próxima verificación calculada para: {proxima_fecha.strftime('%d-%b-%Y')}")
                                 st.balloons()
                                 time.sleep(1)
+                                st.cache_data.clear()
                                 st.rerun()
                             except Exception as e:
                                 st.error(f"Error al guardar: {e}")
