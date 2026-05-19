@@ -2406,7 +2406,21 @@ else:
                 st.markdown("##### ⚡ 1. Resistencia a Tierra")
                 col_r1, col_r2 = st.columns(2)
                 
-                resistencia = col_r1.number_input("Valor de Resistencia (Ohms)", min_value=0.0, max_value=1e12, format="%.2f", step=0.01)
+                # Determinar dinámicamente el formato y el step según el valor en el estado de sesión si existe, o usar un valor base
+                if "resistencia_maq_val" not in st.session_state:
+                    st.session_state.resistencia_maq_val = 0.0
+
+                # Captura del valor con un formato flotante amplio
+                resistencia = col_r1.number_input(
+                    "Valor de Resistencia (Ohms)", 
+                    min_value=0.0, 
+                    max_value=1e12, 
+                    value=st.session_state.resistencia_maq_val,
+                    step=0.01 if st.session_state.resistencia_maq_val < 10.0 else 1.0,
+                    format="%.2f" if resistencia < 10.0 else "%.2e"
+                )
+                # Sincronizar el valor para el refresco del formato del componente
+                st.session_state.resistencia_maq_val = resistencia
                 col_r2.text_input("Límite Máximo Permitido (Referencia Fija)", value=f"{limite_fijo:.2e}", disabled=True)
                 
                 # Validación automática visual e interna PASA / FALLA
