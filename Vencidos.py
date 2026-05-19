@@ -2273,16 +2273,15 @@ else:
     # ==========================================
     elif st.session_state.vista_actual == "Maquinaria" and not st.session_state.modo_lectura:
         st.markdown("### 🏭 Control de Maquinaria en Líneas de Producción")
-        st.info("Registra las mediciones y verifica automáticamente el cumplimiento contra los límites.")
-
-        # 1. Obtenemos datos directamente de la tabla mediciones_maquinaria (PARA DESPLEGABLES)
+        
+        # 1. Obtenemos datos directamente de la tabla mediciones_maquinaria para los desplegables e histórico
         try:
-            resp_med = supabase.table("mediciones_maquinaria").select("linea_ubicacion, id_maquinaria, clasificacion").execute()
+            resp_med = supabase.table("mediciones_maquinaria").select("*").order("fecha_medicion", desc=True).execute()
             df_med_maq = pd.DataFrame(resp_med.data)
         except Exception:
             df_med_maq = pd.DataFrame()
 
-        # Extraer líneas y clasificaciones únicas exclusivamente de las mediciones registradas
+        # Extraer líneas y clasificaciones únicas basadas exclusivamente en las mediciones registradas
         if not df_med_maq.empty:
             lineas_disp = sorted([str(x).strip() for x in df_med_maq['linea_ubicacion'].dropna().unique() if str(x).strip() != ''])
             clasificaciones_dinamicas = sorted([str(x).strip() for x in df_med_maq['clasificacion'].dropna().unique() if str(x).strip() not in ['None', 'nan', '']])
@@ -2290,28 +2289,66 @@ else:
             lineas_disp = ["Sin registros previos"]
             clasificaciones_dinamicas = ["Maquinaria"]
 
-        # Si por alguna razón la lista de clasificaciones queda vacía tras el filtrado
         if not clasificaciones_dinamicas:
             clasificaciones_dinamicas = ["Maquinaria"]
 
-        linea_sel = st.selectbox("1. Selecciona Línea / Ubicación", options=lineas_disp)
+        # SECCIÓN A: SELECCIÓN DE LÍNEA Y VISUALIZACIÓN DEL REGISTRO ANTERIOR
+        st.markdown("#### 🔍 Consulta de Mediciones Anteriores")
+        linea_sel = st.selectbox("1. Selecciona Línea / Ubicación para revisar historial", options=lineas_disp)
 
-        # 2. Filtrar Maquinarias por línea (basado ÚNICAMENTE en la tabla de mediciones)
+        # Filtrar el histórico de la línea seleccionada
+        if not df_med_maq.empty and linea_sel != "Sin registros previos":
+            df_historico_linea = df_med_maq[df_med_maq['linea_ubicacion'] == linea_sel].copy()
+            
+            if not df_historico_linea.empty:
+                st.markdown(f"**Historial de operaciones en la línea {linea_sel}:**")
+                
+                # Preparar un DataFrame limpio para mostrar al usuario
+                df_mostrar = pd.DataFrame()
+                df_mostrar["Operación / ID"] = df_historico_linea["id_maquinaria"]
+                df_mostrar["Clasificación"] = df_historico_linea["clasificacion"]
+                
+                # Aplicar formato condicional a la resistencia (2 decimales si es < 10, exponencial si es mayor)
+                def formatear_resistencia(val):
+                    try:
+                        v = float(val)
+                        return f"{v:.2f} Ω" if v < 10 else f"{v:.2E} Ω"
+                    except:
+                        return str(val)
+                
+                df_mostrar["Resistencia Tierra"] = df_historico_linea["resistencia_tierra"].apply(formatear_resistencia)
+                df_mostrar["Estatus Red"] = df_historico_linea["tomacorriente_estatus"]
+                df_mostrar["Campo Estático"] = df_historico_linea["campo_estatico_voltaje"].astype(str) + " V"
+                df_mostrar["Estatus Final"] = df_historico_linea["resultado_estatus"]
+                
+                # Formatear la fecha para que sea legible
+                df_mostrar["Fecha Medición"] = pd.to_datetime(df_historico_linea["fecha_medicion"]).dt.strftime('%d-%b-%Y %H:%M')
+                df_mostrar["Auditor"] = df_historico_linea["auditor"]
+
+                st.dataframe(df_mostrar, use_container_width=True, hide_index=True)
+            else:
+                st.info(f"No se encontraron mediciones previas grabadas en la línea {linea_sel}.")
+        else:
+            st.info("No hay registros históricos disponibles en este momento.")
+
+        st.divider()
+
+        # SECCIÓN B: ACCIÓN DE ACTUALIZAR VALIDACIÓN / NUEVA MEDICIÓN
+        st.markdown("#### ➕ Registrar / Actualizar Validación de la Línea")
+        
+        # Habilitar el flujo de actualización basado en las operaciones que pertenecen a esa línea
         maquinas_en_linea = []
-        if not df_med_maq.empty:
+        if not df_med_maq.empty and linea_sel != "Sin registros previos":
             df_filtrado = df_med_maq[df_med_maq['linea_ubicacion'] == linea_sel]
             maquinas_en_linea = sorted([str(x).strip() for x in df_filtrado['id_maquinaria'].dropna().unique() if str(x).strip() != ''])
 
         if not maquinas_en_linea:
-            st.warning(f"No se encontraron equipos registrados en la línea: {linea_sel}.")
-            maquina_sel = st.text_input("Ingresa el ID de la maquinaria manualmente:")
+            maquina_sel = st.text_input("Ingresa el ID de la maquinaria manualmente para iniciar registro:")
         else:
-            maquina_sel = st.selectbox("2. Selecciona la Maquinaria a Validar", options=maquinas_en_linea)
+            maquina_sel = st.selectbox("2. Selecciona la Maquinaria específica a actualizar", options=maquinas_en_linea)
 
-        st.divider()
         if maquina_sel:
-            # Para obtener el límite máximo normativo y los metadatos base (Marca/Clasificación por defecto), 
-            # se consulta la fila correspondiente en el Inventario Maestro si está disponible.
+            # Consultamos el Inventario Maestro solo para traer los límites técnicos fijos (Marca / Máximo permitido)
             info_maq = {}
             limite_fijo = 1.0e9
             marca_defecto = ""
@@ -2328,22 +2365,18 @@ else:
                     if val_clasif in clasificaciones_dinamicas:
                         clasif_defecto = val_clasif
 
-            # Determinar el índice por defecto para la clasificación dinámica
             try:
                 idx_clasif = clasificaciones_dinamicas.index(clasif_defecto)
             except ValueError:
                 idx_clasif = 0
 
-            st.markdown(f"#### 📊 Registro de Mediciones para: `{maquina_sel}`")
+            st.markdown(f"##### 📝 Nueva captura para la estación: `{maquina_sel}`")
             
             with st.form("form_medicion_maquinaria"):
-                st.markdown("##### 📝 Datos del Equipo y Condiciones Ambientales")
                 c_eq1, c_eq2, c_eq3 = st.columns(3)
-                
-                # Desplegable dinámico de clasificación alimentado desde la tabla de mediciones
                 clasificacion_maq = c_eq1.selectbox("Clasificación", options=clasificaciones_dinamicas, index=idx_clasif)
                 marca_maq = c_eq2.text_input("Marca / Fabricante", value=marca_defecto)
-                status_maq = c_eq3.selectbox("Estatus Operativo", ["OPERATIVO", "NO OPERATIVO", "MANTENIMIENTO"])
+                status_maq = c_eq3.selectbox("Estatus Operativo Actual", ["OPERATIVO", "NO OPERATIVO", "MANTENIMIENTO"])
                 
                 c_amb1, c_amb2, c_amb3 = st.columns(3)
                 temperatura_maq = c_amb1.text_input("Temperatura", value="23.5 °C")
@@ -2354,16 +2387,15 @@ else:
                 st.markdown("##### ⚡ 1. Resistencia a Tierra")
                 col_r1, col_r2 = st.columns(2)
                 
-                # Lógica de formato decimal dinámica solicitada (si es menor a 10 ohms tiene 2 decimales en el despliegue del número)
-                resistencia = col_r1.number_input("Valor de Resistencia (Ohms)", min_value=0.0, max_value=1e12, format="%.2f", step=0.1)
-                col_r2.text_input("Límite Máximo Permitido (Referencia)", value=f"{limite_fijo:.2e}", disabled=True)
+                resistencia = col_r1.number_input("Valor de Resistencia (Ohms)", min_value=0.0, max_value=1e12, format="%.2f", step=0.01)
+                col_r2.text_input("Límite Máximo Permitido (Referencia Fija)", value=f"{limite_fijo:.2e}", disabled=True)
                 
-                # Validación automática PASA / FALLA en tiempo real en la interfaz
+                # Validación automática visual e interna PASA / FALLA
                 resultado_auto = "PASA" if resistencia <= limite_fijo else "FALLA"
                 if resultado_auto == "FALLA":
-                    st.error(f"❌ RESULTADO: FALLA (Resistencia {resistencia:.2e} excede el límite de {limite_fijo:.2e})")
+                    st.error(f"❌ RESULTADO EVALUACIÓN: FALLA (Resistencia {resistencia:.2e} excede el límite de {limite_fijo:.2e})")
                 else:
-                    st.success(f"✅ RESULTADO: PASA")
+                    st.success(f"✅ RESULTADO EVALUACIÓN: PASA")
 
                 st.markdown("##### 🔌 2. Tomacorriente (Opcional)")
                 col_t1, col_t2 = st.columns(2)
@@ -2384,7 +2416,7 @@ else:
                 
                 obs_maq = st.text_area("Notas / Observaciones Generales")
                 
-                submit_maq = st.form_submit_button("💾 Guardar y Actualizar Maquinaria", use_container_width=True)
+                submit_maq = st.form_submit_button("💾 Guardar Nueva Validación en Historial", use_container_width=True)
                 
                 if submit_maq:
                     if aplica_toma and estado_toma == "FALLA" and not comentario_toma.strip():
@@ -2392,7 +2424,7 @@ else:
                     elif voltaje_campo > 0 and not comentario_campo.strip():
                         st.error("⚠️ Como detectaste voltaje, debes indicar dónde se encontró la carga electrostática.")
                     else:
-                        with st.spinner("Registrando evaluación en SQL..."):
+                        with st.spinner("Actualizando registro transaccional en SQL..."):
                             try:
                                 fecha_hoy = datetime.today().date()
                                 proxima_fecha = calcular_proxima_fecha(fecha_hoy, frecuencia_maq)
@@ -2404,7 +2436,7 @@ else:
                                     "marca": marca_maq,
                                     "status_operativo": status_maq,
                                     "temperatura": temperatura_maq,
-                                    "humedad": humedad_maq,
+                                    "humedad": humidity_maq if 'humidity_maq' in locals() else humedad_maq,
                                     "frecuencia_verificacion": frecuencia_maq,
                                     "fecha_proxima": proxima_fecha.isoformat(),
                                     "resistencia_tierra": float(resistencia),
@@ -2422,9 +2454,9 @@ else:
                                 
                                 supabase.table("mediciones_maquinaria").insert(data_insert).execute()
                                 
-                                st.success(f"✅ ¡Mediciones registradas! Próxima verificación programada para: {proxima_fecha.strftime('%d-%b-%Y')}")
+                                st.success(f"✅ ¡Medición guardada! Próxima verificación calculada para: {proxima_fecha.strftime('%d-%b-%Y')}")
                                 st.balloons()
                                 time.sleep(1)
                                 st.rerun()
                             except Exception as e:
-                                st.error(f"Error al guardar en Supabase: {e}")
+                                st.error(f"Error al guardar: {e}")
