@@ -2273,41 +2273,76 @@ else:
     # ==========================================
     elif st.session_state.vista_actual == "Maquinaria" and not st.session_state.modo_lectura:
         st.markdown("### 🏭 Control de Maquinaria en Líneas de Producción")
-        st.info("Registra las mediciones y verifica automáticamente el cumplimiento contra los límites del inventario.")
+        st.info("Registra las mediciones y verifica automáticamente el cumplimiento contra los límites.")
 
-        # 1. Obtenemos datos desde el Inventario Maestro (ÚNICA FUENTE DE LECTURA)
-        if 'df_inv_full' in locals() and not df_inv_full.empty:
-            lineas_disp = sorted([str(x).strip() for x in df_inv_full['Línea'].dropna().unique() if str(x).strip() != ''])
-            clasificaciones_dinamicas = sorted([str(x).strip() for x in df_inv_full['Clasificación'].dropna().unique() if str(x).strip() != 'nan'])
+        # 1. Obtenemos datos directamente de la tabla mediciones_maquinaria (PARA DESPLEGABLES)
+        try:
+            resp_med = supabase.table("mediciones_maquinaria").select("linea_ubicacion, id_maquinaria, clasificacion").execute()
+            df_med_maq = pd.DataFrame(resp_med.data)
+        except Exception:
+            df_med_maq = pd.DataFrame()
+
+        # Extraer líneas y clasificaciones únicas exclusivamente de las mediciones registradas
+        if not df_med_maq.empty:
+            lineas_disp = sorted([str(x).strip() for x in df_med_maq['linea_ubicacion'].dropna().unique() if str(x).strip() != ''])
+            clasificaciones_dinamicas = sorted([str(x).strip() for x in df_med_maq['clasificacion'].dropna().unique() if str(x).strip() not in ['None', 'nan', '']])
         else:
-            lineas_disp = ["Sin ubicaciones"]
+            lineas_disp = ["Sin registros previos"]
+            clasificaciones_dinamicas = ["Maquinaria"]
+
+        # Si por alguna razón la lista de clasificaciones queda vacía tras el filtrado
+        if not clasificaciones_dinamicas:
             clasificaciones_dinamicas = ["Maquinaria"]
 
         linea_sel = st.selectbox("1. Selecciona Línea / Ubicación", options=lineas_disp)
 
-        # 2. Filtrar Maquinarias por línea seleccionada (Lectura de Inventario)
+        # 2. Filtrar Maquinarias por línea (basado ÚNICAMENTE en la tabla de mediciones)
         maquinas_en_linea = []
-        if 'df_inv_full' in locals() and not df_inv_full.empty:
-            df_filtrado = df_inv_full[df_inv_full['Línea'].astype(str).str.strip() == linea_sel]
-            maquinas_en_linea = sorted([str(x).strip() for x in df_filtrado['Id de producto'].dropna().unique()])
+        if not df_med_maq.empty:
+            df_filtrado = df_med_maq[df_med_maq['linea_ubicacion'] == linea_sel]
+            maquinas_en_linea = sorted([str(x).strip() for x in df_filtrado['id_maquinaria'].dropna().unique() if str(x).strip() != ''])
 
-        maquina_sel = st.selectbox("2. Selecciona la Maquinaria a Validar", options=maquinas_en_linea)
+        if not maquinas_en_linea:
+            st.warning(f"No se encontraron equipos registrados en la línea: {linea_sel}.")
+            maquina_sel = st.text_input("Ingresa el ID de la maquinaria manualmente:")
+        else:
+            maquina_sel = st.selectbox("2. Selecciona la Maquinaria a Validar", options=maquinas_en_linea)
 
+        st.divider()
         if maquina_sel:
-            # Recuperar configuración fija desde el Inventario Maestro
-            info_maq = df_inv_full[df_inv_full['Id de producto'] == maquina_sel].iloc[0]
-            limite_fijo = float(info_maq.get('Maximo', 1.0e9)) # Se asume 'Maximo' es la columna de referencia en el CSV
-            clasif_default = str(info_maq.get('Clasificación', 'Maquinaria'))
-            idx_clasif = clasificaciones_dinamicas.index(clasif_default) if clasif_default in clasificaciones_dinamicas else 0
-            
-            st.divider()
+            # Para obtener el límite máximo normativo y los metadatos base (Marca/Clasificación por defecto), 
+            # se consulta la fila correspondiente en el Inventario Maestro si está disponible.
+            info_maq = {}
+            limite_fijo = 1.0e9
+            marca_defecto = ""
+            clasif_defecto = clasificaciones_dinamicas[0]
+
+            if 'df_inv_full' in locals() and not df_inv_full.empty:
+                df_inv_filtrado = df_inv_full[df_inv_full['Id de producto'] == maquina_sel]
+                if not df_inv_filtrado.empty:
+                    info_maq = df_inv_filtrado.iloc[0]
+                    limite_fijo = float(info_maq.get('Maximo', 1.0e9))
+                    marca_defecto = str(info_maq.get('Marca', ''))
+                    
+                    val_clasif = str(info_maq.get('Clasificación', ''))
+                    if val_clasif in clasificaciones_dinamicas:
+                        clasif_defecto = val_clasif
+
+            # Determinar el índice por defecto para la clasificación dinámica
+            try:
+                idx_clasif = clasificaciones_dinamicas.index(clasif_defecto)
+            except ValueError:
+                idx_clasif = 0
+
             st.markdown(f"#### 📊 Registro de Mediciones para: `{maquina_sel}`")
             
             with st.form("form_medicion_maquinaria"):
+                st.markdown("##### 📝 Datos del Equipo y Condiciones Ambientales")
                 c_eq1, c_eq2, c_eq3 = st.columns(3)
-                # Lista desplegable dinámica
+                
+                # Desplegable dinámico de clasificación alimentado desde la tabla de mediciones
                 clasificacion_maq = c_eq1.selectbox("Clasificación", options=clasificaciones_dinamicas, index=idx_clasif)
-                marca_maq = c_eq2.text_input("Marca / Fabricante", value=str(info_maq.get('Marca', '')))
+                marca_maq = c_eq2.text_input("Marca / Fabricante", value=marca_defecto)
                 status_maq = c_eq3.selectbox("Estatus Operativo", ["OPERATIVO", "NO OPERATIVO", "MANTENIMIENTO"])
                 
                 c_amb1, c_amb2, c_amb3 = st.columns(3)
@@ -2318,13 +2353,15 @@ else:
                 st.markdown("---")
                 st.markdown("##### ⚡ 1. Resistencia a Tierra")
                 col_r1, col_r2 = st.columns(2)
-                resistencia = col_r1.number_input("Valor de Resistencia (Ohms)", min_value=0.0, format="%.2f", step=0.1)
-                col_r2.text_input("Límite Máximo (Referencia)", value=f"{limite_fijo:.2e}", disabled=True)
                 
-                # Validación automática Pasa/Falla
+                # Lógica de formato decimal dinámica solicitada (si es menor a 10 ohms tiene 2 decimales en el despliegue del número)
+                resistencia = col_r1.number_input("Valor de Resistencia (Ohms)", min_value=0.0, max_value=1e12, format="%.2f", step=0.1)
+                col_r2.text_input("Límite Máximo Permitido (Referencia)", value=f"{limite_fijo:.2e}", disabled=True)
+                
+                # Validación automática PASA / FALLA en tiempo real en la interfaz
                 resultado_auto = "PASA" if resistencia <= limite_fijo else "FALLA"
                 if resultado_auto == "FALLA":
-                    st.error(f"❌ RESULTADO: FALLA (La resistencia {resistencia:.2e} supera el límite de {limite_fijo:.2e})")
+                    st.error(f"❌ RESULTADO: FALLA (Resistencia {resistencia:.2e} excede el límite de {limite_fijo:.2e})")
                 else:
                     st.success(f"✅ RESULTADO: PASA")
 
@@ -2353,9 +2390,9 @@ else:
                     if aplica_toma and estado_toma == "FALLA" and not comentario_toma.strip():
                         st.error("⚠️ Debes escribir un comentario justificando la falla del tomacorriente.")
                     elif voltaje_campo > 0 and not comentario_campo.strip():
-                        st.error("⚠️ Debes indicar dónde se encontró la carga electrostática.")
+                        st.error("⚠️ Como detectaste voltaje, debes indicar dónde se encontró la carga electrostática.")
                     else:
-                        with st.spinner("Registrando en SQL..."):
+                        with st.spinner("Registrando evaluación en SQL..."):
                             try:
                                 fecha_hoy = datetime.today().date()
                                 proxima_fecha = calcular_proxima_fecha(fecha_hoy, frecuencia_maq)
@@ -2371,7 +2408,7 @@ else:
                                     "frecuencia_verificacion": frecuencia_maq,
                                     "fecha_proxima": proxima_fecha.isoformat(),
                                     "resistencia_tierra": float(resistencia),
-                                    "resistencia_max": limite_fijo, # Valor fijo del inventario
+                                    "resistencia_max": limite_fijo, 
                                     "tomacorriente_aplica": aplica_toma,
                                     "tomacorriente_estatus": estado_toma,
                                     "tomacorriente_comentario": comentario_toma,
@@ -2380,10 +2417,14 @@ else:
                                     "observaciones": obs_maq,
                                     "fecha_medicion": datetime.now().isoformat(),
                                     "auditor": st.session_state.usuario_nombre,
-                                    "resultado_estatus": resultado_auto # Se guarda la validación calculada
+                                    "resultado_estatus": resultado_auto
                                 }
+                                
                                 supabase.table("mediciones_maquinaria").insert(data_insert).execute()
-                                st.success("✅ ¡Mediciones registradas exitosamente!")
+                                
+                                st.success(f"✅ ¡Mediciones registradas! Próxima verificación programada para: {proxima_fecha.strftime('%d-%b-%Y')}")
                                 st.balloons()
+                                time.sleep(1)
+                                st.rerun()
                             except Exception as e:
-                                st.error(f"Error al guardar: {e}")
+                                st.error(f"Error al guardar en Supabase: {e}")
