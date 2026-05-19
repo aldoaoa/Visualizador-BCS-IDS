@@ -904,12 +904,107 @@ else:
                             except Exception as e:
                                 st.error(f"Error SQL: {e}")
                                 
-        # --- SUB-VISTA 2: BAJA ---
+# --- SUB-VISTA 2: BAJA (CON ESCÁNER QR REACTIVO INDEPENDIENTE) ---
         elif accion_seleccionada == "🗑️ Dar de Baja":
-            st.markdown("#### 🗑️ Dar de Baja")
+            st.markdown("#### 🗑️ Desactivación de Activos ESD")
+            
             if not id_baja_url:
-                st.write("Escanea o ingresa manualmente el ID.")
-                id_manual_baja = st.text_input("Ingresa el ID manual:", key="input_manual_baja")
+                st.markdown("### 📷 Apunta al Código QR del Equipo a Dar de Baja")
+                html_code_qr_baja = """
+                <script src="https://unpkg.com/html5-qrcode"></script>
+                <div id="reader_baja" style="width:100%; max-width:500px; margin:auto; border-radius:10px; overflow:hidden; border: 2px solid #dc3545; background-color: #f9f9f9;"></div>
+                
+                <div style="text-align:center; margin-top:10px; display:flex; justify-content:center; gap:5px; flex-wrap:wrap;">
+                    <button type="button" id="cam_wide_baja" style="padding:10px; background:#28a745; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">📸 LENTE ESTÁNDAR</button>
+                    <button type="button" id="cam_cycle_baja" style="padding:10px; background:#555; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">🔄 OTRA CÁMARA</button>
+                </div>
+                <div style="text-align:center; margin-top:10px; display:flex; justify-content:center; gap:5px;">
+                    <button type="button" id="zoom_1x_baja" style="padding:10px 20px; background:#dc3545; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">🔍 1X (NORMAL)</button>
+                    <button type="button" id="zoom_3x_baja" style="padding:10px 20px; background:#666; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">🔍 3X (CURVO)</button>
+                </div>
+                <p id="cam-status-baja" style="text-align:center; color:#666; font-size: 14px; margin-top: 10px;">Buscando cámaras...</p>
+                
+                <script>
+                let html5QrCodeBaja;
+                let rearCamsBaja = [];
+                let currentIdxBaja = 0;
+                let wideIdBaja = null;
+
+                function applyZoomBaja(scale) {
+                    const vid = document.querySelector("#reader_baja video");
+                    if (vid) {
+                        vid.style.transform = `scale(${scale})`;
+                        vid.style.transformOrigin = "center center";
+                    }
+                    document.getElementById('zoom_1x_baja').style.background = (scale === 1) ? "#dc3545" : "#666";
+                    document.getElementById('zoom_3x_baja').style.background = (scale === 3) ? "#dc3545" : "#666";
+                }
+
+                function startScannerBaja(camId) {
+                    if(!html5QrCodeBaja) html5QrCodeBaja = new Html5Qrcode("reader_baja");
+                    if (html5QrCodeBaja.isScanning) {
+                        html5QrCodeBaja.stop().then(() => { runScanBaja(camId); }).catch(e => console.log(e));
+                    } else {
+                        runScanBaja(camId);
+                    }
+                }
+
+                function runScanBaja(camId) {
+                    html5QrCodeBaja.start(
+                        camId, { fps: 15, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 },
+                        (decodedText) => {
+                            html5QrCodeBaja.stop();
+                            const url = new URL(window.parent.location.href);
+                            url.searchParams.set("qr_baja", decodedText);
+                            window.parent.history.replaceState({}, "", url);
+                            window.parent.location.reload();
+                        }, (err) => {} 
+                    ).then(() => { 
+                        let activeCam = rearCamsBaja.find(c => c.id === camId);
+                        document.getElementById("cam-status-baja").innerText = "Lente activo: " + (activeCam ? activeCam.label : "Cámara");
+                        applyZoomBaja(1);
+                    }).catch(err => {
+                        document.getElementById("cam-status-baja").innerText = "Error iniciando lente. Intenta 'Otra Cámara'.";
+                    });
+                }
+
+                Html5Qrcode.getCameras().then(devices => {
+                    if (devices && devices.length) {
+                        rearCamsBaja = devices.filter(c => c.label.toLowerCase().includes('back') || c.label.toLowerCase().includes('trasera') || c.label.toLowerCase().includes('environment'));
+                        if(rearCamsBaja.length === 0) rearCamsBaja = devices;
+
+                        wideIdBaja = rearCamsBaja[0].id;
+                        for (let c of rearCamsBaja) {
+                            let lbl = c.label.toLowerCase();
+                            if (lbl.includes('wide') && !lbl.includes('ultra')) {
+                                wideIdBaja = c.id; break;
+                            }
+                        }
+
+                        currentIdxBaja = rearCamsBaja.findIndex(c => c.id === wideIdBaja);
+                        if(currentIdxBaja === -1) currentIdxBaja = 0;
+
+                        startScannerBaja(wideIdBaja);
+
+                        document.getElementById('cam_wide_baja').addEventListener('click', () => {
+                            currentIdxBaja = rearCamsBaja.findIndex(c => c.id === wideIdBaja);
+                            startScannerBaja(wideIdBaja);
+                        });
+
+                        document.getElementById('cam_cycle_baja').addEventListener('click', () => {
+                            currentIdxBaja = (currentIdxBaja + 1) % rearCamsBaja.length;
+                            startScannerBaja(rearCamsBaja[currentIdxBaja].id);
+                        });
+
+                        document.getElementById('zoom_1x_baja').addEventListener('click', () => applyZoomBaja(1));
+                        document.getElementById('zoom_3x_baja').addEventListener('click', () => applyZoomBaja(3));
+                    }
+                }).catch(err => { document.getElementById("cam-status-baja").innerText = "Permisos de cámara denegados."; });
+                </script>
+                """
+                components.html(html_code_qr_baja, height=750)
+                
+                id_manual_baja = st.text_input("O ingresa el ID manual para Baja:", key="input_manual_baja")
                 if id_manual_baja:
                     st.query_params["qr_baja"] = id_manual_baja
                     st.rerun()
@@ -924,7 +1019,7 @@ else:
                 id_limpio_baja = str(id_baja_url).strip().upper()
                 
                 with st.form("form_confirmacion_baja"):
-                    if st.form_submit_button("🗑️ Confirmar Baja (Soft Delete)"):
+                    if st.form_submit_button("🗑️ Confirmar Baja (Soft Delete)", width="stretch"):
                         with st.spinner("Actualizando SQL..."):
                             try:
                                 supabase.table("inventario_esd").update({
@@ -932,13 +1027,12 @@ else:
                                     "estatus_verificacion": "BAJA"
                                 }).eq("id_producto", id_limpio_baja).execute()
                                 
-                                st.success(f"✅ ¡Equipo desactivado!")
+                                st.success(f"✅ ¡Equipo desactivado con éxito!")
                                 st.cache_data.clear()
                                 limpiar_url_escaneo()
                                 st.rerun()
                             except Exception as e:
-                                st.error(f"Error: {e}")
-
+                                st.error(f"Error procesando la baja: {e}")
     # ==========================================
     # VISTA 1: MAPA Y REPORTES ESD
     # ==========================================
