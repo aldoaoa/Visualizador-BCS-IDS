@@ -1114,7 +1114,6 @@ else:
                     rearCamsMain = devices.filter(c => c.label.toLowerCase().includes('back') || c.label.toLowerCase().includes('trasera') || c.label.toLowerCase().includes('environment'));
                     if(rearCamsMain.length === 0) rearCamsMain = devices;
 
-                    // Buscar la cámara WIDE original
                     wideIdMain = rearCamsMain[0].id;
                     for (let c of rearCamsMain) {
                         let lbl = c.label.toLowerCase();
@@ -1175,10 +1174,12 @@ else:
                 estatus_op = str(equipo.get('Estatus operativo', '')).strip().upper()
                 texto_check = "✅ REACTIVAR" if estatus_op == "NO OPERATIVO" else "✅ Registrar medición"
                 
+                # --- DATOS GENERALES ---
                 st.markdown(f"### 📊 Detalles del Equipo")
                 c_linea, c_tipo, c_estatus = st.columns(3)
                 c_linea.metric("Ubicación", str(equipo.get('Línea', 'N/A')))
-                c_tipo.metric("Clasificación", str(equipo.get('Clasificación', 'N/A')))
+                clasificacion_equipo = str(equipo.get('Clasificación', 'N/A'))
+                c_tipo.metric("Clasificación", clasificacion_equipo)
                 c_estatus.metric("Estatus", str(equipo.get('Estatus de verificación', 'N/A')))
                 
                 c_val, c_bal = st.columns(2)
@@ -1189,34 +1190,83 @@ else:
                 else:
                     c_val.metric("Resistencia", f"{float(val_previo):.2E} Ω" if pd.notna(val_previo) else "N/A")
 
+                # --- CONSULTA DE HISTORIAL ---
+                with st.expander("🕰️ Consultar Historial de Mediciones Anteriores"):
+                    try:
+                        resp_hist = supabase.table("historial_mediciones").select("*").eq("id_equipo", id_limpio).order("fecha_modificacion", desc=True).execute()
+                        df_historial = pd.DataFrame(resp_hist.data)
+                        if not df_historial.empty:
+                            if es_ion and 'balance_ionizador' in df_historial.columns:
+                                df_historial = df_historial[['fecha_modificacion', 'valor_actual', 'balance_ionizador', 'fecha_validacion', 'ubicacion', 'auditor']]
+                                df_historial.columns = ['Actualizado el', 'T. Descarga (s)', 'Balance (V)', 'Fecha Val.', 'Ubicación', 'Auditor']
+                            else:
+                                df_historial = df_historial[['fecha_modificacion', 'valor_actual', 'fecha_validacion', 'ubicacion', 'auditor']]
+                                df_historial.columns = ['Actualizado el', 'Valor', 'Fecha Val.', 'Ubicación', 'Auditor']
+                            
+                            st.dataframe(df_historial, use_container_width=True, hide_index=True)
+                        else:
+                            st.info("No hay mediciones históricas registradas para este equipo aún.")
+                    except Exception as e:
+                        st.error(f"Error al cargar el historial: {e}")
+
                 st.divider()
 
+                # --- FORMULARIO DE ACTUALIZACIÓN ---
                 if not st.session_state.modo_lectura:
                     hacer_medicion = st.checkbox(texto_check)
                     if hacer_medicion:
                         with st.form("form_actualizacion"):
-                            lineas_opc = sorted([str(x).strip() for x in df_mob_local['Línea'].dropna().unique()])
-                            idx_l = lineas_opc.index(equipo.get('Línea')) if equipo.get('Línea') in lineas_opc else 0
-                            nueva_linea_upd = st.selectbox("Línea", lineas_opc, index=idx_l)
+                            # Campo de Clasificación (Tipo) bloqueado para evitar errores de escritura
+                            st.text_input("Clasificación (Tipo de Equipo)", value=clasificacion_equipo, disabled=True)
                             
+                            # Cargar líneas del catálogo maestro (si existe la función) o usar las históricas
+                            if 'obtener_catalogo_lineas' in globals():
+                                lineas_opc = obtener_catalogo_lineas()
+                            else:
+                                lineas_opc = sorted([str(x).strip() for x in df_mob_local['Línea'].dropna().unique()])
+                                
+                            ub_actual = str(equipo.get('Línea', ''))
+                            idx_l = lineas_opc.index(ub_actual) if ub_actual in lineas_opc else 0
+                            nueva_linea_upd = st.selectbox("Línea / Ubicación", lineas_opc, index=idx_l)
+                            
+                            # Campos dinámicos de medición
                             if es_ion:
-                                v_act = st.number_input("Descarga (s)", value=0.0, format="%.2f")
-                                bal_act = st.number_input("Balance (V)", value=0.0, format="%.2f")
+                                c_ion1, c_ion2 = st.columns(2)
+                                v_act = c_ion1.number_input("Descarga (s)", value=0.0, format="%.2f")
+                                bal_act = c_ion2.number_input("Balance (V)", value=0.0, format="%.2f")
                                 nuevo_valor_final = v_act
                             else:
                                 c_b, c_e = st.columns(2)
-                                base_upd = c_b.number_input("Base", value=0.0)
-                                exp_upd = c_e.number_input("Exp", value=0)
+                                base_upd = c_b.number_input("Base (Ohms)", value=0.0)
+                                exp_upd = c_e.number_input("Exponente", value=0)
                                 nuevo_valor_final = base_upd * (10 ** exp_upd)
+                                bal_act = None
                                 
                             fecha_hoy = datetime.today().date()
-                            nueva_fecha = st.date_input("Fecha", fecha_hoy)
+                            nueva_fecha = st.date_input("Fecha de Validación", fecha_hoy)
                             
-                            if st.form_submit_button("Guardar en SQL"):
+                            if st.form_submit_button("💾 Guardar Actualización e Historial"):
                                 freq = str(equipo.get('Frecuencia de verificación', 'Anual'))
                                 proxy = calcular_proxima_fecha(nueva_fecha, freq)
                                 
                                 try:
+                                    # 1. GUARDAR EN EL HISTORIAL (BITÁCORA)
+                                    historial_data = {
+                                        "id_equipo": id_limpio,
+                                        "tipo_equipo": clasificacion_equipo,
+                                        "ubicacion": nueva_linea_upd,
+                                        "valor_actual": str(nuevo_valor_final),
+                                        "fecha_validacion": nueva_fecha.isoformat(),
+                                        "fecha_vencimiento": proxy.isoformat(),
+                                        "auditor": st.session_state.usuario_nombre,
+                                        "fecha_modificacion": datetime.now().isoformat()
+                                    }
+                                    if es_ion:
+                                        historial_data["balance_ionizador"] = str(bal_act)
+                                        
+                                    supabase.table("historial_mediciones").insert(historial_data).execute()
+
+                                    # 2. ACTUALIZAR EN INVENTARIO MAESTRO
                                     update_data = {
                                         "linea_ubicacion": nueva_linea_upd,
                                         "valor_actual": float(nuevo_valor_final),
@@ -1230,15 +1280,15 @@ else:
                                         update_data["balance_ionizador"] = float(bal_act)
                                     
                                     supabase.table("inventario_esd").update(update_data).eq("id_producto", id_limpio).execute()
-                                    st.success("💾 ¡Guardado correctamente!")
+                                    
+                                    st.success("💾 ¡Equipo actualizado y guardado en el historial correctamente!")
                                     st.cache_data.clear()
                                     limpiar_url_escaneo()
                                     st.rerun()
                                 except Exception as e:
-                                    st.error(f"Error actualizando el equipo: {e}")
+                                    st.error(f"Error actualizando el equipo en SQL: {e}")
             else:
                 st.error("❌ El ID no se encontró en la base de datos.")
-
     # ==========================================
     # VISTA 3: EVENT METER
     # ==========================================
