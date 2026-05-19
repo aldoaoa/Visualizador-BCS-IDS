@@ -15,6 +15,19 @@ import pytesseract
 from supabase import create_client, Client
 import time
 
+if "vista_actual" not in st.session_state:
+    st.session_state.vista_actual = "Overview" # O la vista principal que uses por defecto
+
+if "usuario_nombre" not in st.session_state:
+    st.session_state.usuario_nombre = None
+
+if "modo_lectura" not in st.session_state:
+    st.session_state.modo_lectura = False
+
+# Agrega aquí cualquier otra llave que uses (ej. val_form_key)
+if "val_form_key" not in st.session_state:
+    st.session_state.val_form_key = 0
+
 # Configuración de página
 st.set_page_config(page_title="Control ESD BCS-AIS", layout="wide")
 
