@@ -2406,21 +2406,25 @@ else:
                 st.markdown("##### ⚡ 1. Resistencia a Tierra")
                 col_r1, col_r2 = st.columns(2)
                 
-                # Determinar dinámicamente el formato y el step según el valor en el estado de sesión si existe, o usar un valor base
+                # Inicializar de forma segura el valor en el session_state si no existe
                 if "resistencia_maq_val" not in st.session_state:
                     st.session_state.resistencia_maq_val = 0.0
 
-                # Captura del valor con un formato flotante amplio
+                # SOLUCIÓN AL ERR0R: Validamos el formato usando el session_state existente para evitar ciclos
+                formato_dinamico = "%.2f" if st.session_state.resistencia_maq_val < 10.0 else "%.2e"
+                step_dinamico = 0.01 if st.session_state.resistencia_maq_val < 10.0 else 1.0
+
                 resistencia = col_r1.number_input(
                     "Valor de Resistencia (Ohms)", 
                     min_value=0.0, 
                     max_value=1e12, 
                     value=st.session_state.resistencia_maq_val,
-                    step=0.01 if st.session_state.resistencia_maq_val < 10.0 else 1.0,
-                    format="%.2f" if resistencia < 10.0 else "%.2e"
+                    step=step_dinamico,
+                    format=formato_dinamico
                 )
-                # Sincronizar el valor para el refresco del formato del componente
+                # Sincronizar el valor modificado para el siguiente refresco de la app
                 st.session_state.resistencia_maq_val = resistencia
+
                 col_r2.text_input("Límite Máximo Permitido (Referencia Fija)", value=f"{limite_fijo:.2e}", disabled=True)
                 
                 # Validación automática visual e interna PASA / FALLA
@@ -2462,8 +2466,6 @@ else:
                                 fecha_hoy = datetime.today().date()
                                 proxima_fecha = calcular_proxima_fecha(fecha_hoy, frecuencia_maq)
                                 
-                                # Para mantener consistencia con los registros viejos, guardamos el PASA/FALLA 
-                                # en ambas columnas (la correcta y la errónea), asegurando compatibilidad total.
                                 data_insert = {
                                     "linea_ubicacion": linea_sel,
                                     "id_maquinaria": maquina_sel,
@@ -2472,7 +2474,7 @@ else:
                                     "status_operativo": status_maq,
                                     "temperatura": temperatura_maq,
                                     "humedad":  humedad_maq,
-                                    "frecuencia_verificacion": resultado_auto, # Satisface mapeo de registros históricos
+                                    "frecuencia_verificacion": resultado_auto, 
                                     "fecha_proxima": proxima_fecha.isoformat(),
                                     "resistencia_tierra": float(resistencia),
                                     "resistencia_max": limite_fijo, 
@@ -2484,7 +2486,7 @@ else:
                                     "observaciones": obs_maq,
                                     "fecha_medicion": datetime.now().isoformat(),
                                     "auditor": st.session_state.usuario_nombre,
-                                    "resultado_estatus": resultado_auto # Destino correcto estandarizado
+                                    "resultado_estatus": resultado_auto 
                                 }
                                 
                                 supabase.table("mediciones_maquinaria").insert(data_insert).execute()
