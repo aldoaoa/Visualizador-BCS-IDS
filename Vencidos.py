@@ -2307,7 +2307,6 @@ else:
             if not df_historico_linea.empty:
                 st.markdown(f"**Historial de operaciones en la línea {linea_sel}:**")
                 
-                # BLINDAJE CONSTRUIDO CON .get() EVITA EL KEYERROR DE PANDAS
                 df_mostrar = pd.DataFrame()
                 df_mostrar["Operación / ID"] = df_historico_linea.get("id_maquinaria", pd.Series(dtype=str))
                 df_mostrar["Clasificación"] = df_historico_linea.get("clasificacion", pd.Series(dtype=str))
@@ -2332,8 +2331,8 @@ else:
                 else:
                     df_mostrar["Campo Estático"] = "0.0 V"
                 
-                # Aquí estaba el quiebre; ahora usa .get() de forma segura si la columna falta en SQL
-                df_mostrar["Estatus Final"] = df_historico_linea.get("resultado_estatus", "PENDIENTE")
+                # CAMBIO SOLICITADO: Alimentar el estatus desde 'frecuencia_verificacion' por el almacenamiento erróneo previo
+                df_mostrar["Estatus Final"] = df_historico_linea.get("frecuencia_verificacion", pd.Series(dtype=str))
                 
                 # Formatear la fecha para que sea legible de forma segura
                 if "fecha_medicion" in df_historico_linea.columns:
@@ -2343,7 +2342,7 @@ else:
                     
                 df_mostrar["Auditor"] = df_historico_linea.get("auditor", "N/D")
 
-                # Limpieza final de NaN por si cayeron valores vacíos devueltos por .get()
+                # Limpieza final de NaN
                 df_mostrar = df_mostrar.fillna("N/D")
 
                 st.dataframe(df_mostrar, use_container_width=True, hide_index=True)
@@ -2357,7 +2356,6 @@ else:
         # SECCIÓN B: ACCIÓN DE ACTUALIZAR VALIDACIÓN / NUEVA MEDICIÓN
         st.markdown("#### ➕ Registrar / Actualizar Validación de la Línea")
         
-        # Habilitar el flujo de actualización basado en las operaciones que pertenecen a esa línea
         maquinas_en_linea = []
         if not df_med_maq.empty and linea_sel != "Sin registros previos" and 'id_maquinaria' in df_med_maq.columns:
             df_filtrado = df_med_maq[df_med_maq['linea_ubicacion'] == linea_sel]
@@ -2450,6 +2448,8 @@ else:
                                 fecha_hoy = datetime.today().date()
                                 proxima_fecha = calcular_proxima_fecha(fecha_hoy, frecuencia_maq)
                                 
+                                # Para mantener consistencia con los registros viejos, guardamos el PASA/FALLA 
+                                # en ambas columnas (la correcta y la errónea), asegurando compatibilidad total.
                                 data_insert = {
                                     "linea_ubicacion": linea_sel,
                                     "id_maquinaria": maquina_sel,
@@ -2458,7 +2458,7 @@ else:
                                     "status_operativo": status_maq,
                                     "temperatura": temperatura_maq,
                                     "humedad":  humedad_maq,
-                                    "frecuencia_verificacion": frecuencia_maq,
+                                    "frecuencia_verificacion": resultado_auto, # Satisface mapeo de registros históricos
                                     "fecha_proxima": proxima_fecha.isoformat(),
                                     "resistencia_tierra": float(resistencia),
                                     "resistencia_max": limite_fijo, 
@@ -2470,7 +2470,7 @@ else:
                                     "observaciones": obs_maq,
                                     "fecha_medicion": datetime.now().isoformat(),
                                     "auditor": st.session_state.usuario_nombre,
-                                    "resultado_estatus": resultado_auto
+                                    "resultado_estatus": resultado_auto # Destino correcto estandarizado
                                 }
                                 
                                 supabase.table("mediciones_maquinaria").insert(data_insert).execute()
