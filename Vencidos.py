@@ -1174,7 +1174,7 @@ else:
                 estatus_op = str(equipo.get('Estatus operativo', '')).strip().upper()
                 texto_check = "✅ REACTIVAR" if estatus_op == "NO OPERATIVO" else "✅ Registrar medición"
                 
-                # --- DETALLES DEL EQUIPO (RESTAURADOS + FECHAS NUEVAS) ---
+# --- DETALLES DEL EQUIPO ---
                 st.markdown(f"### 📊 Detalles del Equipo")
                 c_linea, c_tipo, c_estatus = st.columns(3)
                 c_linea.metric("Ubicación", str(equipo.get('Línea', 'N/A')))
@@ -1190,10 +1190,20 @@ else:
                 else:
                     c_val.metric("Resistencia", f"{float(val_previo):.2E} Ω" if pd.notna(val_previo) else "N/A")
 
-                # Se agregan las fechas como dos métricas adicionales debajo
+                # --- EXTRACCIÓN DIRECTA DE FECHAS DESDE inventario_esd ---
+                try:
+                    resp_fechas = supabase.table("inventario_esd").select("fecha_ultima_verif, fecha_proxima_verif").eq("id_producto", id_limpio).execute()
+                    if resp_fechas.data:
+                        f_val_sql = resp_fechas.data[0].get('fecha_ultima_verif', 'N/A')
+                        f_venc_sql = resp_fechas.data[0].get('fecha_proxima_verif', 'N/A')
+                    else:
+                        f_val_sql, f_venc_sql = "N/A", "N/A"
+                except Exception as e:
+                    f_val_sql, f_venc_sql = "Error", "Error"
+
                 c_fval, c_fvenc = st.columns(2)
-                c_fval.metric("Fecha de Validación", str(equipo.get('fecha_ultima_verif', 'N/A')))
-                c_fvenc.metric("Fecha de Vencimiento", str(equipo.get('fecha_proxima_verif', 'N/A')))
+                c_fval.metric("Fecha de Validación", str(f_val_sql))
+                c_fvenc.metric("Fecha de Vencimiento", str(f_venc_sql))
                 
                 # --- CONSULTA DE HISTORIAL ---
                 with st.expander("🕰️ Consultar Historial de Mediciones Anteriores"):
