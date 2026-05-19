@@ -1174,7 +1174,7 @@ else:
                 estatus_op = str(equipo.get('Estatus operativo', '')).strip().upper()
                 texto_check = "✅ REACTIVAR" if estatus_op == "NO OPERATIVO" else "✅ Registrar medición"
                 
-                # --- DATOS GENERALES ---
+                # --- DETALLES DEL EQUIPO (RESTAURADOS + FECHAS NUEVAS) ---
                 st.markdown(f"### 📊 Detalles del Equipo")
                 c_linea, c_tipo, c_estatus = st.columns(3)
                 c_linea.metric("Ubicación", str(equipo.get('Línea', 'N/A')))
@@ -1190,6 +1190,11 @@ else:
                 else:
                     c_val.metric("Resistencia", f"{float(val_previo):.2E} Ω" if pd.notna(val_previo) else "N/A")
 
+                # Se agregan las fechas como dos métricas adicionales debajo
+                c_fval, c_fvenc = st.columns(2)
+                c_fval.metric("Fecha de Validación", str(equipo.get('fecha_ultima_verif', 'N/A')))
+                c_fvenc.metric("Fecha de Vencimiento", str(equipo.get('fecha_proxima_verif', 'N/A')))
+                
                 # --- CONSULTA DE HISTORIAL ---
                 with st.expander("🕰️ Consultar Historial de Mediciones Anteriores"):
                     try:
@@ -1216,10 +1221,8 @@ else:
                     hacer_medicion = st.checkbox(texto_check)
                     if hacer_medicion:
                         with st.form("form_actualizacion"):
-                            # Campo de Clasificación (Tipo) bloqueado para evitar errores de escritura
                             st.text_input("Clasificación (Tipo de Equipo)", value=clasificacion_equipo, disabled=True)
                             
-                            # Cargar líneas del catálogo maestro (si existe la función) o usar las históricas
                             if 'obtener_catalogo_lineas' in globals():
                                 lineas_opc = obtener_catalogo_lineas()
                             else:
@@ -1229,7 +1232,6 @@ else:
                             idx_l = lineas_opc.index(ub_actual) if ub_actual in lineas_opc else 0
                             nueva_linea_upd = st.selectbox("Línea / Ubicación", lineas_opc, index=idx_l)
                             
-                            # Campos dinámicos de medición
                             if es_ion:
                                 c_ion1, c_ion2 = st.columns(2)
                                 v_act = c_ion1.number_input("Descarga (s)", value=0.0, format="%.2f")
