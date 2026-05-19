@@ -2273,42 +2273,41 @@ else:
     # ==========================================
     elif st.session_state.vista_actual == "Maquinaria" and not st.session_state.modo_lectura:
         st.markdown("### 🏭 Control de Maquinaria en Líneas de Producción")
-        st.info("Registra las mediciones requeridas y actualiza el estatus operativo de la maquinaria.")
-        
-        # 1. Extraer las Líneas únicas
-        lineas_disp = []
+        st.info("Registra las mediciones y verifica automáticamente el cumplimiento contra los límites del inventario.")
+
+        # 1. Obtenemos datos desde el Inventario Maestro (ÚNICA FUENTE DE LECTURA)
         if 'df_inv_full' in locals() and not df_inv_full.empty:
             lineas_disp = sorted([str(x).strip() for x in df_inv_full['Línea'].dropna().unique() if str(x).strip() != ''])
-            
-        if not lineas_disp:
-            if 'obtener_catalogo_lineas' in globals():
-                lineas_disp = obtener_catalogo_lineas()
-            else:
-                lineas_disp = ["Sin ubicaciones"]
+            clasificaciones_dinamicas = sorted([str(x).strip() for x in df_inv_full['Clasificación'].dropna().unique() if str(x).strip() != 'nan'])
+        else:
+            lineas_disp = ["Sin ubicaciones"]
+            clasificaciones_dinamicas = ["Maquinaria"]
 
         linea_sel = st.selectbox("1. Selecciona Línea / Ubicación", options=lineas_disp)
 
-        # 2. Extraer Maquinarias correspondientes
+        # 2. Filtrar Maquinarias por línea seleccionada (Lectura de Inventario)
         maquinas_en_linea = []
         if 'df_inv_full' in locals() and not df_inv_full.empty:
             df_filtrado = df_inv_full[df_inv_full['Línea'].astype(str).str.strip() == linea_sel]
-            maquinas_en_linea = sorted([str(x).strip() for x in df_filtrado['Id de producto'].dropna().unique() if str(x).strip() != ''])
+            maquinas_en_linea = sorted([str(x).strip() for x in df_filtrado['Id de producto'].dropna().unique()])
 
-        if not maquinas_en_linea:
-            st.warning(f"No se encontraron equipos en la línea: {linea_sel}.")
-            maquina_sel = st.text_input("Ingresa el ID de la maquinaria manualmente:")
-        else:
-            maquina_sel = st.selectbox("2. Selecciona la Maquinaria a Validar", options=maquinas_en_linea)
+        maquina_sel = st.selectbox("2. Selecciona la Maquinaria a Validar", options=maquinas_en_linea)
 
-        st.divider()
         if maquina_sel:
+            # Recuperar configuración fija desde el Inventario Maestro
+            info_maq = df_inv_full[df_inv_full['Id de producto'] == maquina_sel].iloc[0]
+            limite_fijo = float(info_maq.get('Maximo', 1.0e9)) # Se asume 'Maximo' es la columna de referencia en el CSV
+            clasif_default = str(info_maq.get('Clasificación', 'Maquinaria'))
+            idx_clasif = clasificaciones_dinamicas.index(clasif_default) if clasif_default in clasificaciones_dinamicas else 0
+            
+            st.divider()
             st.markdown(f"#### 📊 Registro de Mediciones para: `{maquina_sel}`")
             
             with st.form("form_medicion_maquinaria"):
-                st.markdown("##### 📝 Datos del Equipo y Condiciones Ambientales")
                 c_eq1, c_eq2, c_eq3 = st.columns(3)
-                clasificacion_maq = c_eq1.text_input("Clasificación", placeholder="Ej: Conveyor, EOLT, Maquinaria...")
-                marca_maq = c_eq2.text_input("Marca / Fabricante")
+                # Lista desplegable dinámica
+                clasificacion_maq = c_eq1.selectbox("Clasificación", options=clasificaciones_dinamicas, index=idx_clasif)
+                marca_maq = c_eq2.text_input("Marca / Fabricante", value=str(info_maq.get('Marca', '')))
                 status_maq = c_eq3.selectbox("Estatus Operativo", ["OPERATIVO", "NO OPERATIVO", "MANTENIMIENTO"])
                 
                 c_amb1, c_amb2, c_amb3 = st.columns(3)
@@ -2319,9 +2318,16 @@ else:
                 st.markdown("---")
                 st.markdown("##### ⚡ 1. Resistencia a Tierra")
                 col_r1, col_r2 = st.columns(2)
-                resistencia = col_r1.number_input("Valor de Resistencia (Ohms)", min_value=0.0, max_value=1e12, format="%.2f", step=0.1)
-                resistencia_max = col_r2.number_input("Límite Máximo Permitido (Ohms)", value=1.0e9, format="%.2e")
+                resistencia = col_r1.number_input("Valor de Resistencia (Ohms)", min_value=0.0, format="%.2f", step=0.1)
+                col_r2.text_input("Límite Máximo (Referencia)", value=f"{limite_fijo:.2e}", disabled=True)
                 
+                # Validación automática Pasa/Falla
+                resultado_auto = "PASA" if resistencia <= limite_fijo else "FALLA"
+                if resultado_auto == "FALLA":
+                    st.error(f"❌ RESULTADO: FALLA (La resistencia {resistencia:.2e} supera el límite de {limite_fijo:.2e})")
+                else:
+                    st.success(f"✅ RESULTADO: PASA")
+
                 st.markdown("##### 🔌 2. Tomacorriente (Opcional)")
                 col_t1, col_t2 = st.columns(2)
                 aplica_toma = col_t1.checkbox("Aplica medición a la red", value=True)
@@ -2330,14 +2336,14 @@ else:
                 if aplica_toma:
                     estado_toma = col_t1.radio("Estatus de Conexión", ["PASA", "FALLA"], horizontal=True)
                     if estado_toma == "FALLA":
-                        comentario_toma = col_t2.text_input("Comentario de Falla (Requerido)", placeholder="Ej: Polaridad invertida, falta tierra...")
+                        comentario_toma = col_t2.text_input("Comentario de Falla (Requerido)", placeholder="Ej: Polaridad invertida...")
 
                 st.markdown("##### 🧲 3. Medición de Campo Electrostático")
                 c_campo1, c_campo2 = st.columns(2)
                 voltaje_campo = c_campo1.number_input("Voltaje Detectado (V)", min_value=0.0, format="%.2f", step=1.0)
                 comentario_campo = ""
                 if voltaje_campo > 0:
-                    comentario_campo = c_campo2.text_input("Ubicación de la carga (Requerido)", placeholder="Ej: En la banda, carcasa metálica...")
+                    comentario_campo = c_campo2.text_input("Ubicación de la carga (Requerido)", placeholder="Ej: En la banda...")
                 
                 obs_maq = st.text_area("Notas / Observaciones Generales")
                 
@@ -2347,11 +2353,10 @@ else:
                     if aplica_toma and estado_toma == "FALLA" and not comentario_toma.strip():
                         st.error("⚠️ Debes escribir un comentario justificando la falla del tomacorriente.")
                     elif voltaje_campo > 0 and not comentario_campo.strip():
-                        st.error("⚠️ Como detectaste voltaje, debes indicar dónde se encontró la carga.")
+                        st.error("⚠️ Debes indicar dónde se encontró la carga electrostática.")
                     else:
-                        with st.spinner("Registrando evaluación en SQL..."):
+                        with st.spinner("Registrando en SQL..."):
                             try:
-                                # Usamos tu función nativa para calcular la próxima fecha
                                 fecha_hoy = datetime.today().date()
                                 proxima_fecha = calcular_proxima_fecha(fecha_hoy, frecuencia_maq)
                                 
@@ -2366,7 +2371,7 @@ else:
                                     "frecuencia_verificacion": frecuencia_maq,
                                     "fecha_proxima": proxima_fecha.isoformat(),
                                     "resistencia_tierra": float(resistencia),
-                                    "resistencia_max": float(resistencia_max),
+                                    "resistencia_max": limite_fijo, # Valor fijo del inventario
                                     "tomacorriente_aplica": aplica_toma,
                                     "tomacorriente_estatus": estado_toma,
                                     "tomacorriente_comentario": comentario_toma,
@@ -2374,11 +2379,11 @@ else:
                                     "campo_estatico_comentario": comentario_campo,
                                     "observaciones": obs_maq,
                                     "fecha_medicion": datetime.now().isoformat(),
-                                    "auditor": st.session_state.usuario_nombre
+                                    "auditor": st.session_state.usuario_nombre,
+                                    "resultado_estatus": resultado_auto # Se guarda la validación calculada
                                 }
                                 supabase.table("mediciones_maquinaria").insert(data_insert).execute()
-                                
-                                st.success(f"✅ ¡Mediciones registradas! Próxima verificación programada para: {proxima_fecha.strftime('%d-%b-%Y')}")
+                                st.success("✅ ¡Mediciones registradas exitosamente!")
                                 st.balloons()
                             except Exception as e:
-                                st.error(f"Error al guardar en Supabase: {e}")
+                                st.error(f"Error al guardar: {e}")
