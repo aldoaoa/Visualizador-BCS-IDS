@@ -740,7 +740,7 @@ else:
         st.session_state.vista_actual = "Alta"
 
     if not st.session_state.modo_lectura:
-        c_nav1, c_nav2, c_nav3, c_nav4, c_nav5, c_nav6, c_nav7 = st.columns(7)
+        c_nav1, c_nav2, c_nav3, c_nav4, c_nav5, c_nav6, c_nav7, c_nav8 = st.columns(8)
         with c_nav1:
             if st.button("🗺️ Mapa y Reportes", use_container_width=True, type="primary" if st.session_state.vista_actual == "Mapa" else "secondary"):
                 st.session_state.vista_actual = "Mapa"
@@ -776,6 +776,11 @@ else:
                 st.session_state.vista_actual = "Maquinaria"
                 limpiar_url_escaneo()
                 st.rerun()        
+        with c_nav8:
+            if st.button("📅 Schedule", use_container_width=True, type="primary" if st.session_state.vista_actual == "Schedule" else "secondary"):
+                st.session_state.vista_actual = "Schedule"
+                limpiar_url_escaneo()
+                st.rerun()      
     else:
         st.session_state.vista_actual = "Escáner"
 
@@ -2498,3 +2503,87 @@ else:
                                 st.rerun()
                             except Exception as e:
                                 st.error(f"Error al guardar: {e}")
+    # ==========================================
+    # VISTA 8: SCHEDULE (CRONOGRAMA DE VENCIMIENTOS)
+    # ==========================================
+    elif st.session_state.vista_actual == "Schedule" and not st.session_state.modo_lectura:
+        st.markdown("### 📅 Cronograma de Verificaciones ESD")
+        st.info("Selecciona una línea para visualizar las fechas de medición y vencimiento de Equipos, Mobiliarios e Ionizadores combinados.")
+        
+        # Obtener datos frescos de maquinaria para consolidar
+        try:
+            resp_maq = supabase.table("mediciones_maquinaria").select("linea_ubicacion, id_maquinaria, clasificacion, fecha_medicion, fecha_proxima, resultado_estatus").execute()
+            df_maq_sched = pd.DataFrame(resp_maq.data)
+        except Exception as e:
+            df_maq_sched = pd.DataFrame()
+            st.warning(f"Error al cargar maquinaria: {e}")
+
+        # Consolidar datos en una sola lista
+        lista_registros = []
+        
+        # 1. Extraer del Inventario (Mobiliario, Ionizadores, Piso, etc.)
+        if df_inv_full is not None and not df_inv_full.empty:
+            for _, row in df_inv_full.iterrows():
+                lista_registros.append({
+                    "Línea": str(row.get('Línea', 'N/D')),
+                    "Categoría": str(row.get('categoria', 'N/D')),
+                    "ID / Nombre": str(row.get('Id de producto', 'N/D')),
+                    "Clasificación": str(row.get('Clasificación', 'N/D')),
+                    "Última Medición": str(row.get('Fecha de verificación', 'N/D'))[:10],
+                    "Próximo Vencimiento": str(row.get('Fecha de próxima verificación', 'N/D'))[:10],
+                    "Estatus": str(row.get('Estatus de verificación', 'N/D'))
+                })
+                
+        # 2. Extraer de Maquinaria
+        if not df_maq_sched.empty:
+            # Mantener solo el registro más reciente por cada id_maquinaria
+            df_maq_sched = df_maq_sched.sort_values('fecha_medicion', ascending=False).drop_duplicates(subset=['id_maquinaria'])
+            for _, row in df_maq_sched.iterrows():
+                f_med = str(row.get('fecha_medicion', 'N/D'))[:10] if pd.notna(row.get('fecha_medicion')) else 'N/D'
+                f_prox = str(row.get('fecha_proxima', 'N/D'))[:10] if pd.notna(row.get('fecha_proxima')) else 'N/D'
+                
+                lista_registros.append({
+                    "Línea": str(row.get('linea_ubicacion', 'N/D')),
+                    "Categoría": "Maquinaria / Equipo",
+                    "ID / Nombre": str(row.get('id_maquinaria', 'N/D')),
+                    "Clasificación": str(row.get('clasificacion', 'N/D')),
+                    "Última Medición": f_med,
+                    "Próximo Vencimiento": f_prox,
+                    "Estatus": str(row.get('resultado_estatus', 'N/D'))
+                })
+
+        df_schedule_full = pd.DataFrame(lista_registros)
+
+        if not df_schedule_full.empty:
+            # Obtener líneas únicas
+            lineas_disponibles = sorted([x for x in df_schedule_full['Línea'].unique() if x not in ['N/D', 'nan', 'None']])
+            
+            c_filtro1, c_filtro2 = st.columns(2)
+            linea_sel = c_filtro1.selectbox("📍 Selecciona la Línea / Ubicación:", ["Todas las Líneas"] + lineas_disponibles)
+            categoria_sel = c_filtro2.selectbox("🏷️ Filtrar por Categoría:", ["Todas", "Maquinaria / Equipo", "Mobiliario", "Ionizador", "Piso"])
+            
+            # Aplicar filtros
+            df_filtrado = df_schedule_full.copy()
+            if linea_sel != "Todas las Líneas":
+                df_filtrado = df_filtrado[df_filtrado['Línea'] == linea_sel]
+            if categoria_sel != "Todas":
+                df_filtrado = df_filtrado[df_filtrado['Categoría'] == categoria_sel]
+            
+            # Ordenar por fecha de vencimiento (los más próximos a vencer primero)
+            df_filtrado['Fecha Orden'] = pd.to_datetime(df_filtrado['Próximo Vencimiento'], errors='coerce')
+            df_filtrado = df_filtrado.sort_values(by=['Fecha Orden', 'Línea'], ascending=[True, True]).drop(columns=['Fecha Orden'])
+            
+            # Añadir emojis de estado para mayor claridad visual
+            def add_emoji(val):
+                val_str = str(val).upper()
+                if 'VIGENTE' in val_str or 'PASA' in val_str: return f"🟢 {val}"
+                if 'VENCIDO' in val_str or 'FALLA' in val_str or 'RECHAZADO' in val_str: return f"🔴 {val}"
+                if 'PENDIENTE' in val_str: return f"🟡 {val}"
+                return val
+                
+            df_filtrado['Estatus'] = df_filtrado['Estatus'].apply(add_emoji)
+            
+            st.markdown(f"**Mostrando {len(df_filtrado)} registros:**")
+            st.dataframe(df_filtrado, use_container_width=True, hide_index=True)
+        else:
+            st.warning("No hay registros disponibles para mostrar en el cronograma.")
