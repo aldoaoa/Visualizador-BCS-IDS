@@ -2474,7 +2474,7 @@ else:
                                 # Implementación de la nueva lógica de negocio
                                 if resistencia is None or resistencia == 0.0: 
                                 # Si dejas la resistencia vacía o en 0 en el number_input
-                                estatus_calculado = "PENDIENTE"
+                                    estatus_calculado = "PENDIENTE"
                                 elif proxima_fecha < fecha_hoy:
                                     estatus_calculado = "VENCIDO"
                                 else:
