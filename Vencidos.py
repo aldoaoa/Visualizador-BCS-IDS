@@ -2470,6 +2470,15 @@ else:
                             try:
                                 fecha_hoy = datetime.today().date()
                                 proxima_fecha = calcular_proxima_fecha(fecha_hoy, frecuencia_maq)
+
+                                # Implementación de la nueva lógica de negocio
+                                if resistencia is None or resistencia == 0.0: 
+                                # Si dejas la resistencia vacía o en 0 en el number_input
+                                estatus_calculado = "PENDIENTE"
+                                elif proxima_fecha < fecha_hoy:
+                                    estatus_calculado = "VENCIDO"
+                                else:
+                                    estatus_calculado = "VIGENTE"
                                 
                                 data_insert = {
                                     "linea_ubicacion": linea_sel,
@@ -2479,9 +2488,9 @@ else:
                                     "status_operativo": status_maq,
                                     "temperatura": temperatura_maq,
                                     "humedad":  humedad_maq,
-                                    "frecuencia_verificacion": resultado_auto, 
+                                    "frecuencia_verificacion": "Anual",              # Forzado a "Anual" como solicitaste
                                     "fecha_proxima": proxima_fecha.isoformat(),
-                                    "resistencia_tierra": float(resistencia),
+                                    "resistencia_tierra": float(resistencia) if resistencia > 0 else None,
                                     "resistencia_max": limite_fijo, 
                                     "tomacorriente_aplica": aplica_toma,
                                     "tomacorriente_estatus": estado_toma,
@@ -2491,7 +2500,7 @@ else:
                                     "observaciones": obs_maq,
                                     "fecha_medicion": datetime.now().isoformat(),
                                     "auditor": st.session_state.usuario_nombre,
-                                    "resultado_estatus": resultado_auto 
+                                    "resultado_estatus": estatus_calculado           # Tu nueva lógica automatizada
                                 }
                                 
                                 supabase.table("mediciones_maquinaria").insert(data_insert).execute()
