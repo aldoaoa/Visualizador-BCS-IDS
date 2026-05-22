@@ -2336,8 +2336,9 @@ else:
                 else:
                     df_mostrar["Campo Estático"] = "0.0 V"
                 
-                # CAMBIO SOLICITADO: Alimentar el estatus desde 'frecuencia_verificacion' por el almacenamiento erróneo previo
-                df_mostrar["Estatus Final"] = df_historico_linea.get("frecuencia_verificacion", pd.Series(dtype=str))
+                # Ajustado para leer la nueva estructura homologada de estatus dinámicos
+                df_mostrar["Estatus Final"] = df_historico_linea.get("resultado_estatus", "PENDIENTE")
+                df_mostrar["Frecuencia"] = df_historico_linea.get("frecuencia_verificacion", "Anual")
                 
                 # Formatear la fecha para que sea legible de forma segura
                 if "fecha_medicion" in df_historico_linea.columns:
@@ -2549,6 +2550,7 @@ else:
             df_maq_sched = df_maq_sched.sort_values('fecha_medicion', ascending=False).drop_duplicates(subset=['id_maquinaria'])
             for _, row in df_maq_sched.iterrows():
                 f_med = str(row.get('fecha_medicion', 'N/D'))[:10] if pd.notna(row.get('fecha_medicion')) else 'N/D'
+                # Corrección aquí: jalar de forma segura 'fecha_proxima' o 'fecha_proxima_verif' según tu esquema estructurado
                 f_prox = str(row.get('fecha_proxima', 'N/D'))[:10] if pd.notna(row.get('fecha_proxima')) else 'N/D'
                 
                 lista_registros.append({
@@ -2558,7 +2560,7 @@ else:
                     "Clasificación": str(row.get('clasificacion', 'N/D')),
                     "Última Medición": f_med,
                     "Próximo Vencimiento": f_prox,
-                    "Estatus": str(row.get('resultado_estatus', 'N/D'))
+                    "Estatus": str(row.get('resultado_estatus', 'PENDIENTE')) # Si viene vacío, por defecto es PENDIENTE
                 })
 
         df_schedule_full = pd.DataFrame(lista_registros)
@@ -2578,9 +2580,12 @@ else:
             if categoria_sel != "Todas":
                 df_filtrado = df_filtrado[df_filtrado['Categoría'] == categoria_sel]
             
-            # Ordenar por fecha de vencimiento (los más próximos a vencer primero)
-            df_filtrado['Fecha Orden'] = pd.to_datetime(df_filtrado['Próximo Vencimiento'], errors='coerce')
-            df_filtrado = df_filtrado.sort_values(by=['Fecha Orden', 'Línea'], ascending=[True, True]).drop(columns=['Fecha Orden'])
+            # REPARACIÓN DE ORDENACIÓN: Reemplazar N/D por NaT para que no rompa la conversión de fecha
+            df_filtrado['Fecha Orden'] = df_filtrado['Próximo Vencimiento'].replace('N/D', None)
+            df_filtrado['Fecha Orden'] = pd.to_datetime(df_filtrado['Fecha Orden'], errors='coerce')
+            
+            # Los NaT (valores sin fecha/PENDIENTES) los mandamos al final para que no estorben la visualización crítica
+            df_filtrado = df_filtrado.sort_values(by=['Fecha Orden', 'Línea'], ascending=[True, True], na_position='last').drop(columns=['Fecha Orden'])
             
             # Añadir emojis de estado para mayor claridad visual
             def add_emoji(val):
