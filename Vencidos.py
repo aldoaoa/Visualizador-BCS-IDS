@@ -233,7 +233,13 @@ def generar_html_reporte_completo(row, index):
 
 # Generar fecha en formato YYYY/MM/DD para el pie de página
     fecha_pie_str = datetime.today().strftime("%Y/%m/%d")
-
+# --- NUEVO: EXTRAER ID REAL DE LA BASE DE DATOS ---
+    db_id = row.get('id', index)
+    try:
+        db_id = int(db_id)
+    except:
+        db_id = index
+    # --------------------------------------------------
     # --- PLANTILLA HTML ---
     html = f"""<!DOCTYPE html>
 <html lang="es">
