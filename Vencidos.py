@@ -239,7 +239,7 @@ def generar_html_reporte_completo(row, index):
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <title>Reporte de Validación S20.20</title>
+    <title>BCS-PV-{db_id:03d}-{año_actual}</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         @media print {{ body {{ -webkit-print-color-adjust: exact; }} }}
@@ -260,7 +260,7 @@ def generar_html_reporte_completo(row, index):
                 <p class="text-xs text-gray-600">ANSI/ESD S20.20-2021</p>
             </div>
             <div class="w-1/3 text-right text-sm">
-                <div class="font-bold text-red-700 text-lg mb-2">Reporte: BCS-PV-{index:03d}-{año_actual}</div>
+                <div class="font-bold text-red-700 text-lg mb-2">Reporte: BCS-PV-{db_id:03d}-{año_actual}</div>
                 <div class="flex justify-end gap-2 mb-1">
                     <span class="font-bold">Fecha de Ejecución:</span><span>{fecha_ejecucion}</span>
                 </div>
@@ -554,12 +554,19 @@ def generar_html_reporte_esd(row, index):
     fecha_raw = safe_str(row.get('fecha_auditoria'))
     fecha_ejecucion = fecha_raw.split('T')[0] if 'T' in fecha_raw else fecha_raw
     año_actual = datetime.today().strftime("%y")
+    # --- NUEVO: EXTRAER ID REAL DE LA BASE DE DATOS ---
+    db_id = row.get('id', index) # Intenta obtener la columna 'id', si falla usa el index como respaldo
+    try:
+        db_id = int(db_id)
+    except:
+        db_id = index
+    # --------------------------------------------------
     
     html = f"""<!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <title>Reporte de Validación S20.20</title>
+    <title>BCS-PV-{db_id:03d}-{año_actual}</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>@media print {{ body {{ -webkit-print-color-adjust: exact; }} }}</style>
 </head>
@@ -577,7 +584,7 @@ def generar_html_reporte_esd(row, index):
                 <p class="text-xs text-gray-600">ANSI/ESD S20.20-2021</p>
             </div>
             <div class="w-1/3 text-right text-sm">
-                <div class="font-bold text-red-700 text-lg mb-2">Reporte: BCS-PV-{index:03d}-{año_actual}</div>
+                <div class="font-bold text-red-700 text-lg mb-2">Reporte: BCS-PV-{db_id:03d}-{año_actual}</div>
                 <div class="flex justify-end gap-2 mb-1">
                     <span class="font-bold">Fecha de Ejecución:</span><span>{fecha_ejecucion}</span>
                 </div>
@@ -1989,7 +1996,7 @@ else:
                         href = f'<a href="data:text/html;base64,{b64_html}" download="{nombre_archivo}" target="_blank" style="display: block; text-align: center; padding: 15px; background-color: #003366; color: white; text-decoration: none; border-radius: 8px; font-weight: bold; margin-top: 10px; font-size: 16px;">📥 Descargar Reporte Estandarizado (Tailwind)</a>'
                         st.markdown(href, unsafe_allow_html=True)
 
-# ==========================================
+    # ==========================================
     # VISTA 5: VALIDACIÓN ESD (SISTEMA INTEGRAL)
     # ==========================================
     elif st.session_state.vista_actual == "Validación" and not st.session_state.modo_lectura:
@@ -2185,8 +2192,18 @@ else:
                             html_reporte = generar_html_reporte_completo(row, index)
                             b64_html = base64.b64encode(html_reporte.encode('utf-8')).decode('utf-8')
                             
+                            # --- NUEVA LÓGICA DE NOMENCLATURA CON ID REAL ---
+                            db_id = row.get('id', index)
+                            try:
+                                db_id = int(db_id)
+                            except:
+                                db_id = index
+                                
+                            año_actual_rep = datetime.today().strftime("%y")
+                            nombre_oficial = f"BCS-PV-{db_id:03d}-{año_actual_rep}"
+                            
                             st.markdown(
-                                f'<a href="data:text/html;base64,{b64_html}" download="Reporte_{row.get("id_elemento")}.html" '
+                                f'<a href="data:text/html;base64,{b64_html}" download="{nombre_oficial}.html" '
                                 f'style="display: block; width: 100%; text-align: center; padding: 12px; '
                                 f'background-color: #2563eb; color: white; text-decoration: none; border-radius: 8px; font-weight: bold;">'
                                 f'📥 Descargar Reporte Original Completo</a>', 
