@@ -146,7 +146,7 @@ def generar_html_reporte_esd(row, index):
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <title>Reporte de Validación S20.20</title>
+    <title>BCS-PV-{index:03d}-{año_actual}</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         @media print {{ body {{ -webkit-print-color-adjust: exact; }} }}
@@ -1818,7 +1818,7 @@ else:
                         href = f'<a href="data:text/html;base64,{b64_html}" download="{nombre_archivo}" target="_blank" style="display: block; text-align: center; padding: 15px; background-color: #003366; color: white; text-decoration: none; border-radius: 8px; font-weight: bold; margin-top: 10px; font-size: 16px;">📥 Descargar Reporte Completo (Abrir para imprimir PDF)</a>'
                         st.markdown(href, unsafe_allow_html=True)
 
-# ==========================================
+    # ==========================================
     # VISTA 5: VALIDACIÓN ESD (SISTEMA INTEGRAL)
     # ==========================================
     elif st.session_state.vista_actual == "Validación" and not st.session_state.modo_lectura:
