@@ -1310,7 +1310,7 @@ else:
                     limpiar_url_escaneo()
                     st.rerun()
 
-id_limpio = str(id_escaneado_url).strip().upper()
+            id_limpio = str(id_escaneado_url).strip().upper()
             mob_ids_limpios = df_mob_local.get('Id de producto', pd.Series()).astype(str).str.strip().str.upper()
             ion_ids_limpios = df_ion_local.get('Id de producto', pd.Series()).astype(str).str.strip().str.upper()
 
