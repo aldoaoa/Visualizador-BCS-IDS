@@ -2564,13 +2564,13 @@ else:
                                 
                                     supabase.table("mediciones_maquinaria").insert(data_insert).execute()
                                 
-                                st.success(f"✅ ¡Medición guardada! Próxima verificación calculada para: {proxima_fecha.strftime('%d-%b-%Y')}")
-                                st.balloons()
-                                time.sleep(1)
-                                st.cache_data.clear()
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"Error al guardar: {e}")
+                                    st.success(f"✅ ¡Medición guardada! Próxima verificación calculada para: {proxima_fecha.strftime('%d-%b-%Y')}")
+                                    st.balloons()
+                                    time.sleep(1)
+                                    st.cache_data.clear()
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Error al guardar: {e}")
     
         # ==========================================
         # MODO 2: CAPTURA EN LOTE (RESPONSIVA PARA TABLET/MÓVIL)
