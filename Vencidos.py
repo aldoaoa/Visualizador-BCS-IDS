@@ -2287,7 +2287,7 @@ else:
         st.markdown("### ⚙️ Ajustes del Sistema (Catálogos)")
         st.info("Administra de forma centralizada las Líneas/Ubicaciones y los Equipos de Medición para que estén disponibles en todos los módulos de captura.")
 
-        tab_ubicaciones, tab_equipos, tab_maquinaria = st.tabs(["📍 Líneas y Ubicaciones", "🛠️ Equipos de Medición", "🏭 Maquinaria (Operaciones)"])
+        tab_ubicaciones, tab_equipos, tab_maquinaria, tab_exportar = st.tabs(["📍 Líneas y Ubicaciones", "🛠️ Equipos de Medición", "🏭 Maquinaria (Operaciones)", "💾 Exportar Datos"])
 
 # --- PESTAÑA 1: UBICACIONES ---
         with tab_ubicaciones:
@@ -2440,7 +2440,91 @@ else:
                                 st.error(f"⚠️ Error al registrar maquinaria: {e}")
                     else:
                         st.error("❌ El ID de la maquinaria es obligatorio.")
-    
+        # --- PESTAÑA 4: EXPORTAR BASES DE DATOS ---
+        with tab_exportar:
+            st.markdown("#### 📥 Exportar Bases de Datos a CSV")
+            st.info("Descarga la información completa de tus inventarios y catálogos en formato CSV para realizar respaldos o análisis en Excel.")
+            
+            c_exp1, c_exp2 = st.columns(2)
+            
+            # 1. MOBILIARIO
+            with c_exp1:
+                st.markdown("**🛋️ Inventario de Mobiliario (y Piso)**")
+                if not df_mob_local.empty:
+                    # Convertimos a CSV
+                    csv_mob = df_mob_local.to_csv(index=False).encode('utf-8')
+                    st.download_button(
+                        label="📥 Descargar Mobiliario.csv",
+                        data=csv_mob,
+                        file_name=f"Mobiliario_ESD_{datetime.today().strftime('%Y%m%d')}.csv",
+                        mime="text/csv",
+                        use_container_width=True
+                    )
+                else:
+                    st.warning("No hay datos de Mobiliario disponibles.")
+
+            # 2. IONIZADORES
+            with c_exp2:
+                st.markdown("**⚡ Inventario de Ionizadores**")
+                if not df_ion_local.empty:
+                    csv_ion = df_ion_local.to_csv(index=False).encode('utf-8')
+                    st.download_button(
+                        label="📥 Descargar Ionizadores.csv",
+                        data=csv_ion,
+                        file_name=f"Ionizadores_ESD_{datetime.today().strftime('%Y%m%d')}.csv",
+                        mime="text/csv",
+                        use_container_width=True
+                    )
+                else:
+                    st.warning("No hay datos de Ionizadores disponibles.")
+            
+            st.write("") # Espaciador
+            c_exp3, c_exp4 = st.columns(2)
+
+            # 3. EQUIPOS DE MEDICIÓN
+            with c_exp3:
+                st.markdown("**🛠️ Catálogo de Equipos de Medición**")
+                try:
+                    # Hacemos una consulta fresca para traer todos los equipos
+                    resp_eq_exp = supabase.table("equipos_medicion").select("*").execute()
+                    df_eq_exp = pd.DataFrame(resp_eq_exp.data)
+                    
+                    if not df_eq_exp.empty:
+                        csv_eq = df_eq_exp.to_csv(index=False).encode('utf-8')
+                        st.download_button(
+                            label="📥 Descargar Equipos.csv",
+                            data=csv_eq,
+                            file_name=f"Equipos_Medicion_{datetime.today().strftime('%Y%m%d')}.csv",
+                            mime="text/csv",
+                            use_container_width=True
+                        )
+                    else:
+                        st.warning("No hay equipos registrados.")
+                except Exception as e:
+                    st.error(f"Error al obtener equipos: {e}")
+
+            # 4. MAQUINARIA
+            with c_exp4:
+                st.markdown("**🏭 Historial de Maquinaria**")
+                try:
+                    # Traemos todo el histórico de maquinaria
+                    resp_maq_exp = supabase.table("mediciones_maquinaria").select("*").order("fecha_medicion", desc=True).execute()
+                    df_maq_exp = pd.DataFrame(resp_maq_exp.data)
+                    
+                    if not df_maq_exp.empty:
+                        csv_maq = df_maq_exp.to_csv(index=False).encode('utf-8')
+                        st.download_button(
+                            label="📥 Descargar Maquinaria.csv",
+                            data=csv_maq,
+                            file_name=f"Maquinaria_ESD_{datetime.today().strftime('%Y%m%d')}.csv",
+                            mime="text/csv",
+                            use_container_width=True
+                        )
+                    else:
+                        st.warning("No hay registros de Maquinaria.")
+                except Exception as e:
+                    st.error(f"Error al obtener maquinaria: {e}")
+                    
     # ==========================================
     # VISTA 7: LÍNEAS DE PRODUCCIÓN Y MAQUINARIA
     # ==========================================
