@@ -2225,7 +2225,7 @@ else:
         st.markdown("### ⚙️ Ajustes del Sistema (Catálogos)")
         st.info("Administra de forma centralizada las Líneas/Ubicaciones y los Equipos de Medición para que estén disponibles en todos los módulos de captura.")
 
-        tab_ubicaciones, tab_equipos = st.tabs(["📍 Líneas y Ubicaciones", "🛠️ Equipos de Medición"])
+        tab_ubicaciones, tab_equipos, tab_maquinaria = st.tabs(["📍 Líneas y Ubicaciones", "🛠️ Equipos de Medición", "🏭 Maquinaria (Operaciones)"])
 
 # --- PESTAÑA 1: UBICACIONES ---
         with tab_ubicaciones:
@@ -2327,6 +2327,58 @@ else:
             except Exception as e:
                 st.error(f"Error al cargar equipos: {e}")
 
+        # --- PESTAÑA 3: MAQUINARIA / OPERACIONES ---
+        with tab_maquinaria:
+            st.markdown("#### ➕ Asignar Nueva Maquinaria a una Línea")
+            st.info("Pre-registra una máquina u operación. Al guardarla, aparecerá automáticamente como 'PENDIENTE' en los menús de la sección de auditoría de Maquinaria.")
+
+            with st.form("form_nueva_maquinaria_catalogo"):
+                c_m1, c_m2 = st.columns(2)
+                
+                # Leemos directamente del catálogo maestro que alimentas en la primera pestaña
+                lineas_disponibles_cat = obtener_catalogo_lineas()
+                linea_asignada = c_m1.selectbox("1. Línea / Ubicación de destino", options=lineas_disponibles_cat)
+                
+                id_nueva_maq = c_m2.text_input("2. ID de la Maquinaria / Operación", placeholder="Ej: OP50-AUDIO, EOLT-01")
+                
+                c_m3, c_m4 = st.columns(2)
+                clasif_opciones = ["Maquinaria", "EOLT", "AOI", "Ensamble Manual", "Herramienta", "Otro"]
+                clasif_nueva_maq = c_m3.selectbox("3. Clasificación", options=clasif_opciones)
+                
+                if clasif_nueva_maq == "Otro":
+                    clasif_nueva_maq = c_m3.text_input("Especifique clasificación de la máquina")
+                    
+                marca_nueva_maq = c_m4.text_input("4. Marca / Fabricante (Opcional)", value="N/D")
+
+                if st.form_submit_button("💾 Pre-registrar Maquinaria", width="stretch"):
+                    if id_nueva_maq:
+                        with st.spinner("Registrando..."):
+                            try:
+                                # Creamos un registro semilla para que la vista de Maquinaria lo detecte
+                                data_inicial = {
+                                    "linea_ubicacion": linea_asignada,
+                                    "id_maquinaria": id_nueva_maq.strip().upper(),
+                                    "clasificacion": clasif_nueva_maq,
+                                    "marca": marca_nueva_maq,
+                                    "status_operativo": "OPERATIVO",
+                                    "frecuencia_verificacion": "Anual",
+                                    "fecha_medicion": datetime.now().isoformat(),
+                                    "auditor": st.session_state.usuario_nombre,
+                                    "resultado_estatus": "PENDIENTE",
+                                    "observaciones": "Pre-registro desde módulo de Catálogos."
+                                }
+                                supabase.table("mediciones_maquinaria").insert(data_inicial).execute()
+                                
+                                st.success(f"✅ Maquinaria '{id_nueva_maq.upper()}' vinculada exitosamente a la línea '{linea_asignada}'.")
+                                st.balloons()
+                                time.sleep(1)
+                                st.cache_data.clear()
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"⚠️ Error al registrar maquinaria: {e}")
+                    else:
+                        st.error("❌ El ID de la maquinaria es obligatorio.")
+    
     # ==========================================
     # VISTA 7: LÍNEAS DE PRODUCCIÓN Y MAQUINARIA
     # ==========================================
