@@ -705,2399 +705,2399 @@ with st.sidebar:
             st.query_params.clear() 
             st.rerun()
 
-    def calcular_proxima_fecha(fecha_actual, frecuencia):
-        frecuencia = str(frecuencia).strip().lower()
-        if 'anual' in frecuencia: return fecha_actual + relativedelta(years=1)
-        elif 'semestral' in frecuencia: return fecha_actual + relativedelta(months=6)
-        elif 'trimestral' in frecuencia: return fecha_actual + relativedelta(months=3)
-        elif 'mensual' in frecuencia: return fecha_actual + relativedelta(months=1)
-        else: return fecha_actual + relativedelta(years=1)
+def calcular_proxima_fecha(fecha_actual, frecuencia):
+    frecuencia = str(frecuencia).strip().lower()
+    if 'anual' in frecuencia: return fecha_actual + relativedelta(years=1)
+    elif 'semestral' in frecuencia: return fecha_actual + relativedelta(months=6)
+    elif 'trimestral' in frecuencia: return fecha_actual + relativedelta(months=3)
+    elif 'mensual' in frecuencia: return fecha_actual + relativedelta(months=1)
+    else: return fecha_actual + relativedelta(years=1)
 
-    st.title("Sistema de Gestión ESD BCS-AIS Querétaro")
+st.title("Sistema de Gestión ESD BCS-AIS Querétaro")
+
+df_inv_full, df_piso_local, df_mob_local, df_ion_local, df_em_local = cargar_datos_cloud()
+
+if df_inv_full is None:
+    st.error("Falla al conectar con el servidor SQL.")
+    st.stop()
+
+if df_mob_local is None:
+    st.error("Falla al conectar con el servidor SQL.")
+    st.stop()
+
+if "vista_actual" not in st.session_state:
+    st.session_state.vista_actual = "Escáner" 
+
+id_escaneado_url = st.query_params.get("qr_id", "")
+valor_ocr_detectado = st.query_params.get("ocr_val", "")
+id_baja_url = st.query_params.get("qr_baja", "")
+
+if id_escaneado_url or valor_ocr_detectado:
+    st.session_state.vista_actual = "Escáner"
+elif id_baja_url:
+    st.session_state.vista_actual = "Alta"
+
+if not st.session_state.modo_lectura:
+    c_nav1, c_nav2, c_nav3, c_nav4, c_nav5, c_nav6, c_nav7, c_nav8 = st.columns(8)
+    with c_nav1:
+        if st.button("🗺️ Mapa y Reportes", use_container_width=True, type="primary" if st.session_state.vista_actual == "Mapa" else "secondary"):
+            st.session_state.vista_actual = "Mapa"
+            limpiar_url_escaneo() 
+            st.rerun()
+    with c_nav2:
+        if st.button("📱 Escáner", use_container_width=True, type="primary" if st.session_state.vista_actual == "Escáner" else "secondary"):
+            st.session_state.vista_actual = "Escáner"
+            limpiar_url_escaneo()
+            st.rerun()
+    with c_nav3:
+        if st.button("🆕 Alta/Baja", use_container_width=True, type="primary" if st.session_state.vista_actual == "Alta" else "secondary"):
+            st.session_state.vista_actual = "Alta"
+            limpiar_url_escaneo()
+            st.rerun()
+    with c_nav4:
+        if st.button("⚡ Event Meter", use_container_width=True, type="primary" if st.session_state.vista_actual == "Event Meter" else "secondary"):
+            st.session_state.vista_actual = "Event Meter"
+            limpiar_url_escaneo()
+            st.rerun()
+    with c_nav5:
+        if st.button("🚶‍♂️ Walking Test", use_container_width=True, type="primary" if st.session_state.vista_actual == "Walking Test" else "secondary"):
+            st.session_state.vista_actual = "Walking Test"
+            limpiar_url_escaneo()
+            st.rerun()
+    with c_nav6:
+        if st.button("✅ Validación", use_container_width=True, type="primary" if st.session_state.vista_actual == "Validación" else "secondary"):
+            st.session_state.vista_actual = "Validación"
+            limpiar_url_escaneo()
+            st.rerun()
+    with c_nav7:
+        if st.button("🏭 Maquinaria", use_container_width=True, type="primary" if st.session_state.vista_actual == "Maquinaria" else "secondary"):
+            st.session_state.vista_actual = "Maquinaria"
+            limpiar_url_escaneo()
+            st.rerun()        
+    with c_nav8:
+        if st.button("📅 Schedule", use_container_width=True, type="primary" if st.session_state.vista_actual == "Schedule" else "secondary"):
+            st.session_state.vista_actual = "Schedule"
+            limpiar_url_escaneo()
+            st.rerun()      
+else:
+    st.session_state.vista_actual = "Escáner"
+
+st.divider()
+
+# ==========================================
+# VISTA: ALTA Y BAJA DE EQUIPOS
+# ==========================================
+if st.session_state.vista_actual == "Alta" and not st.session_state.modo_lectura:
+    st.markdown("### Gestión de Inventario ESD")
     
-    df_inv_full, df_piso_local, df_mob_local, df_ion_local, df_em_local = cargar_datos_cloud()
+    with st.expander("📋 Directorio de IDs Existentes (Click para abrir/cerrar)", expanded=False):
+        tipo_dir = st.radio("Ver directorio de:", ["Mobiliario", "Ionizadores"], horizontal=True)
+        df_dir = df_mob_local if tipo_dir == "Mobiliario" else df_ion_local
+        
+        st.info("💡 **Tip:** Haz clic en el título de una columna para ordenar (A-Z) o usa la lupa (🔍) para buscar un ID específico.")
+        if not df_dir.empty and 'Id de producto' in df_dir.columns and 'Línea' in df_dir.columns:
+            if 'Estatus operativo' in df_dir.columns:
+                df_clean = df_dir[df_dir['Estatus operativo'].astype(str).str.strip().str.upper() != 'NO OPERATIVO']
+            else:
+                df_clean = df_dir.copy()
+                
+            df_clean = df_clean[['Línea', 'Id de producto', 'Clasificación']].dropna(subset=['Id de producto'])
+            st.dataframe(df_clean, use_container_width=True, hide_index=True)
+        else:
+            st.warning("No hay datos disponibles aún en esta categoría.")
     
-    if df_inv_full is None:
-        st.error("Falla al conectar con el servidor SQL.")
-        st.stop()
-    
-    if df_mob_local is None:
-        st.error("Falla al conectar con el servidor SQL.")
-        st.stop()
-
-    if "vista_actual" not in st.session_state:
-        st.session_state.vista_actual = "Escáner" 
-
-    id_escaneado_url = st.query_params.get("qr_id", "")
-    valor_ocr_detectado = st.query_params.get("ocr_val", "")
-    id_baja_url = st.query_params.get("qr_baja", "")
-    
-    if id_escaneado_url or valor_ocr_detectado:
-        st.session_state.vista_actual = "Escáner"
-    elif id_baja_url:
-        st.session_state.vista_actual = "Alta"
-
-    if not st.session_state.modo_lectura:
-        c_nav1, c_nav2, c_nav3, c_nav4, c_nav5, c_nav6, c_nav7, c_nav8 = st.columns(8)
-        with c_nav1:
-            if st.button("🗺️ Mapa y Reportes", use_container_width=True, type="primary" if st.session_state.vista_actual == "Mapa" else "secondary"):
-                st.session_state.vista_actual = "Mapa"
-                limpiar_url_escaneo() 
-                st.rerun()
-        with c_nav2:
-            if st.button("📱 Escáner", use_container_width=True, type="primary" if st.session_state.vista_actual == "Escáner" else "secondary"):
-                st.session_state.vista_actual = "Escáner"
-                limpiar_url_escaneo()
-                st.rerun()
-        with c_nav3:
-            if st.button("🆕 Alta/Baja", use_container_width=True, type="primary" if st.session_state.vista_actual == "Alta" else "secondary"):
-                st.session_state.vista_actual = "Alta"
-                limpiar_url_escaneo()
-                st.rerun()
-        with c_nav4:
-            if st.button("⚡ Event Meter", use_container_width=True, type="primary" if st.session_state.vista_actual == "Event Meter" else "secondary"):
-                st.session_state.vista_actual = "Event Meter"
-                limpiar_url_escaneo()
-                st.rerun()
-        with c_nav5:
-            if st.button("🚶‍♂️ Walking Test", use_container_width=True, type="primary" if st.session_state.vista_actual == "Walking Test" else "secondary"):
-                st.session_state.vista_actual = "Walking Test"
-                limpiar_url_escaneo()
-                st.rerun()
-        with c_nav6:
-            if st.button("✅ Validación", use_container_width=True, type="primary" if st.session_state.vista_actual == "Validación" else "secondary"):
-                st.session_state.vista_actual = "Validación"
-                limpiar_url_escaneo()
-                st.rerun()
-        with c_nav7:
-            if st.button("🏭 Maquinaria", use_container_width=True, type="primary" if st.session_state.vista_actual == "Maquinaria" else "secondary"):
-                st.session_state.vista_actual = "Maquinaria"
-                limpiar_url_escaneo()
-                st.rerun()        
-        with c_nav8:
-            if st.button("📅 Schedule", use_container_width=True, type="primary" if st.session_state.vista_actual == "Schedule" else "secondary"):
-                st.session_state.vista_actual = "Schedule"
-                limpiar_url_escaneo()
-                st.rerun()      
-    else:
-        st.session_state.vista_actual = "Escáner"
-
     st.divider()
-
-    # ==========================================
-    # VISTA: ALTA Y BAJA DE EQUIPOS
-    # ==========================================
-    if st.session_state.vista_actual == "Alta" and not st.session_state.modo_lectura:
-        st.markdown("### Gestión de Inventario ESD")
+    
+    if "radio_alta_baja" not in st.session_state:
+        st.session_state.radio_alta_baja = "🆕 Registrar Nuevo"
         
-        with st.expander("📋 Directorio de IDs Existentes (Click para abrir/cerrar)", expanded=False):
-            tipo_dir = st.radio("Ver directorio de:", ["Mobiliario", "Ionizadores"], horizontal=True)
-            df_dir = df_mob_local if tipo_dir == "Mobiliario" else df_ion_local
+    if id_baja_url:
+        st.session_state.radio_alta_baja = "🗑️ Dar de Baja"
+
+    accion_seleccionada = st.radio(
+        "Selecciona la acción a realizar:",
+        ["🆕 Registrar Nuevo", "🗑️ Dar de Baja"],
+        horizontal=True, label_visibility="collapsed", key="radio_alta_baja"
+    )
+    
+    # --- SUB-VISTA 1: ALTA ---
+    if accion_seleccionada == "🆕 Registrar Nuevo":
+        tipo_alta = st.radio("Categoría del Equipo a Registrar:", ["Mobiliario", "Ionizador"], horizontal=True)
+        df_target_alta = df_mob_local if tipo_alta == "Mobiliario" else df_ion_local
+        
+        todas_lineas = set()
+        for df_temp in [df_piso_local, df_mob_local, df_ion_local]:
+            if not df_temp.empty and 'Línea' in df_temp.columns:
+                todas_lineas.update([str(x).strip() for x in df_temp['Línea'].dropna() if str(x).strip() != ''])
+        lineas_disponibles = sorted(list(todas_lineas))
+
+        with st.form("form_alta_equipo"):
+            col1, col2 = st.columns(2)
+            nueva_linea = col1.selectbox("Línea (Ubicación)", options=lineas_disponibles if lineas_disponibles else ["SMT", "Ensamble"])
+            nuevo_id = col2.text_input("ID de Producto (Ej: " + ("MOB-001" if tipo_alta=="Mobiliario" else "ION-001") + ")")
             
-            st.info("💡 **Tip:** Haz clic en el título de una columna para ordenar (A-Z) o usa la lupa (🔍) para buscar un ID específico.")
-            if not df_dir.empty and 'Id de producto' in df_dir.columns and 'Línea' in df_dir.columns:
-                if 'Estatus operativo' in df_dir.columns:
-                    df_clean = df_dir[df_dir['Estatus operativo'].astype(str).str.strip().str.upper() != 'NO OPERATIVO']
-                else:
-                    df_clean = df_dir.copy()
-                    
-                df_clean = df_clean[['Línea', 'Id de producto', 'Clasificación']].dropna(subset=['Id de producto'])
-                st.dataframe(df_clean, use_container_width=True, hide_index=True)
+            if tipo_alta == "Mobiliario":
+                tipos_disponibles = sorted([str(x).strip() for x in df_target_alta.get('Clasificación', pd.Series()).unique() if pd.notna(x) and str(x).strip() != ''])
+                nuevo_tipo = col1.selectbox("Tipo / Clasificación", options=tipos_disponibles if tipos_disponibles else ["Mesa", "Silla"])
+                
+                with col2:
+                    st.caption("Valor inicial (Ohms)")
+                    c_b, c_x, c_e = st.columns([2, 1, 2])
+                    base_alta = c_b.number_input("Número", value=0.0, format="%.2f")
+                    exp_alta = c_e.number_input("Exponente", value=0, step=1, format="%d")
+                    valor_alta = base_alta * (10 ** exp_alta) if base_alta != 0 else 0.0
+                
+                fabricante_opc = col1.selectbox("Fabricante", options=["BCS", "Otro", "N/A"])
+                fabricante_final = col1.text_input("Especifique Fabricante") if fabricante_opc == "Otro" else fabricante_opc
+                
+                frecuencia_alta = col2.selectbox("Frecuencia", options=["Anual", "Semestral", "Trimestral", "Mensual"], index=0)
+                col3, col4 = st.columns(2)
+                nuevo_minimo = col3.number_input("Mínimo", value=0.00, format="%.2e")
+                limite_alta = col4.text_input("Límite Maximo", value="1.00E+09")
+                balance_alta = 0.0
+                
             else:
-                st.warning("No hay datos disponibles aún en esta categoría.")
-        
-        st.divider()
-        
-        if "radio_alta_baja" not in st.session_state:
-            st.session_state.radio_alta_baja = "🆕 Registrar Nuevo"
-            
-        if id_baja_url:
-            st.session_state.radio_alta_baja = "🗑️ Dar de Baja"
-
-        accion_seleccionada = st.radio(
-            "Selecciona la acción a realizar:",
-            ["🆕 Registrar Nuevo", "🗑️ Dar de Baja"],
-            horizontal=True, label_visibility="collapsed", key="radio_alta_baja"
-        )
-        
-        # --- SUB-VISTA 1: ALTA ---
-        if accion_seleccionada == "🆕 Registrar Nuevo":
-            tipo_alta = st.radio("Categoría del Equipo a Registrar:", ["Mobiliario", "Ionizador"], horizontal=True)
-            df_target_alta = df_mob_local if tipo_alta == "Mobiliario" else df_ion_local
-            
-            todas_lineas = set()
-            for df_temp in [df_piso_local, df_mob_local, df_ion_local]:
-                if not df_temp.empty and 'Línea' in df_temp.columns:
-                    todas_lineas.update([str(x).strip() for x in df_temp['Línea'].dropna() if str(x).strip() != ''])
-            lineas_disponibles = sorted(list(todas_lineas))
-
-            with st.form("form_alta_equipo"):
-                col1, col2 = st.columns(2)
-                nueva_linea = col1.selectbox("Línea (Ubicación)", options=lineas_disponibles if lineas_disponibles else ["SMT", "Ensamble"])
-                nuevo_id = col2.text_input("ID de Producto (Ej: " + ("MOB-001" if tipo_alta=="Mobiliario" else "ION-001") + ")")
+                nuevo_tipo = col1.selectbox("Clasificación", options=["Ventilador", "Barra", "Pistola"])
+                valor_alta = col2.number_input("Descarga (Seg)", value=0.0, format="%.2f")
                 
-                if tipo_alta == "Mobiliario":
-                    tipos_disponibles = sorted([str(x).strip() for x in df_target_alta.get('Clasificación', pd.Series()).unique() if pd.notna(x) and str(x).strip() != ''])
-                    nuevo_tipo = col1.selectbox("Tipo / Clasificación", options=tipos_disponibles if tipos_disponibles else ["Mesa", "Silla"])
-                    
-                    with col2:
-                        st.caption("Valor inicial (Ohms)")
-                        c_b, c_x, c_e = st.columns([2, 1, 2])
-                        base_alta = c_b.number_input("Número", value=0.0, format="%.2f")
-                        exp_alta = c_e.number_input("Exponente", value=0, step=1, format="%d")
-                        valor_alta = base_alta * (10 ** exp_alta) if base_alta != 0 else 0.0
-                    
-                    fabricante_opc = col1.selectbox("Fabricante", options=["BCS", "Otro", "N/A"])
-                    fabricante_final = col1.text_input("Especifique Fabricante") if fabricante_opc == "Otro" else fabricante_opc
-                    
-                    frecuencia_alta = col2.selectbox("Frecuencia", options=["Anual", "Semestral", "Trimestral", "Mensual"], index=0)
-                    col3, col4 = st.columns(2)
-                    nuevo_minimo = col3.number_input("Mínimo", value=0.00, format="%.2e")
-                    limite_alta = col4.text_input("Límite Maximo", value="1.00E+09")
-                    balance_alta = 0.0
-                    
+                fabricante_opc = col1.selectbox("Fabricante", options=["SMC", "Panasonic", "Keyence", "SIMCO", "Otro"])
+                fabricante_final = col1.text_input("Especifique Fabricante") if fabricante_opc == "Otro" else fabricante_opc
+                
+                balance_alta = col2.number_input("Balance (V)", value=0.0, format="%.2f")
+                frecuencia_alta = "Trimestral"
+                nuevo_minimo = 0.00
+                limite_alta = "10.00"
+
+            comentarios = st.text_area("Comentarios")
+            submit_alta = st.form_submit_button("Registrar en sistema", use_container_width=True)
+            
+        if submit_alta:
+            if not nuevo_id or not fabricante_final:
+                st.error("Por favor complete los campos obligatorios (ID y Fabricante).")
+            else:
+                id_limpio_alta = str(nuevo_id).strip().upper()
+                
+                # --- NUEVA VERIFICACIÓN GLOBAL DE DUPLICADOS ---
+                check_inv = supabase.table("inventario_esd").select("id_producto").eq("id_producto", id_limpio_alta).execute()
+                check_maq = supabase.table("mediciones_maquinaria").select("id_maquinaria").eq("id_maquinaria", id_limpio_alta).execute()
+                
+                if len(check_inv.data) > 0 or len(check_maq.data) > 0:
+                    st.error(f"❌ El ID '{nuevo_id}' ya se encuentra registrado en el sistema (Mobiliario, Ionizador o Maquinaria). Usa un ID diferente.")
                 else:
-                    nuevo_tipo = col1.selectbox("Clasificación", options=["Ventilador", "Barra", "Pistola"])
-                    valor_alta = col2.number_input("Descarga (Seg)", value=0.0, format="%.2f")
-                    
-                    fabricante_opc = col1.selectbox("Fabricante", options=["SMC", "Panasonic", "Keyence", "SIMCO", "Otro"])
-                    fabricante_final = col1.text_input("Especifique Fabricante") if fabricante_opc == "Otro" else fabricante_opc
-                    
-                    balance_alta = col2.number_input("Balance (V)", value=0.0, format="%.2f")
-                    frecuencia_alta = "Trimestral"
-                    nuevo_minimo = 0.00
-                    limite_alta = "10.00"
-
-                comentarios = st.text_area("Comentarios")
-                submit_alta = st.form_submit_button("Registrar en sistema", use_container_width=True)
-                
-            if submit_alta:
-                if not nuevo_id or not fabricante_final:
-                    st.error("Por favor complete los campos obligatorios (ID y Fabricante).")
-                else:
-                    id_limpio_alta = str(nuevo_id).strip().upper()
-                    
-                    # --- NUEVA VERIFICACIÓN GLOBAL DE DUPLICADOS ---
-                    check_inv = supabase.table("inventario_esd").select("id_producto").eq("id_producto", id_limpio_alta).execute()
-                    check_maq = supabase.table("mediciones_maquinaria").select("id_maquinaria").eq("id_maquinaria", id_limpio_alta).execute()
-                    
-                    if len(check_inv.data) > 0 or len(check_maq.data) > 0:
-                        st.error(f"❌ El ID '{nuevo_id}' ya se encuentra registrado en el sistema (Mobiliario, Ionizador o Maquinaria). Usa un ID diferente.")
-                    else:
-                        with st.spinner("Guardando en SQL..."):
-                            fecha_hoy = datetime.today().date()
-                            dias_map = {"Anual": 360, "Semestral": 180, "Trimestral": 90, "Mensual": 30}
-                            proxima = fecha_hoy + timedelta(days=dias_map.get(frecuencia_alta, 360))
-                            
-                            data_insert = {
-                                "id_producto": id_limpio_alta,
-                                "categoria": tipo_alta,
-                                "linea_ubicacion": nueva_linea,
-                                "clasificacion": nuevo_tipo,
-                                "fabricante": fabricante_final,
-                                "limite_minimo": float(nuevo_minimo),
-                                "limite_maximo": float(limite_alta) if "E" not in str(limite_alta).upper() else float(limite_alta), 
-                                "unidad_medida": "Segundos" if tipo_alta == "Ionizador" else "Ohms",
-                                "valor_actual": float(valor_alta) if valor_alta > 0 else None,
-                                "metodo_prueba": "CPM" if tipo_alta == "Ionizador" else "RTG",
-                                "fecha_ultima_verif": fecha_hoy.isoformat() if valor_alta > 0 else None,
-                                "fecha_proxima_verif": proxima.isoformat() if valor_alta > 0 else None,
-                                "frecuencia": frecuencia_alta,
-                                "estatus_verificacion": "VIGENTE" if valor_alta > 0 and fecha_hoy < proxima else "PENDIENTE",
-                                "estatus_operativo": "OPERATIVO",
-                                "comentarios": comentarios,
-                                "auditor_responsable": st.session_state.usuario_nombre
-                            }
-                            if tipo_alta == "Ionizador":
-                                data_insert["balance_ionizador"] = float(balance_alta)
-                            
-                            try:
-                                supabase.table("inventario_esd").insert(data_insert).execute()
-                                st.success(f"✅ ¡Activo {nuevo_id} registrado!")
-                                st.cache_data.clear()
-                                st.balloons()
-                            except Exception as e:
-                                st.error(f"Error SQL: {e}")
-                                
-# --- SUB-VISTA 2: BAJA (CON ESCÁNER QR REACTIVO INDEPENDIENTE) ---
-        elif accion_seleccionada == "🗑️ Dar de Baja":
-            st.markdown("#### 🗑️ Desactivación de Activos ESD")
-            
-            if not id_baja_url:
-                st.markdown("### 📷 Apunta al Código QR del Equipo a Dar de Baja")
-                html_code_qr_baja = """
-                <script src="https://unpkg.com/html5-qrcode"></script>
-                <div id="reader_baja" style="width:100%; max-width:500px; margin:auto; border-radius:10px; overflow:hidden; border: 2px solid #dc3545; background-color: #f9f9f9;"></div>
-                
-                <div style="text-align:center; margin-top:10px; display:flex; justify-content:center; gap:5px; flex-wrap:wrap;">
-                    <button type="button" id="cam_wide_baja" style="padding:10px; background:#28a745; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">📸 LENTE ESTÁNDAR</button>
-                    <button type="button" id="cam_cycle_baja" style="padding:10px; background:#555; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">🔄 OTRA CÁMARA</button>
-                </div>
-                <div style="text-align:center; margin-top:10px; display:flex; justify-content:center; gap:5px;">
-                    <button type="button" id="zoom_1x_baja" style="padding:10px 20px; background:#dc3545; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">🔍 1X (NORMAL)</button>
-                    <button type="button" id="zoom_3x_baja" style="padding:10px 20px; background:#666; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">🔍 3X (CURVO)</button>
-                </div>
-                <p id="cam-status-baja" style="text-align:center; color:#666; font-size: 14px; margin-top: 10px;">Buscando cámaras...</p>
-                
-                <script>
-                let html5QrCodeBaja;
-                let rearCamsBaja = [];
-                let currentIdxBaja = 0;
-                let wideIdBaja = null;
-
-                function applyZoomBaja(scale) {
-                    const vid = document.querySelector("#reader_baja video");
-                    if (vid) {
-                        vid.style.transform = `scale(${scale})`;
-                        vid.style.transformOrigin = "center center";
-                    }
-                    document.getElementById('zoom_1x_baja').style.background = (scale === 1) ? "#dc3545" : "#666";
-                    document.getElementById('zoom_3x_baja').style.background = (scale === 3) ? "#dc3545" : "#666";
-                }
-
-                function startScannerBaja(camId) {
-                    if(!html5QrCodeBaja) html5QrCodeBaja = new Html5Qrcode("reader_baja");
-                    if (html5QrCodeBaja.isScanning) {
-                        html5QrCodeBaja.stop().then(() => { runScanBaja(camId); }).catch(e => console.log(e));
-                    } else {
-                        runScanBaja(camId);
-                    }
-                }
-
-                function runScanBaja(camId) {
-                    html5QrCodeBaja.start(
-                        camId, { fps: 15, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 },
-                        (decodedText) => {
-                            html5QrCodeBaja.stop();
-                            const url = new URL(window.parent.location.href);
-                            url.searchParams.set("qr_baja", decodedText);
-                            window.parent.history.replaceState({}, "", url);
-                            window.parent.location.reload();
-                        }, (err) => {} 
-                    ).then(() => { 
-                        let activeCam = rearCamsBaja.find(c => c.id === camId);
-                        document.getElementById("cam-status-baja").innerText = "Lente activo: " + (activeCam ? activeCam.label : "Cámara");
-                        applyZoomBaja(1);
-                    }).catch(err => {
-                        document.getElementById("cam-status-baja").innerText = "Error iniciando lente. Intenta 'Otra Cámara'.";
-                    });
-                }
-
-                Html5Qrcode.getCameras().then(devices => {
-                    if (devices && devices.length) {
-                        rearCamsBaja = devices.filter(c => c.label.toLowerCase().includes('back') || c.label.toLowerCase().includes('trasera') || c.label.toLowerCase().includes('environment'));
-                        if(rearCamsBaja.length === 0) rearCamsBaja = devices;
-
-                        wideIdBaja = rearCamsBaja[0].id;
-                        for (let c of rearCamsBaja) {
-                            let lbl = c.label.toLowerCase();
-                            if (lbl.includes('wide') && !lbl.includes('ultra')) {
-                                wideIdBaja = c.id; break;
-                            }
+                    with st.spinner("Guardando en SQL..."):
+                        fecha_hoy = datetime.today().date()
+                        dias_map = {"Anual": 360, "Semestral": 180, "Trimestral": 90, "Mensual": 30}
+                        proxima = fecha_hoy + timedelta(days=dias_map.get(frecuencia_alta, 360))
+                        
+                        data_insert = {
+                            "id_producto": id_limpio_alta,
+                            "categoria": tipo_alta,
+                            "linea_ubicacion": nueva_linea,
+                            "clasificacion": nuevo_tipo,
+                            "fabricante": fabricante_final,
+                            "limite_minimo": float(nuevo_minimo),
+                            "limite_maximo": float(limite_alta) if "E" not in str(limite_alta).upper() else float(limite_alta), 
+                            "unidad_medida": "Segundos" if tipo_alta == "Ionizador" else "Ohms",
+                            "valor_actual": float(valor_alta) if valor_alta > 0 else None,
+                            "metodo_prueba": "CPM" if tipo_alta == "Ionizador" else "RTG",
+                            "fecha_ultima_verif": fecha_hoy.isoformat() if valor_alta > 0 else None,
+                            "fecha_proxima_verif": proxima.isoformat() if valor_alta > 0 else None,
+                            "frecuencia": frecuencia_alta,
+                            "estatus_verificacion": "VIGENTE" if valor_alta > 0 and fecha_hoy < proxima else "PENDIENTE",
+                            "estatus_operativo": "OPERATIVO",
+                            "comentarios": comentarios,
+                            "auditor_responsable": st.session_state.usuario_nombre
                         }
-
-                        currentIdxBaja = rearCamsBaja.findIndex(c => c.id === wideIdBaja);
-                        if(currentIdxBaja === -1) currentIdxBaja = 0;
-
-                        startScannerBaja(wideIdBaja);
-
-                        document.getElementById('cam_wide_baja').addEventListener('click', () => {
-                            currentIdxBaja = rearCamsBaja.findIndex(c => c.id === wideIdBaja);
-                            startScannerBaja(wideIdBaja);
-                        });
-
-                        document.getElementById('cam_cycle_baja').addEventListener('click', () => {
-                            currentIdxBaja = (currentIdxBaja + 1) % rearCamsBaja.length;
-                            startScannerBaja(rearCamsBaja[currentIdxBaja].id);
-                        });
-
-                        document.getElementById('zoom_1x_baja').addEventListener('click', () => applyZoomBaja(1));
-                        document.getElementById('zoom_3x_baja').addEventListener('click', () => applyZoomBaja(3));
-                    }
-                }).catch(err => { document.getElementById("cam-status-baja").innerText = "Permisos de cámara denegados."; });
-                </script>
-                """
-                components.html(html_code_qr_baja, height=750)
-                
-                id_manual_baja = st.text_input("O ingresa el ID manual para Baja:", key="input_manual_baja")
-                if id_manual_baja:
-                    st.query_params["qr_baja"] = id_manual_baja
-                    st.rerun()
-            else:
-                colA, colB = st.columns([0.8, 0.2])
-                with colA: st.error(f"🗑️ **ID a Procesar:** {id_baja_url}")
-                with colB:
-                    if st.button("❌ Cancelar"):
-                        limpiar_url_escaneo()
-                        st.rerun()
-
-                id_limpio_baja = str(id_baja_url).strip().upper()
-                
-                # --- INICIO DE LÓGICA DE VISUALIZACIÓN Y BAJA SELECTIVA ---
-                # 1. Buscar en inventario_esd (Mobiliario / Ionizadores)
-                equipo_encontrado_inv = df_inv_full[df_inv_full['Id de producto'].astype(str).str.upper() == id_limpio_baja]
-                
-                # 2. Buscar en mediciones_maquinaria (Maquinaria)
-                try:
-                    resp_maq_baja = supabase.table("mediciones_maquinaria").select("*").eq("id_maquinaria", id_limpio_baja).order("fecha_medicion", desc=True).limit(1).execute()
-                    df_maq_baja = pd.DataFrame(resp_maq_baja.data)
-                except:
-                    df_maq_baja = pd.DataFrame()
-
-                if not equipo_encontrado_inv.empty or not df_maq_baja.empty:
-                    st.markdown(f"### 📋 Detalles del Equipo a Dar de Baja: `{id_limpio_baja}`")
-                    st.info("Selecciona de qué catálogo deseas dar de baja este ID de forma independiente.")
-                    
-                    col_b1, col_b2 = st.columns(2)
-                    
-                    # Panel para Inventario (Mobiliario/Ionizadores)
-                    with col_b1:
-                        if not equipo_encontrado_inv.empty:
-                            info_eq = equipo_encontrado_inv.iloc[0]
-                            st.markdown("#### 🛋️/⚡ Registro en Inventario")
-                            st.metric("Clasificación", str(info_eq.get('Clasificación', 'N/D')))
-                            st.metric("Estatus Actual", str(info_eq.get('Estatus operativo', 'N/D')))
-                            
-                            with st.form("form_baja_inv"):
-                                if st.form_submit_button("🗑️ Dar de Baja en Inventario", use_container_width=True):
-                                    with st.spinner("Actualizando SQL..."):
-                                        try:
-                                            supabase.table("inventario_esd").update({
-                                                "estatus_operativo": "NO OPERATIVO",
-                                                "estatus_verificacion": "BAJA"
-                                            }).eq("id_producto", id_limpio_baja).execute()
-                                            st.success("✅ ¡Desactivado de Inventario!")
-                                            st.cache_data.clear()
-                                            limpiar_url_escaneo()
-                                            st.rerun()
-                                        except Exception as e:
-                                            st.error(f"Error: {e}")
-                        else:
-                            st.warning("No existe en el catálogo de Inventario.")
-                            
-                    # Panel para Maquinaria
-                    with col_b2:
-                        if not df_maq_baja.empty:
-                            info_maq = df_maq_baja.iloc[0]
-                            st.markdown("#### 🏭 Registro en Maquinaria")
-                            st.metric("Clasificación", str(info_maq.get('clasificacion', 'N/D')))
-                            st.metric("Estatus Actual", str(info_maq.get('status_operativo', 'N/D')))
-                            
-                            with st.form("form_baja_maq"):
-                                # Botón principal en rojo/destacado para maquinaria
-                                if st.form_submit_button("🗑️ Dar de Baja en Maquinaria", type="primary", use_container_width=True):
-                                    with st.spinner("Actualizando SQL..."):
-                                        try:
-                                            supabase.table("mediciones_maquinaria").update({
-                                                "status_operativo": "NO OPERATIVO",
-                                                "resultado_estatus": "BAJA"
-                                            }).eq("id_maquinaria", id_limpio_baja).execute()
-                                            st.success("✅ ¡Desactivado de Maquinaria!")
-                                            st.cache_data.clear()
-                                            limpiar_url_escaneo()
-                                            st.rerun()
-                                        except Exception as e:
-                                            st.error(f"Error: {e}")
-                        else:
-                            st.warning("No existe en el registro de Maquinaria.")
-
-                else:
-                    st.error(f"❌ No se encontró ningún registro con el ID: {id_limpio_baja}")
-                    if st.button("🔄 Volver a intentar", use_container_width=True):
-                        limpiar_url_escaneo()
-                        st.rerun()
-                # --- FIN DE LÓGICA SELECTIVA ---
-    # ==========================================
-    # VISTA 1: MAPA Y REPORTES ESD
-    # ==========================================
-    elif st.session_state.vista_actual == "Mapa" and not st.session_state.modo_lectura:
-        st.markdown("### Mapa y Cumplimiento ESD")
-        tab_mapa, tab_overview = st.tabs(["📍 Mapa Físico", "📊 Overview (S20.20)"])
-
-        with tab_mapa:
-            tipo_mapa = st.radio("Ver en mapa:", ["Mobiliario", "Ionizadores", "Maquinaria"], horizontal=True)
-            
-            if tipo_mapa == "Mobiliario":
-                df_total = df_mob_local.copy()
-            elif tipo_mapa == "Ionizadores":
-                df_total = df_ion_local.copy()
-            else:
-                # --- NUEVA LÓGICA: EXTRAER MAQUINARIA ---
-                try:
-                    # Traemos datos ordenados por fecha para que el más reciente quede arriba
-                    resp_maq_mapa = supabase.table("mediciones_maquinaria").select("*").order("fecha_medicion", desc=True).execute()
-                    df_maq_mapa = pd.DataFrame(resp_maq_mapa.data)
-                    if not df_maq_mapa.empty:
-                        # Eliminamos duplicados históricos conservando solo el último registro
-                        df_maq_mapa = df_maq_mapa.drop_duplicates(subset=['id_maquinaria'], keep='first')
+                        if tipo_alta == "Ionizador":
+                            data_insert["balance_ionizador"] = float(balance_alta)
                         
-                        # Homologamos las columnas para que el código del mapa las entienda
-                        df_total = df_maq_mapa.rename(columns={
-                            'status_operativo': 'Estatus operativo',
-                            'resultado_estatus': 'Estatus de verificación',
-                            'linea_ubicacion': 'Línea',
-                            'id_maquinaria': 'Id de producto',
-                            'clasificacion': 'Clasificación'
-                        })
-                    else:
-                        df_total = pd.DataFrame()
-                except:
-                    df_total = pd.DataFrame()
-            
-            if df_total.empty:
-                st.warning(f"No hay datos registrados en {tipo_mapa}.")
-            else:
-                equipos_activos = df_total[df_total['Estatus operativo'].astype(str).str.upper() != 'NO OPERATIVO']
-                total_equipos = len(equipos_activos)
-                vencidos = equipos_activos[equipos_activos['Estatus de verificación'].astype(str).str.upper() == 'VENCIDO']
-                total_vencidos = len(vencidos)
-            
-                if total_equipos > 0:
-                    porcentaje = ((total_equipos - total_vencidos) / total_equipos) * 100
-                else:
-                    porcentaje = 100.0
-
-                if not vencidos.empty:
-                    st.error(f"🚨 **Cumplimiento:** {porcentaje:.1f}% | **Vencidos:** {total_vencidos} de {total_equipos} activos.")
-                    conteo_tipos = vencidos.groupby(['Línea']).size().reset_index(name='Total Vencidos')
-                    
-                    # Determinamos el prefijo para la etiqueta (M = Mobiliario, I = Ionizador, MQ = Maquinaria)
-                    if tipo_mapa == "Mobiliario":
-                        prefijo = "M: "
-                    elif tipo_mapa == "Ionizadores":
-                        prefijo = "I: "
-                    else:
-                        prefijo = "MQ: "
-                        
-                    conteo_tipos['Etiqueta'] = prefijo + conteo_tipos['Total Vencidos'].astype(str)
-                
-                    if os.path.exists(RUTA_MAPA) and os.path.exists(RUTA_COORDENADAS):
-                        img = Image.open(RUTA_MAPA)
-                        width, height = img.size # Obtenemos el tamaño real de la imagen
-                        df_coords = pd.read_csv(RUTA_COORDENADAS)
-                        mapa_data = pd.merge(conteo_tipos, df_coords, on='Línea', how='inner')
-                        
-                        if not mapa_data.empty:
-                            fig = px.scatter(
-                                mapa_data, x="X", y="Y", color="Total Vencidos", text="Etiqueta",
-                                hover_data={"X": False, "Y": False, "Etiqueta": False, "Total Vencidos": True},
-                                color_continuous_scale="Reds"
-                            )
+                        try:
+                            supabase.table("inventario_esd").insert(data_insert).execute()
+                            st.success(f"✅ ¡Activo {nuevo_id} registrado!")
+                            st.cache_data.clear()
+                            st.balloons()
+                        except Exception as e:
+                            st.error(f"Error SQL: {e}")
                             
-                            # --- DISEÑO DE LOS PUNTOS ---
-                            fig.update_traces(
-                                textposition='middle center', 
-                                textfont=dict(color='white', size=14, weight='bold'), 
-                                marker=dict(symbol='circle', size=45, opacity=0.9, line=dict(width=2, color='black'))
-                            )
-                            
-                            # --- CÁLCULO DE PROPORCIÓN PARA EVITAR ESTIRAMIENTO ---
-                            aspect_ratio = height / width
-                            plot_height = int(1000 * aspect_ratio) # 1000px es el ancho base de uso de Streamlit
-
-                            fig.update_layout(
-                                height=plot_height,
-                                images=[dict(
-                                    source=img, xref="x", yref="y", 
-                                    x=0, y=0, sizex=width, sizey=height, 
-                                    sizing="stretch", opacity=1, layer="below"
-                                )], 
-                                xaxis=dict(visible=False, range=[0, width]), 
-                                # scaleanchor="x" y scaleratio=1 son la magia que bloquea la proporción
-                                yaxis=dict(visible=False, range=[height, 0], scaleanchor="x", scaleratio=1), 
-                                margin=dict(l=0, r=0, t=0, b=0),
-                                coloraxis_showscale=False
-                            )
-                            st.plotly_chart(fig, use_container_width=True)
-                    st.dataframe(vencidos[['Línea', 'Id de producto', 'Clasificación', 'Estatus de verificación']], use_container_width=True, hide_index=True)
-                else:
-                    st.success(f"✅ **100% Cumplimiento en {tipo_mapa}.**")
-
-        with tab_overview:
-            st.markdown("#### Estado Global de Elementos ESD")
-            try:
-                resp_inv2 = supabase.table("inventario_esd").select("id_producto, clasificacion, linea_ubicacion, estatus_verificacion, fecha_proxima_verif").limit(3000).execute()
-                df_ov = pd.DataFrame(resp_inv2.data)
-                
-                if not df_ov.empty:
-                    df_ov['Fecha Prox Validación'] = pd.to_datetime(df_ov['fecha_proxima_verif'], errors='coerce')
-                    hoy = pd.Timestamp(datetime.today().date())
-                    
-                    def estado_validacion(fecha_prox):
-                        if pd.isna(fecha_prox): return "Sin Validación"
-                        dias = (fecha_prox - hoy).days
-                        if dias < 0: return "Vencido"
-                        elif dias <= 30: return "Por Vencer"
-                        else: return "Vigente"
-                            
-                    df_ov['Estatus'] = df_ov['Fecha Prox Validación'].apply(estado_validacion)
-                    total_vig = len(df_ov[df_ov['Estatus'] == 'Vigente'])
-                    total_prx = len(df_ov[df_ov['Estatus'] == 'Por Vencer'])
-                    total_ven = len(df_ov[df_ov['Estatus'] == 'Vencido'])
-                    
-                    col_m1, col_m2, col_m3 = st.columns(3)
-                    col_m1.metric("🟢 Vigentes", total_vig)
-                    col_m2.metric("🟡 Por Vencer (30 días)", total_prx)
-                    col_m3.metric("🔴 Vencidos", total_ven)
-                    
-                    df_ov['Fecha Prox Validación'] = df_ov['Fecha Prox Validación'].dt.strftime('%d-%b-%Y').fillna("N/D")
-                    df_ov = df_ov.rename(columns={'id_producto': 'ID Elemento', 'clasificacion': 'Elemento S20.20', 'linea_ubicacion': 'Ubicación'})
-                    st.dataframe(df_ov[['Elemento S20.20', 'ID Elemento', 'Ubicación', 'Estatus', 'Fecha Prox Validación']], use_container_width=True, hide_index=True)
-                else:
-                    st.warning("Inventario vacío.")
-            except Exception as e:
-                st.error(f"Error al cargar overview: {e}")
-
-    # ==========================================
-    # VISTA 2: ESCÁNER Y DETALLES
-    # ==========================================
-    elif st.session_state.vista_actual == "Escáner":
-        if not id_escaneado_url:
-            st.markdown("### 📷 Apunta al Código QR")
-            html_code_qr = """
+# --- SUB-VISTA 2: BAJA (CON ESCÁNER QR REACTIVO INDEPENDIENTE) ---
+    elif accion_seleccionada == "🗑️ Dar de Baja":
+        st.markdown("#### 🗑️ Desactivación de Activos ESD")
+        
+        if not id_baja_url:
+            st.markdown("### 📷 Apunta al Código QR del Equipo a Dar de Baja")
+            html_code_qr_baja = """
             <script src="https://unpkg.com/html5-qrcode"></script>
-            <div id="reader_main" style="width:100%; max-width:500px; margin:auto; border-radius:10px; overflow:hidden; border: 2px solid #0052cc; background-color: #f9f9f9;"></div>
+            <div id="reader_baja" style="width:100%; max-width:500px; margin:auto; border-radius:10px; overflow:hidden; border: 2px solid #dc3545; background-color: #f9f9f9;"></div>
             
             <div style="text-align:center; margin-top:10px; display:flex; justify-content:center; gap:5px; flex-wrap:wrap;">
-                <button type="button" id="cam_wide_main" style="padding:10px; background:#28a745; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">📸 LENTE ESTÁNDAR</button>
-                <button type="button" id="cam_cycle_main" style="padding:10px; background:#555; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">🔄 OTRA CÁMARA</button>
+                <button type="button" id="cam_wide_baja" style="padding:10px; background:#28a745; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">📸 LENTE ESTÁNDAR</button>
+                <button type="button" id="cam_cycle_baja" style="padding:10px; background:#555; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">🔄 OTRA CÁMARA</button>
             </div>
             <div style="text-align:center; margin-top:10px; display:flex; justify-content:center; gap:5px;">
-                <button type="button" id="zoom_1x_main" style="padding:10px 20px; background:#0052cc; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">🔍 1X (NORMAL)</button>
-                <button type="button" id="zoom_3x_main" style="padding:10px 20px; background:#666; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">🔍 3X (CURVO)</button>
+                <button type="button" id="zoom_1x_baja" style="padding:10px 20px; background:#dc3545; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">🔍 1X (NORMAL)</button>
+                <button type="button" id="zoom_3x_baja" style="padding:10px 20px; background:#666; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">🔍 3X (CURVO)</button>
             </div>
-            <p id="cam-status-main" style="text-align:center; color:#666; font-size: 14px; margin-top: 10px;">Buscando cámaras...</p>
+            <p id="cam-status-baja" style="text-align:center; color:#666; font-size: 14px; margin-top: 10px;">Buscando cámaras...</p>
             
             <script>
-            let html5QrCodeMain;
-            let rearCamsMain = [];
-            let currentIdxMain = 0;
-            let wideIdMain = null;
+            let html5QrCodeBaja;
+            let rearCamsBaja = [];
+            let currentIdxBaja = 0;
+            let wideIdBaja = null;
 
-            function applyZoomMain(scale) {
-                const vid = document.querySelector("#reader_main video");
+            function applyZoomBaja(scale) {
+                const vid = document.querySelector("#reader_baja video");
                 if (vid) {
                     vid.style.transform = `scale(${scale})`;
                     vid.style.transformOrigin = "center center";
                 }
-                document.getElementById('zoom_1x_main').style.background = (scale === 1) ? "#0052cc" : "#666";
-                document.getElementById('zoom_3x_main').style.background = (scale === 3) ? "#0052cc" : "#666";
+                document.getElementById('zoom_1x_baja').style.background = (scale === 1) ? "#dc3545" : "#666";
+                document.getElementById('zoom_3x_baja').style.background = (scale === 3) ? "#dc3545" : "#666";
             }
 
-            function startScannerMain(camId) {
-                if(!html5QrCodeMain) html5QrCodeMain = new Html5Qrcode("reader_main");
-                if (html5QrCodeMain.isScanning) {
-                    html5QrCodeMain.stop().then(() => { runScanMain(camId); }).catch(e => console.log(e));
+            function startScannerBaja(camId) {
+                if(!html5QrCodeBaja) html5QrCodeBaja = new Html5Qrcode("reader_baja");
+                if (html5QrCodeBaja.isScanning) {
+                    html5QrCodeBaja.stop().then(() => { runScanBaja(camId); }).catch(e => console.log(e));
                 } else {
-                    runScanMain(camId);
+                    runScanBaja(camId);
                 }
             }
 
-            function runScanMain(camId) {
-                html5QrCodeMain.start(
+            function runScanBaja(camId) {
+                html5QrCodeBaja.start(
                     camId, { fps: 15, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 },
                     (decodedText) => {
-                        html5QrCodeMain.stop();
+                        html5QrCodeBaja.stop();
                         const url = new URL(window.parent.location.href);
-                        url.searchParams.set("qr_id", decodedText);
+                        url.searchParams.set("qr_baja", decodedText);
                         window.parent.history.replaceState({}, "", url);
                         window.parent.location.reload();
                     }, (err) => {} 
                 ).then(() => { 
-                    let activeCam = rearCamsMain.find(c => c.id === camId);
-                    document.getElementById("cam-status-main").innerText = "Lente activo: " + (activeCam ? activeCam.label : "Cámara");
-                    applyZoomMain(1);
+                    let activeCam = rearCamsBaja.find(c => c.id === camId);
+                    document.getElementById("cam-status-baja").innerText = "Lente activo: " + (activeCam ? activeCam.label : "Cámara");
+                    applyZoomBaja(1);
                 }).catch(err => {
-                    document.getElementById("cam-status-main").innerText = "Error iniciando lente. Intenta 'Otra Cámara'.";
+                    document.getElementById("cam-status-baja").innerText = "Error iniciando lente. Intenta 'Otra Cámara'.";
                 });
             }
 
             Html5Qrcode.getCameras().then(devices => {
                 if (devices && devices.length) {
-                    rearCamsMain = devices.filter(c => c.label.toLowerCase().includes('back') || c.label.toLowerCase().includes('trasera') || c.label.toLowerCase().includes('environment'));
-                    if(rearCamsMain.length === 0) rearCamsMain = devices;
+                    rearCamsBaja = devices.filter(c => c.label.toLowerCase().includes('back') || c.label.toLowerCase().includes('trasera') || c.label.toLowerCase().includes('environment'));
+                    if(rearCamsBaja.length === 0) rearCamsBaja = devices;
 
-                    wideIdMain = rearCamsMain[0].id;
-                    for (let c of rearCamsMain) {
+                    wideIdBaja = rearCamsBaja[0].id;
+                    for (let c of rearCamsBaja) {
                         let lbl = c.label.toLowerCase();
                         if (lbl.includes('wide') && !lbl.includes('ultra')) {
-                            wideIdMain = c.id; break;
+                            wideIdBaja = c.id; break;
                         }
                     }
 
-                    currentIdxMain = rearCamsMain.findIndex(c => c.id === wideIdMain);
-                    if(currentIdxMain === -1) currentIdxMain = 0;
+                    currentIdxBaja = rearCamsBaja.findIndex(c => c.id === wideIdBaja);
+                    if(currentIdxBaja === -1) currentIdxBaja = 0;
 
-                    startScannerMain(wideIdMain);
+                    startScannerBaja(wideIdBaja);
 
-                    document.getElementById('cam_wide_main').addEventListener('click', () => {
-                        currentIdxMain = rearCamsMain.findIndex(c => c.id === wideIdMain);
-                        startScannerMain(wideIdMain);
+                    document.getElementById('cam_wide_baja').addEventListener('click', () => {
+                        currentIdxBaja = rearCamsBaja.findIndex(c => c.id === wideIdBaja);
+                        startScannerBaja(wideIdBaja);
                     });
 
-                    document.getElementById('cam_cycle_main').addEventListener('click', () => {
-                        currentIdxMain = (currentIdxMain + 1) % rearCamsMain.length;
-                        startScannerMain(rearCamsMain[currentIdxMain].id);
+                    document.getElementById('cam_cycle_baja').addEventListener('click', () => {
+                        currentIdxBaja = (currentIdxBaja + 1) % rearCamsBaja.length;
+                        startScannerBaja(rearCamsBaja[currentIdxBaja].id);
                     });
 
-                    document.getElementById('zoom_1x_main').addEventListener('click', () => applyZoomMain(1));
-                    document.getElementById('zoom_3x_main').addEventListener('click', () => applyZoomMain(3));
+                    document.getElementById('zoom_1x_baja').addEventListener('click', () => applyZoomBaja(1));
+                    document.getElementById('zoom_3x_baja').addEventListener('click', () => applyZoomBaja(3));
                 }
-            }).catch(err => { document.getElementById("cam-status-main").innerText = "Permisos de cámara denegados."; });
+            }).catch(err => { document.getElementById("cam-status-baja").innerText = "Permisos de cámara denegados."; });
             </script>
             """
-            components.html(html_code_qr, height=750) 
+            components.html(html_code_qr_baja, height=750)
             
-            id_manual = st.text_input("O ingresa el ID manual:", key="input_manual")
-            if id_manual:
-                st.query_params["qr_id"] = id_manual
+            id_manual_baja = st.text_input("O ingresa el ID manual para Baja:", key="input_manual_baja")
+            if id_manual_baja:
+                st.query_params["qr_baja"] = id_manual_baja
                 st.rerun()
-
-        if id_escaneado_url:
+        else:
             colA, colB = st.columns([0.8, 0.2])
-            with colA: st.info(f"🔍 **ID:** {id_escaneado_url}")
+            with colA: st.error(f"🗑️ **ID a Procesar:** {id_baja_url}")
             with colB:
-                if st.button("❌ Cerrar"):
+                if st.button("❌ Cancelar"):
                     limpiar_url_escaneo()
                     st.rerun()
 
-            id_limpio = str(id_escaneado_url).strip().upper()
-            mob_ids_limpios = df_mob_local.get('Id de producto', pd.Series()).astype(str).str.strip().str.upper()
-            ion_ids_limpios = df_ion_local.get('Id de producto', pd.Series()).astype(str).str.strip().str.upper()
-
-            # --- NUEVO: Búsqueda en tabla de Maquinaria ---
+            id_limpio_baja = str(id_baja_url).strip().upper()
+            
+            # --- INICIO DE LÓGICA DE VISUALIZACIÓN Y BAJA SELECTIVA ---
+            # 1. Buscar en inventario_esd (Mobiliario / Ionizadores)
+            equipo_encontrado_inv = df_inv_full[df_inv_full['Id de producto'].astype(str).str.upper() == id_limpio_baja]
+            
+            # 2. Buscar en mediciones_maquinaria (Maquinaria)
             try:
-                resp_maq_scan = supabase.table("mediciones_maquinaria").select("*").eq("id_maquinaria", id_limpio).order("fecha_medicion", desc=True).execute()
-                df_maq_scan = pd.DataFrame(resp_maq_scan.data)
-                es_maq = not df_maq_scan.empty
+                resp_maq_baja = supabase.table("mediciones_maquinaria").select("*").eq("id_maquinaria", id_limpio_baja).order("fecha_medicion", desc=True).limit(1).execute()
+                df_maq_baja = pd.DataFrame(resp_maq_baja.data)
             except:
-                df_maq_scan = pd.DataFrame()
-                es_maq = False
-            # ----------------------------------------------
+                df_maq_baja = pd.DataFrame()
 
-            es_mob = id_limpio in mob_ids_limpios.values
-            es_ion = id_limpio in ion_ids_limpios.values
-
-            if es_mob or es_ion or es_maq:
+            if not equipo_encontrado_inv.empty or not df_maq_baja.empty:
+                st.markdown(f"### 📋 Detalles del Equipo a Dar de Baja: `{id_limpio_baja}`")
+                st.info("Selecciona de qué catálogo deseas dar de baja este ID de forma independiente.")
                 
-                # ==========================================
-                # LÓGICA DE VISUALIZACIÓN: MOBILIARIO / IONIZADORES
-                # ==========================================
-                if es_mob or es_ion:
-                    df_actual = df_mob_local if es_mob else df_ion_local
-                    serie_busqueda = mob_ids_limpios if es_mob else ion_ids_limpios
-                    idx = serie_busqueda[serie_busqueda == id_limpio].index[0]
-                    equipo = df_actual.loc[idx]
-                    
-                    estatus_op = str(equipo.get('Estatus operativo', '')).strip().upper()
-                    texto_check = "✅ REACTIVAR" if estatus_op == "NO OPERATIVO" else "✅ Registrar medición"
-                    
-                    st.markdown(f"### 📊 Detalles del Equipo")
-                    c_linea, c_tipo, c_estatus = st.columns(3)
-                    c_linea.metric("Ubicación", str(equipo.get('Línea', 'N/A')))
-                    clasificacion_equipo = str(equipo.get('Clasificación', 'N/A'))
-                    c_tipo.metric("Clasificación", clasificacion_equipo)
-                    c_estatus.metric("Estatus", str(equipo.get('Estatus de verificación', 'N/A')))
-                    
-                    c_val, c_bal = st.columns(2)
-                    val_previo = equipo.get('Valor de verificación', 0)
-                    if es_ion:
-                        c_val.metric("Descarga", f"{float(val_previo):.2f} s" if pd.notna(val_previo) else "N/A")
+                col_b1, col_b2 = st.columns(2)
+                
+                # Panel para Inventario (Mobiliario/Ionizadores)
+                with col_b1:
+                    if not equipo_encontrado_inv.empty:
+                        info_eq = equipo_encontrado_inv.iloc[0]
+                        st.markdown("#### 🛋️/⚡ Registro en Inventario")
+                        st.metric("Clasificación", str(info_eq.get('Clasificación', 'N/D')))
+                        st.metric("Estatus Actual", str(info_eq.get('Estatus operativo', 'N/D')))
                         
-                        # --- NUEVO: FORMATEO DEL BALANCE CON UNIDAD DE VOLTS ---
-                        bal_previo = equipo.get('Balance')
-                        if pd.notna(bal_previo) and str(bal_previo).strip() not in ['', 'N/A', 'nan', 'None']:
-                            c_bal.metric("Balance", f"{float(bal_previo):.2f} V")
-                        else:
-                            c_bal.metric("Balance", "N/A")
-                        # -------------------------------------------------------
+                        with st.form("form_baja_inv"):
+                            if st.form_submit_button("🗑️ Dar de Baja en Inventario", use_container_width=True):
+                                with st.spinner("Actualizando SQL..."):
+                                    try:
+                                        supabase.table("inventario_esd").update({
+                                            "estatus_operativo": "NO OPERATIVO",
+                                            "estatus_verificacion": "BAJA"
+                                        }).eq("id_producto", id_limpio_baja).execute()
+                                        st.success("✅ ¡Desactivado de Inventario!")
+                                        st.cache_data.clear()
+                                        limpiar_url_escaneo()
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"Error: {e}")
                     else:
-                        c_val.metric("Resistencia", f"{float(val_previo):.2E} Ω" if pd.notna(val_previo) else "N/A")
-
-                    try:
-                        resp_fechas = supabase.table("inventario_esd").select("fecha_ultima_verif, fecha_proxima_verif").eq("id_producto", id_limpio).execute()
-                        if resp_fechas.data:
-                            f_val_sql = resp_fechas.data[0].get('fecha_ultima_verif', 'N/A')
-                            f_venc_sql = resp_fechas.data[0].get('fecha_proxima_verif', 'N/A')
-                        else:
-                            f_val_sql, f_venc_sql = "N/A", "N/A"
-                    except Exception as e:
-                        f_val_sql, f_venc_sql = "Error", "Error"
-
-                    c_fval, c_fvenc = st.columns(2)
-                    c_fval.metric("Fecha de Validación", str(f_val_sql)[:10] if f_val_sql != "N/A" else "N/A")
-                    c_fvenc.metric("Fecha de Vencimiento", str(f_venc_sql)[:10] if f_venc_sql != "N/A" else "N/A")
-                    
-                    with st.expander("🕰️ Consultar Historial de Mediciones Anteriores"):
-                        try:
-                            resp_hist = supabase.table("historial_mediciones").select("*").eq("id_equipo", id_limpio).order("fecha_modificacion", desc=True).execute()
-                            df_historial = pd.DataFrame(resp_hist.data)
-                            if not df_historial.empty:
-                                if es_ion and 'balance_ionizador' in df_historial.columns:
-                                    df_historial = df_historial[['fecha_modificacion', 'valor_actual', 'balance_ionizador', 'fecha_validacion', 'ubicacion', 'auditor']]
-                                    df_historial.columns = ['Actualizado el', 'T. Descarga (s)', 'Balance (V)', 'Fecha Val.', 'Ubicación', 'Auditor']
-                                else:
-                                    df_historial = df_historial[['fecha_modificacion', 'valor_actual', 'fecha_validacion', 'ubicacion', 'auditor']]
-                                    df_historial.columns = ['Actualizado el', 'Valor', 'Fecha Val.', 'Ubicación', 'Auditor']
-                                
-                                st.dataframe(df_historial, use_container_width=True, hide_index=True)
-                            else:
-                                st.info("No hay mediciones históricas registradas para este equipo aún.")
-                        except Exception as e:
-                            st.error(f"Error al cargar el historial: {e}")
-
-                    st.divider()
-
-                    if not st.session_state.modo_lectura:
-                        hacer_medicion = st.checkbox(texto_check)
-                        if hacer_medicion:
-                            with st.form("form_actualizacion"):
-                                st.text_input("Clasificación (Tipo de Equipo)", value=clasificacion_equipo, disabled=True)
-                                
-                                # --- 1. LÍNEA POR DEFECTO ASEGURADA ---
-                                if 'obtener_catalogo_lineas' in globals():
-                                    lineas_opc = obtener_catalogo_lineas()
-                                else:
-                                    lineas_opc = sorted([str(x).strip() for x in df_mob_local['Línea'].dropna().unique()])
-                                    
-                                ub_actual = str(equipo.get('Línea', '')).strip()
-                                
-                                # Si la ubicación actual no está en la lista del catálogo, la inyectamos para no perder la referencia visual
-                                if ub_actual and ub_actual not in lineas_opc:
-                                    lineas_opc = [ub_actual] + lineas_opc
-                                    
-                                idx_l = lineas_opc.index(ub_actual) if ub_actual in lineas_opc else 0
-                                nueva_linea_upd = st.selectbox("Línea / Ubicación", options=lineas_opc, index=idx_l)
-                                
-                                # --- 2. CAMPOS VACÍOS (value=None) ---
-                                if es_ion:
-                                    c_ion1, c_ion2 = st.columns(2)
-                                    v_act = c_ion1.number_input("Descarga (s)", value=None, format="%.2f", placeholder="0.0")
-                                    bal_act = c_ion2.number_input("Balance (V)", value=None, format="%.2f", placeholder="0.0")
-                                else:
-                                    c_b, c_e = st.columns(2)
-                                    base_upd = c_b.number_input("Base (Ohms)", value=None, placeholder="Ej: 3.5")
-                                    exp_upd = c_e.number_input("Exponente", value=None, step=1, placeholder="Ej: 6")
-                                    
-                                fecha_hoy = datetime.today().date()
-                                nueva_fecha = st.date_input("Fecha de Validación", fecha_hoy)
-                                
-                                if st.form_submit_button("💾 Guardar Actualización e Historial"):
-                                    # --- 3. VALIDACIÓN DE CAMPOS ---
-                                    # Como los campos inician vacíos (None), debemos evitar que el programa truene si le dan a Guardar accidentalmente.
-                                    if es_ion and (v_act is None or bal_act is None):
-                                        st.error("⚠️ Debes ingresar los valores de Descarga y Balance.")
-                                    elif not es_ion and (base_upd is None or exp_upd is None):
-                                        st.error("⚠️ Debes ingresar los valores de Base y Exponente.")
-                                    else:
-                                        with st.spinner("Guardando registro..."):
-                                            if es_ion:
-                                                nuevo_valor_final = float(v_act)
-                                                bal_act = float(bal_act)
-                                            else:
-                                                nuevo_valor_final = float(base_upd) * (10 ** int(exp_upd))
-                                                bal_act = None
-                                                
-                                            freq = str(equipo.get('Frecuencia de verificación', 'Anual'))
-                                            proxy = calcular_proxima_fecha(nueva_fecha, freq)
-                                            
-                                            try:
-                                                # --- 4. GUARDAR EL ESTADO ANTERIOR EN LA TABLA HISTORIAL ---
-                                                # Extraemos los valores previos que ya tenemos cargados de la BD
-                                                val_previo_hist = str(equipo.get('Valor de verificación', 0))
-                                                ubicacion_previa = str(equipo.get('Línea', 'N/D'))
-                                                auditor_previo = str(equipo.get('Auditor', st.session_state.usuario_nombre))
-                                                
-                                                # Solo guardamos en el historial si realmente existía una medición anterior (evita guardar registros vacíos/nuevos)
-                                                if f_val_sql != 'N/A' and f_val_sql != 'Error':
-                                                    historial_data = {
-                                                        "id_equipo": id_limpio,
-                                                        "tipo_equipo": clasificacion_equipo,
-                                                        "ubicacion": ubicacion_previa,
-                                                        "valor_actual": val_previo_hist,
-                                                        "fecha_validacion": f_val_sql, # <--- FECHA ANTERIOR
-                                                        "fecha_vencimiento": f_venc_sql if f_venc_sql != 'N/A' else None,
-                                                        "auditor": auditor_previo, # <--- AUDITOR ANTERIOR
-                                                        "fecha_modificacion": datetime.now().isoformat() # <--- Cuándo se archivó
-                                                    }
-                                                    if es_ion:
-                                                        historial_data["balance_ionizador"] = str(equipo.get('Balance', 0))
-                                                        
-                                                    supabase.table("historial_mediciones").insert(historial_data).execute()
-
-                                                # --- 5. ACTUALIZAR EL ESTADO NUEVO EN INVENTARIO MAESTRO ---
-                                                update_data = {
-                                                    "linea_ubicacion": nueva_linea_upd,
-                                                    "valor_actual": float(nuevo_valor_final),
-                                                    "fecha_ultima_verif": nueva_fecha.isoformat(), # <--- FECHA NUEVA (HOY)
-                                                    "fecha_proxima_verif": proxy.isoformat(),
-                                                    "estatus_verificacion": "VIGENTE",
-                                                    "estatus_operativo": "OPERATIVO",
-                                                    "auditor_responsable": st.session_state.usuario_nombre, # <--- AUDITOR NUEVO (TÚ)
-                                                }
-                                                if es_ion:
-                                                    update_data["balance_ionizador"] = float(bal_act)
-                                                
-                                                supabase.table("inventario_esd").update(update_data).eq("id_producto", id_limpio).execute()
-                                                
-                                                st.success("💾 ¡Equipo actualizado y medición anterior archivada en el historial!")
-                                                st.cache_data.clear()
-                                                limpiar_url_escaneo()
-                                                st.rerun()
-                                            except Exception as e:
-                                                st.error(f"Error actualizando el equipo en SQL: {e}")
-                    # --- NUEVO: LISTADO DE OTROS EQUIPOS EN LA MISMA LÍNEA ---
-                    if es_mob:
-                        ub_actual_lista = str(equipo.get('Línea', '')).strip()
-                        if ub_actual_lista and ub_actual_lista != 'N/A' and 'df_inv_full' in locals() and not df_inv_full.empty:
-                            st.divider()
-                            st.markdown(f"#### 📍 Otros equipos en la línea: `{ub_actual_lista}`")
-                            
-                            # Filtramos el inventario por la misma línea, quitamos el equipo actual y los que estén dados de baja
-                            df_otros = df_inv_full[
-                                (df_inv_full['Línea'].astype(str).str.strip() == ub_actual_lista) & 
-                                (df_inv_full['Id de producto'].astype(str).str.strip().str.upper() != id_limpio) &
-                                (df_inv_full['Estatus operativo'].astype(str).str.strip().str.upper() != 'NO OPERATIVO')
-                            ]
-                            
-                            if not df_otros.empty:
-                                # Seleccionamos columnas clave para mostrar
-                                df_mostrar_otros = df_otros[['Id de producto', 'Clasificación', 'Estatus de verificación', 'Fecha de próxima verificación']].copy()
-                                df_mostrar_otros = df_mostrar_otros.rename(columns={
-                                    'Id de producto': 'ID Equipo', 
-                                    'Fecha de próxima verificación': 'Vencimiento'
-                                })
-                                
-                                # Formateamos la fecha visualmente para que sea corta
-                                df_mostrar_otros['Vencimiento'] = pd.to_datetime(df_mostrar_otros['Vencimiento'], errors='coerce').dt.strftime('%d-%b-%Y').fillna('N/D')
-                                
-                                # Agregamos emojis de estatus rápido
-                                def emoji_estatus(val):
-                                    v = str(val).upper()
-                                    if 'VIGENTE' in v: return f"🟢 {val}"
-                                    if 'VENCIDO' in v: return f"🔴 {val}"
-                                    return f"🟡 {val}"
-                                    
-                                df_mostrar_otros['Estatus de verificación'] = df_mostrar_otros['Estatus de verificación'].apply(emoji_estatus)
-                                
-                                st.dataframe(df_mostrar_otros, use_container_width=True, hide_index=True)
-                            else:
-                                st.info("No hay otros equipos operativos registrados en esta línea.")
-                    # ---------------------------------------------------------
-                # ==========================================
-                # LÓGICA DE VISUALIZACIÓN: MAQUINARIA
-                # ==========================================
-                elif es_maq:
-                    equipo = df_maq_scan.iloc[0]
-                    
-                    st.markdown(f"### 🏭 Detalles de la Maquinaria")
-                    c_linea, c_tipo, c_estatus = st.columns(3)
-                    c_linea.metric("Ubicación", str(equipo.get('linea_ubicacion', 'N/A')))
-                    clasificacion_equipo = str(equipo.get('clasificacion', 'N/A'))
-                    c_tipo.metric("Clasificación", clasificacion_equipo)
-                    c_estatus.metric("Estatus", str(equipo.get('resultado_estatus', 'N/A')))
-                    
-                    c_val, c_bal = st.columns(2)
-                    res_tierra = equipo.get('resistencia_tierra')
-                    c_val.metric("Resistencia a Tierra", f"{float(res_tierra):.2E} Ω" if pd.notna(res_tierra) and res_tierra else "N/D")
-                    campo_est = equipo.get('campo_estatico_voltaje')
-                    c_bal.metric("Campo Estático", f"{float(campo_est):.1f} V" if pd.notna(campo_est) else "N/D")
-
-                    f_val_sql = str(equipo.get('fecha_medicion', 'N/A'))[:10]
-                    f_venc_sql = str(equipo.get('fecha_proxima', 'N/A'))[:10]
-                    
-                    c_fval, c_fvenc = st.columns(2)
-                    c_fval.metric("Fecha de Validación", f_val_sql)
-                    c_fvenc.metric("Fecha de Vencimiento", f_venc_sql)
-                    
-                    with st.expander("🕰️ Consultar Historial de Mediciones Anteriores"):
-                        df_maq_hist = df_maq_scan[['fecha_medicion', 'resistencia_tierra', 'campo_estatico_voltaje', 'tomacorriente_estatus', 'resultado_estatus', 'auditor']].copy()
-                        df_maq_hist.columns = ['Fecha', 'Resistencia (Ω)', 'Campo (V)', 'Toma', 'Estatus', 'Auditor']
+                        st.warning("No existe en el catálogo de Inventario.")
                         
-                        def formatear_res_hist(val):
-                            try:
-                                v = float(val)
-                                return f"{v:.2f}" if v < 10 else f"{v:.2E}"
-                            except:
-                                return "N/D"
-                                
-                        if 'Resistencia (Ω)' in df_maq_hist.columns:
-                            df_maq_hist['Resistencia (Ω)'] = df_maq_hist['Resistencia (Ω)'].apply(formatear_res_hist)
-                            
-                        df_maq_hist['Fecha'] = pd.to_datetime(df_maq_hist['Fecha']).dt.strftime('%d-%b-%Y')
-                        st.dataframe(df_maq_hist.fillna("N/D"), use_container_width=True, hide_index=True)
-
-                    st.divider()
-
-                    if not st.session_state.modo_lectura:
-                        st.info("💡 Para registrar una nueva validación, utiliza el módulo de maquinaria.")
-                        if st.button("🏭 Ir al Módulo de Maquinaria", use_container_width=True):
-                            st.session_state.vista_actual = "Maquinaria"
-                            limpiar_url_escaneo()
-                            st.rerun()
+                # Panel para Maquinaria
+                with col_b2:
+                    if not df_maq_baja.empty:
+                        info_maq = df_maq_baja.iloc[0]
+                        st.markdown("#### 🏭 Registro en Maquinaria")
+                        st.metric("Clasificación", str(info_maq.get('clasificacion', 'N/D')))
+                        st.metric("Estatus Actual", str(info_maq.get('status_operativo', 'N/D')))
+                        
+                        with st.form("form_baja_maq"):
+                            # Botón principal en rojo/destacado para maquinaria
+                            if st.form_submit_button("🗑️ Dar de Baja en Maquinaria", type="primary", use_container_width=True):
+                                with st.spinner("Actualizando SQL..."):
+                                    try:
+                                        supabase.table("mediciones_maquinaria").update({
+                                            "status_operativo": "NO OPERATIVO",
+                                            "resultado_estatus": "BAJA"
+                                        }).eq("id_maquinaria", id_limpio_baja).execute()
+                                        st.success("✅ ¡Desactivado de Maquinaria!")
+                                        st.cache_data.clear()
+                                        limpiar_url_escaneo()
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"Error: {e}")
+                    else:
+                        st.warning("No existe en el registro de Maquinaria.")
 
             else:
-                st.error("❌ El ID no se encontró en la base de datos (Mobiliario, Ionizadores o Maquinaria).")
-    # ==========================================
-    # VISTA 3: EVENT METER
-    # ==========================================
-    elif st.session_state.vista_actual == "Event Meter" and not st.session_state.modo_lectura:
-        st.markdown("### ⚡ Estudio de Event Meter (PCBA)")
-        st.info("Mide descargas electrostáticas y transitorios durante la operación normal de la maquinaria/proceso.")
+                st.error(f"❌ No se encontró ningún registro con el ID: {id_limpio_baja}")
+                if st.button("🔄 Volver a intentar", use_container_width=True):
+                    limpiar_url_escaneo()
+                    st.rerun()
+            # --- FIN DE LÓGICA SELECTIVA ---
+# ==========================================
+# VISTA 1: MAPA Y REPORTES ESD
+# ==========================================
+elif st.session_state.vista_actual == "Mapa" and not st.session_state.modo_lectura:
+    st.markdown("### Mapa y Cumplimiento ESD")
+    tab_mapa, tab_overview = st.tabs(["📍 Mapa Físico", "📊 Overview (S20.20)"])
 
-        # --- SECCIÓN: GENERADOR DE REPORTE POR LÍNEA (ESTILO WALKING TEST) ---
-        with st.expander("📄 Generar Reporte Oficial por Línea (Estilo Walking Test)", expanded=False):
-            st.write("Selecciona una línea para consolidar todas sus operaciones guardadas en la base de datos en un único reporte oficial.")
-            
-            lineas_reporte = []
-            if df_em_local is not None and not df_em_local.empty and 'Línea' in df_em_local.columns:
-                lineas_reporte = sorted([str(x).strip() for x in df_em_local['Línea'].dropna().unique() if str(x).strip() != ''])
-            
-            if not lineas_reporte:
-                st.warning("⚠️ No hay registros históricos en 'event_meter' para generar reportes consolidados.")
-            else:
-                linea_rep_sel = st.selectbox("Seleccionar Línea para el Reporte Consolidado:", options=lineas_reporte, key="em_linea_rep_sel")
-                
-                with st.form("form_reporte_em_consolidado"):
-                    st.markdown("#### Datos Generales del Estudio")
-                    col_g1, col_g2 = st.columns(2)
-                    auditor_em = col_g1.text_input("Auditor / Técnico", value=st.session_state.usuario_nombre if st.session_state.usuario_nombre else "")
-                    periodo_em = col_g2.selectbox("Periodo de Evaluación", ["Semestre 1", "Semestre 2", "Evaluación Anual"])
-                    
-                    col_g3, col_g4 = st.columns(2)
-                    equipo_em = col_g3.text_input("Equipo de Medición Utilizado", value="SCS EM EYE")
-                    serial_em = col_g4.text_input("No. de Serie del Equipo", value="2451005")
-                    
-                    submit_reporte_em = st.form_submit_button("Generar Reporte Consolidado por Línea", use_container_width=True)
-                    
-                    if submit_reporte_em:
-                        df_filtrado = df_em_local[df_em_local['Línea'].astype(str).str.strip() == linea_rep_sel].copy()
-                        
-                        if df_filtrado.empty:
-                            st.error("No se encontraron registros en la base de datos para la línea seleccionada.")
-                        else:
-                            html_rows = ""
-                            for i, row in enumerate(df_filtrado.to_dict('records'), 1):
-                                op = str(row.get('Id de Operación', 'N/A'))
-                                tipo_c = str(row.get('Tipo de contacto', 'N/D'))
-                                
-                                # --- EXTRACCIÓN SEGURA DE NÚMEROS ---
-                                raw_eventos = row.get('Detección (Cantidad)', 0)
-                                eventos = int(float(raw_eventos)) if pd.notna(raw_eventos) and str(raw_eventos).strip() != '' else 0
-                                
-                                raw_vmax = row.get('Voltaje máximo', 0.0)
-                                vmax = float(raw_vmax) if pd.notna(raw_vmax) and str(raw_vmax).strip() != '' else 0.0
-                                # ------------------------------------
-                                
-                                estatus = str(row.get('Estatus de verificación', '')).upper()
-                                notas = str(row.get('Notas', ''))
-                                if notas.lower() in ['nan', 'none', 'null']: 
-                                    notas = ""
-                                
-                                color_estatus = "text-green-600" if "APROBADO" in estatus else "text-red-600"
-                                pass_fail = "PASA" if "APROBADO" in estatus else "FALLA"
-                                
-                                html_rows += f"""
-                                <tr class="text-center border-b border-gray-300">
-                                    <td class="border border-gray-800 p-2 font-bold text-gray-600">{i}</td>
-                                    <td class="border border-gray-800 p-2 text-left">{op}</td>
-                                    <td class="border border-gray-800 p-2">{tipo_c}</td>
-                                    <td class="border border-gray-800 p-2 font-mono">{eventos}</td>
-                                    <td class="border border-gray-800 p-2 font-mono font-bold">{vmax}V</td>
-                                    <td class="border border-gray-800 p-2 font-bold {color_estatus}">{pass_fail}</td>
-                                    <td class="border border-gray-800 p-2 text-left text-xs">{notas}</td>
-                                </tr>
-                                """
-                            
-                            fecha_hoy_str = datetime.today().strftime("%Y-%m-%d")
-                            fecha_pie_str = datetime.today().strftime("%Y/%m/%d")
-                            
-                            # --- PLANTILLA HTML OFICIAL SIN OPERADOR DE PRUEBA ---
-                            html_template = f"""<!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Reporte Event Meter - {linea_rep_sel}</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <style>
-        @media print {{
-            body {{ background-color: white; padding: 0; }}
-            .no-print {{ display: none !important; }}
-            .print-border {{ border: 1px solid #000; }}
-            .shadow-lg {{ box-shadow: none; }}
-        }}
-    </style>
-</head>
-<body class="bg-gray-100 p-4 md:p-8 text-gray-800 font-sans">
-    <div class="max-w-5xl mx-auto bg-white p-8 shadow-lg print:shadow-none print:w-full">
-        <div class="flex justify-end space-x-4 mb-6 no-print">
-            <button onclick="window.print()" class="bg-gray-800 text-white px-4 py-2 rounded shadow hover:bg-gray-900 transition flex items-center font-bold">
-                🖨️ Imprimir / Guardar PDF
-            </button>
-        </div>
+    with tab_mapa:
+        tipo_mapa = st.radio("Ver en mapa:", ["Mobiliario", "Ionizadores", "Maquinaria"], horizontal=True)
         
-        <div class="border-2 border-gray-800 mb-6 flex flex-col md:flex-row text-sm print-border">
-            <div class="p-4 border-b-2 md:border-b-0 md:border-r-2 border-gray-800 flex items-center justify-center w-full md:w-1/4">
-                <img src="https://github.com/aldoaoa/Visualizador-BCS-IDS/blob/main/BCS%20LOGO.png?raw=true" alt="Logo BCS" class="max-h-20 object-contain">
-            </div>
-            <div class="p-4 flex-1 border-b-2 md:border-b-0 md:border-r-2 border-gray-800 text-center flex flex-col justify-center">
-                <h1 class="text-lg font-bold uppercase">Registro de Estudio de Eventos ESD (Event Meter)</h1>
-                <p class="text-gray-600 font-semibold">Norma de Referencia: ANSI/ESD S20.20</p>
-            </div>
-            <div class="p-2 w-full md:w-1/4 flex flex-col justify-center text-xs space-y-1">
-                <div class="flex justify-between"><span class="font-bold">Código:</span> <span>F-ESD-001</span></div>
-                <div class="flex justify-between"><span class="font-bold">Límite Permitido:</span> <span class="font-bold text-red-600">&lt; 100V</span></div>
-            </div>
-        </div>
-        
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6 text-sm">
-            <div class="space-y-2">
-                <div class="flex justify-between border-b pb-1"><span class="font-bold">Fecha de Estudio:</span><span>{fecha_hoy_str}</span></div>
-                <div class="flex justify-between border-b pb-1"><span class="font-bold">Línea / Área Evaluada:</span><span>{linea_rep_sel}</span></div>
-                <div class="flex justify-between border-b pb-1"><span class="font-bold">Auditor / Técnico:</span><span>{auditor_em}</span></div>
-            </div>
-            <div class="space-y-2">
-                <div class="flex justify-between border-b pb-1"><span class="font-bold">Periodo de Evaluación:</span><span>{periodo_em}</span></div>
-                <div class="flex justify-between border-b pb-1"><span class="font-bold">Equipo de Medición (SN):</span><span>{equipo_em} ({serial_em})</span></div>
-            </div>
-        </div>
-        
-        <div class="overflow-x-auto mb-8">
-            <table class="w-full text-sm border-collapse border border-gray-800 print-border">
-                <thead>
-                    <tr class="bg-gray-200 text-center">
-                        <th class="border border-gray-800 p-2 w-10">No.</th>
-                        <th class="border border-gray-800 p-2 text-left">Operación / Estación</th>
-                        <th class="border border-gray-800 p-2">Tipo de Contacto</th>
-                        <th class="border border-gray-800 p-2 w-24">Eventos</th>
-                        <th class="border border-gray-800 p-2 w-24">Voltaje Máx.</th>
-                        <th class="border border-gray-800 p-2 w-24">Resultado</th>
-                        <th class="border border-gray-800 p-2 text-left">Observaciones</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {html_rows}
-                </tbody>
-            </table>
-        </div>
-        
-        <div class="grid grid-cols-2 gap-8 mt-12 text-sm text-center">
-            <div><div class="border-b border-gray-800 w-3/4 mx-auto mb-2 h-8"></div><p class="font-bold">Realizado por: {auditor_em}</p></div>
-            <div><div class="border-b border-gray-800 w-3/4 mx-auto mb-2 h-8"></div><p class="font-bold">Revisado / Aprobado por: Coordinador ESD</p></div>
-        </div>
-
-        <div class="border-t-[3px] border-b-[3px] border-black mt-16 py-1 text-[11px] font-sans">
-            <div class="flex justify-between items-end">
-                <div class="text-left leading-tight">
-                    <div>E_310_4_111_QRO_SP_Rev.A</div>
-                    <div>Registro de estudio de eventos ESD.</div>
-                </div>
-                <div class="text-center leading-tight">
-                    <div>Fecha:{fecha_pie_str}</div>
-                </div>
-                <div class="text-right leading-tight">
-                    <div>Ref.E_310_3_001_QRO_SP</div>
-                </div>
-            </div>
-        </div>
-    </div>
-</body>
-</html>"""
-                            b64_html = base64.b64encode(html_template.encode('utf-8')).decode('utf-8')
-                            nombre_archivo = f"Reporte_Consolidado_EventMeter_{linea_rep_sel.replace(' ', '_')}.html"
-                            
-                            st.success(f"✅ ¡Reporte consolidado para la línea {linea_rep_sel} generado con éxito!")
-                            href = f'<a href="data:text/html;base64,{b64_html}" download="{nombre_archivo}" target="_blank" style="display: block; text-align: center; padding: 15px; background-color: #003366; color: white; text-decoration: none; border-radius: 8px; font-weight: bold; margin-top: 10px; font-size: 16px;">📥 Descargar Reporte Completo de la Línea (Abrir para imprimir PDF)</a>'
-                            st.markdown(href, unsafe_allow_html=True)
-
-        # --- SECCIÓN DEL TEMPORIZADOR (5 MINUTOS) ---
-        st.divider()
-        st.markdown("#### ⏱️ Temporizador de Medición")
-        st.info("Utiliza este temporizador para asegurar la medición estándar de 5 minutos por estación antes de guardar el registro.")
-        
-        col_t1, col_t2 = st.columns([1, 2])
-        with col_t1:
-            iniciar_timer = st.button("▶️ Iniciar 5 Minutos", use_container_width=True)
-        with col_t2:
-            timer_placeholder = st.empty()
-            if iniciar_timer:
-                for t in range(300, -1, -1):
-                    mins, secs = divmod(t, 60)
-                    timer_placeholder.markdown(f"### ⏳ Tiempo restante: {mins:02d}:{secs:02d}")
-                    time.sleep(1)
-                
-                timer_placeholder.success("✅ ¡Tiempo de medición completado! Procede a registrar los datos.")
-                st.balloons()
-
-        # --- FORMULARIO DE CAPTURA DE NUEVOS REGISTROS ---
-        st.divider()
-        st.markdown("#### 📍 Ubicación y Operación")
-        c_loc1, c_loc2 = st.columns(2)
-
-        lineas_existentes = sorted([str(x).strip() for x in df_em_local['Línea'].dropna().unique() if str(x).strip() != '']) if not df_em_local.empty else []
-        if not lineas_existentes:
-            lineas_existentes = ["Sin registros"]
-
-        linea_seleccionada = c_loc1.selectbox("Línea", options=lineas_existentes, key="em_linea_seleccionada_captura")
-        nueva_op_check = c_loc2.checkbox("➕ Registrar nueva Operación o Línea")
-
-        if nueva_op_check:
-            linea_final = c_loc1.text_input("Ingresa Nueva Línea", value=linea_seleccionada if linea_seleccionada != "Sin registros" else "")
-            id_operacion_final = c_loc2.text_input("Ingresa Nuevo ID de Operación (Ej: OP50-AUDIO)")
+        if tipo_mapa == "Mobiliario":
+            df_total = df_mob_local.copy()
+        elif tipo_mapa == "Ionizadores":
+            df_total = df_ion_local.copy()
         else:
-            linea_final = linea_seleccionada
-            ops_existentes = []
-            if not df_em_local.empty and 'Id de Operación' in df_em_local.columns:
-                ops_filtradas = df_em_local[df_em_local['Línea'].astype(str).str.strip() == linea_seleccionada]
-                ops_existentes = sorted([str(x).strip() for x in ops_filtradas['Id de Operación'].dropna().unique() if str(x).strip() != ''])
-            
-            if not ops_existentes:
-                id_operacion_final = c_loc2.selectbox("ID de Operación", options=["(Sin operaciones previas)"])
-            else:
-                id_operacion_final = c_loc2.selectbox("Selecciona ID de Operación", options=ops_existentes)
-
-        with st.form("form_event_meter_captura"):
-            col1, col2 = st.columns(2)
-            tipo_contacto = col1.selectbox("Tipo de contacto", options=["Maquinaria", "EOLT", "AOI", "Herramienta Manual", "Humano", "Otro"])
-            if tipo_contacto == "Otro":
-                tipo_contacto = col1.text_input("Especifique Tipo de Contacto")
-
-            st.markdown("#### ⚡ Resultados de Detección")
-            col_d1, col_d2 = st.columns(2)
-            deteccion_eventos = col_d1.number_input("Cantidad de Eventos Detectados", min_value=0, step=1, value=0)
-            voltaje_max = col_d2.number_input("Voltaje máximo de descarga (V)", min_value=0.0, max_value=999.0, step=0.1, value=0.0)
-
-            notas_em = st.text_area("Notas / Observaciones")
-
-            limite_maximo_v = 100.0  
-            estatus_verificacion = "APROBADO" if voltaje_max <= limite_maximo_v else "RECHAZADO"
-            fecha_hoy = datetime.today().date()
-            frecuencia_em = "Semestral" 
-            proxima_fecha = calcular_proxima_fecha(fecha_hoy, frecuencia_em)
-
-            submit_em = st.form_submit_button("💾 Guardar Registro de Event Meter", use_container_width=True)
-
-            if submit_em:
-                if not id_operacion_final or id_operacion_final == "(Sin operaciones previas)":
-                    st.error("⚠️ Debes proporcionar un ID de Operación válido.")
+            # --- NUEVA LÓGICA: EXTRAER MAQUINARIA ---
+            try:
+                # Traemos datos ordenados por fecha para que el más reciente quede arriba
+                resp_maq_mapa = supabase.table("mediciones_maquinaria").select("*").order("fecha_medicion", desc=True).execute()
+                df_maq_mapa = pd.DataFrame(resp_maq_mapa.data)
+                if not df_maq_mapa.empty:
+                    # Eliminamos duplicados históricos conservando solo el último registro
+                    df_maq_mapa = df_maq_mapa.drop_duplicates(subset=['id_maquinaria'], keep='first')
+                    
+                    # Homologamos las columnas para que el código del mapa las entienda
+                    df_total = df_maq_mapa.rename(columns={
+                        'status_operativo': 'Estatus operativo',
+                        'resultado_estatus': 'Estatus de verificación',
+                        'linea_ubicacion': 'Línea',
+                        'id_maquinaria': 'Id de producto',
+                        'clasificacion': 'Clasificación'
+                    })
                 else:
-                    with st.spinner("Guardando en la tabla EVENT_METER de SQL..."):
-                        try:
-                            supabase.table("event_meter").insert({
-                                "linea_ubicacion": linea_final,
-                                "id_operacion": id_operacion_final.upper(),
-                                "tipo_contacto": tipo_contacto,
-                                "cantidad_eventos": int(deteccion_eventos),
-                                "voltaje_maximo": float(voltaje_max),
-                                "estatus_verificacion": estatus_verificacion,
-                                "notas": notas_em,
-                                "auditor": st.session_state.usuario_nombre,
-                                "fecha": datetime.now().isoformat()
-                            }).execute()
-                            
-                            st.success(f"✅ ¡Estudio de {id_operacion_final} registrado exitosamente! Estatus: {estatus_verificacion}")
-                            st.cache_data.clear()
-                            st.balloons()
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Error SQL al guardar en Event Meter: {e}")
-    
-    # ==========================================
-    # VISTA 4: WALKING TEST
-    # ==========================================
-    elif st.session_state.vista_actual == "Walking Test" and not st.session_state.modo_lectura:
-        st.markdown("### 🚶‍♂️ Análisis de Walking Test")
-        st.info("Sube uno o varios archivos PDF generados por el equipo de medición para extraer los datos automáticamente vía OCR y generar un reporte consolidado.")
+                    df_total = pd.DataFrame()
+            except:
+                df_total = pd.DataFrame()
+        
+        if df_total.empty:
+            st.warning(f"No hay datos registrados en {tipo_mapa}.")
+        else:
+            equipos_activos = df_total[df_total['Estatus operativo'].astype(str).str.upper() != 'NO OPERATIVO']
+            total_equipos = len(equipos_activos)
+            vencidos = equipos_activos[equipos_activos['Estatus de verificación'].astype(str).str.upper() == 'VENCIDO']
+            total_vencidos = len(vencidos)
+        
+            if total_equipos > 0:
+                porcentaje = ((total_equipos - total_vencidos) / total_equipos) * 100
+            else:
+                porcentaje = 100.0
 
-        archivos_pdf = st.file_uploader("Selecciona los archivos PDF", type=["pdf"], accept_multiple_files=True)
-
-        if archivos_pdf:
-            st.markdown("#### Resultados Extraídos")
-            datos_extraidos_wt = [] 
+            if not vencidos.empty:
+                st.error(f"🚨 **Cumplimiento:** {porcentaje:.1f}% | **Vencidos:** {total_vencidos} de {total_equipos} activos.")
+                conteo_tipos = vencidos.groupby(['Línea']).size().reset_index(name='Total Vencidos')
+                
+                # Determinamos el prefijo para la etiqueta (M = Mobiliario, I = Ionizador, MQ = Maquinaria)
+                if tipo_mapa == "Mobiliario":
+                    prefijo = "M: "
+                elif tipo_mapa == "Ionizadores":
+                    prefijo = "I: "
+                else:
+                    prefijo = "MQ: "
+                    
+                conteo_tipos['Etiqueta'] = prefijo + conteo_tipos['Total Vencidos'].astype(str)
             
-            for archivo in archivos_pdf:
-                with st.expander(f"📄 Reporte: {archivo.name}", expanded=True):
-                    try:
-                        doc = fitz.open(stream=archivo.read(), filetype="pdf")
-                        pagina = doc[0] 
-                        imagen_grafica = None
-                        texto_ocr = ""
-                        img_b64 = "" 
-
-                        imagenes_pdf = pagina.get_images(full=True)
-                        if imagenes_pdf:
-                            xref = imagenes_pdf[0][0]
-                            base_image = doc.extract_image(xref)
-                            image_bytes = base_image["image"]
-                            imagen_grafica = Image.open(io.BytesIO(image_bytes))
-
-                            with st.spinner("Analizando imagen con OCR..."):
-                                texto_ocr = pytesseract.image_to_string(imagen_grafica)
-                            
-                            buffered = io.BytesIO()
-                            imagen_grafica.save(buffered, format="PNG")
-                            img_b64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
-                        else:
-                            st.warning("No se detectó ninguna imagen/gráfica en este PDF para analizar.")
-                            continue
-
-                        fecha_hora_match = re.search(r"(\d{2}/\d{2}/\d{2})\s+(\d{2}:\d{2})", texto_ocr)
-                        fecha = fecha_hora_match.group(1) if fecha_hora_match else "N/D"
-                        hora = fecha_hora_match.group(2) if fecha_hora_match else "N/D"
-
-                        hum_match = re.search(r"(\d{1,3}(?:\.\d+)?)\s*%?\s*RH", texto_ocr, re.IGNORECASE)
-                        humedad = f"{hum_match.group(1)} %" if hum_match else "N/D"
-
-                        temp_match = re.search(r"(\d{1,3}(?:\.\d+)?)\s*[^C]*C", texto_ocr, re.IGNORECASE)
-                        temperatura = f"{temp_match.group(1)} °C" if temp_match else "N/D"
-
-                        peaks_match = re.search(r"highest peaks:\s*(.*?)(?:\(|Arithmetic|\n|$)", texto_ocr, re.IGNORECASE)
-                        picos = peaks_match.group(1).strip() if peaks_match else "N/D"
-
-                        valleys_match = re.search(r"highest valleys:\s*(.*?)(?:\(|Arithmetic|\n|$)", texto_ocr, re.IGNORECASE)
-                        valles = valleys_match.group(1).strip() if valleys_match else "N/D"
-
-                        max_abs = 0.0
-                        promedio_picos = 0.0
-                        try:
-                            p_vals = [float(x) for x in re.findall(r"[-+]?\d*\.\d+|\d+", picos)]
-                            v_vals = [float(x) for x in re.findall(r"[-+]?\d*\.\d+|\d+", valles)]
-                            todos_los_valores = p_vals + v_vals
-                            if todos_los_valores:
-                                max_abs = max(abs(x) for x in todos_los_valores)
-                            if p_vals:
-                                promedio_picos = sum(p_vals) / len(p_vals)
-                        except:
-                            pass
-
-                        col_datos1, col_datos2 = st.columns(2)
-                        with col_datos1:
-                            st.metric("📅 Fecha", fecha)
-                            st.metric("🌡️ Temperatura", temperatura)
-                            st.metric("⚡ Voltaje Máx (Absoluto)", f"{max_abs:.2f} V")
-                        with col_datos2:
-                            st.metric("🕒 Hora", hora)
-                            st.metric("💧 Humedad", humedad)
-                            st.metric("📊 Promedio Picos", f"{promedio_picos:.2f} V")
-
-                        st.divider()
-                        st.markdown("**Gráfica Extraída:**")
-                        st.image(imagen_grafica, use_container_width=True)
-
-                        datos_extraidos_wt.append({
-                            "archivo": archivo.name, "fecha": fecha, "temp": temperatura,
-                            "hum": humedad, "max_abs": max_abs, "promedio_picos": promedio_picos,
-                            "img_b64": img_b64
-                        })
-
-                    except Exception as e:
-                        st.error(f"Ocurrió un error al procesar el archivo {archivo.name}: {e}")
-
-            if datos_extraidos_wt:
-                st.divider()
-                st.markdown("### 📄 Generar Reporte Oficial Consolidado")
-                st.write("Completa la información general para generar un solo reporte con todas las ubicaciones procesadas.")
-                
-                fecha_defecto = datos_extraidos_wt[0]['fecha'] if datos_extraidos_wt[0]['fecha'] != "N/D" else datetime.today().strftime("%d/%m/%Y")
-                temp_defecto = datos_extraidos_wt[0]['temp']
-                hum_defecto = datos_extraidos_wt[0]['hum']
-                
-                with st.form("form_reporte_wt"):
-                    st.markdown("#### Datos Generales")
-                    col_g1, col_g2, col_g3 = st.columns(3)
-                    auditor_wt = col_g1.text_input("Auditor / Técnico", value=st.session_state.usuario_nombre if st.session_state.usuario_nombre else "")
-                    operador_wt = col_g2.text_input("Operador de Prueba")
-                    periodo_wt = col_g3.selectbox("Periodo de Evaluación", ["Semestre 1", "Semestre 2"])
+                if os.path.exists(RUTA_MAPA) and os.path.exists(RUTA_COORDENADAS):
+                    img = Image.open(RUTA_MAPA)
+                    width, height = img.size # Obtenemos el tamaño real de la imagen
+                    df_coords = pd.read_csv(RUTA_COORDENADAS)
+                    mapa_data = pd.merge(conteo_tipos, df_coords, on='Línea', how='inner')
                     
-                    col_g4, col_g5 = st.columns(2)
-                    equipo_wt = col_g4.text_input("Equipo de Medición Utilizado", value="DESCO 46006")
-                    calzado_wt = col_g5.text_input("Calzado ESD Utilizado", value="Zapato antiestático Workman")
-                    
-                    st.markdown("#### 🌡️ Condiciones Ambientales (Edítalas si es necesario)")
-                    col_amb1, col_amb2, col_amb3 = st.columns(3)
-                    fecha_gen = col_amb1.text_input("Fecha de Prueba", value=fecha_defecto)
-                    temp_gen = col_amb2.text_input("Temperatura", value=temp_defecto)
-                    hum_gen = col_amb3.text_input("Humedad", value=hum_defecto)
-                    
-                    st.markdown("#### Configuración de Ubicaciones")
-                    bloques_ubicaciones = []
-                    
-                    for i, dato in enumerate(datos_extraidos_wt):
-                        st.markdown(f"**Ubicación {i+1} (Archivo: {dato['archivo']})**")
-                        c_ub1, c_ub2, c_ub3 = st.columns([1.5, 1.5, 1])
-                        nombre_ub = c_ub1.text_input(f"Nombre de Línea/Área", value=dato['archivo'].replace(".pdf", ""), key=f"nombre_{i}")
-                        tipo_piso = c_ub2.selectbox(f"Tipo de Piso", ["Piso Epóxico ESD", "Loseta Vinílica Conductiva", "Tapete Antifatiga ESD", "Otro"], key=f"piso_{i}")
+                    if not mapa_data.empty:
+                        fig = px.scatter(
+                            mapa_data, x="X", y="Y", color="Total Vencidos", text="Etiqueta",
+                            hover_data={"X": False, "Y": False, "Etiqueta": False, "Total Vencidos": True},
+                            color_continuous_scale="Reds"
+                        )
                         
-                        # Control interactivo que no se activa por defecto (asigna 'No')
-                        limpieza_chk = c_ub3.checkbox("Limpieza previa", value=False, key=f"limpieza_{i}")
+                        # --- DISEÑO DE LOS PUNTOS ---
+                        fig.update_traces(
+                            textposition='middle center', 
+                            textfont=dict(color='white', size=14, weight='bold'), 
+                            marker=dict(symbol='circle', size=45, opacity=0.9, line=dict(width=2, color='black'))
+                        )
                         
-                        bloques_ubicaciones.append({
-                            "nombre": nombre_ub, 
-                            "piso": tipo_piso, 
-                            "limpieza": "Sí" if limpieza_chk else "No",
-                            "datos": dato
-                        })
-                        st.write("") 
+                        # --- CÁLCULO DE PROPORCIÓN PARA EVITAR ESTIRAMIENTO ---
+                        aspect_ratio = height / width
+                        plot_height = int(1000 * aspect_ratio) # 1000px es el ancho base de uso de Streamlit
 
-                    # AHORA ESTÁ DENTRO DEL FORMULARIO Y SE ELIMINÓ EL WARNING USANDO width="stretch"
-                    submit_reporte = st.form_submit_button("Generar Reporte Consolidado en PDF/HTML", width="stretch")
-                    
-                    if submit_reporte:
-                        html_ubicaciones = ""
-                        for idx, block in enumerate(bloques_ubicaciones, 1):
-                            data = block['datos']
-                            if data['max_abs'] < 100:
-                                res_text, res_color = "CUMPLE (PASS)", "text-green-600"
-                                obs = "Ninguna anomalía. Los picos se mantuvieron por debajo del límite normativo de 100V."
-                            else:
-                                res_text, res_color = "NO CUMPLE (FAIL)", "text-red-600"
-                                obs = f"ATENCIÓN: Se registró un pico absoluto de {data['max_abs']:.2f}V, superando el límite permitido de 100V. Se requiere limpieza o revisión."
+                        fig.update_layout(
+                            height=plot_height,
+                            images=[dict(
+                                source=img, xref="x", yref="y", 
+                                x=0, y=0, sizex=width, sizey=height, 
+                                sizing="stretch", opacity=1, layer="below"
+                            )], 
+                            xaxis=dict(visible=False, range=[0, width]), 
+                            # scaleanchor="x" y scaleratio=1 son la magia que bloquea la proporción
+                            yaxis=dict(visible=False, range=[height, 0], scaleanchor="x", scaleratio=1), 
+                            margin=dict(l=0, r=0, t=0, b=0),
+                            coloraxis_showscale=False
+                        )
+                        st.plotly_chart(fig, use_container_width=True)
+                st.dataframe(vencidos[['Línea', 'Id de producto', 'Clasificación', 'Estatus de verificación']], use_container_width=True, hide_index=True)
+            else:
+                st.success(f"✅ **100% Cumplimiento en {tipo_mapa}.**")
 
-                            img_tag = f'<img src="data:image/png;base64,{data["img_b64"]}" class="max-w-full max-h-full object-contain" alt="Gráfica">' if data['img_b64'] else '<i class="text-gray-400">Sin gráfica disponible</i>'
-
-                            # --- BLOQUES DINÁMICOS DE UBICACIÓN EN TAILWIND ---
-                            html_ubicaciones += f"""
-                            <div class="border-2 border-[#003366] rounded-md p-5 mb-8 [page-break-inside:avoid] print:border-black">
-                                <div class="text-[18px] font-bold text-white bg-[#003366] p-2.5 -mx-5 -mt-5 mb-5 rounded-t-sm print:bg-black">Ubicación {idx}: {block['nombre']}</div>
-                                <table class="w-full text-sm border-collapse mb-5 text-center">
-                                    <tr>
-                                        <th class="border border-gray-300 p-2 text-left bg-gray-50 font-bold w-1/4 print:border-black">Tipo de Piso:</th>
-                                        <td class="border border-gray-300 p-2 text-left w-1/4 print:border-black">{block['piso']}</td>
-                                        <th class="border border-gray-300 p-2 text-left bg-gray-50 font-bold w-1/4 print:border-black">Limpieza previa:</th>
-                                        <td class="border border-gray-300 p-2 text-left w-1/4 print:border-black">{block['limpieza']}</td>
-                                    </tr>
-                                    <tr>
-                                        <th class="border border-gray-300 p-2 text-left bg-gray-50 font-bold print:border-black">Voltaje Máx (Abs):</th>
-                                        <td class="border border-gray-300 p-2 text-left font-mono font-bold print:border-black">{data['max_abs']:.2f} V</td>
-                                        <th class="border border-gray-300 p-2 text-left bg-gray-50 font-bold print:border-black">Promedio de Picos:</th>
-                                        <td class="border border-gray-300 p-2 text-left font-mono print:border-black">{data['promedio_picos']:.2f} V</td>
-                                    </tr>
-                                </table>
-                                <div class="w-full h-64 bg-gray-50 border-2 border-dashed border-gray-300 flex items-center justify-center my-5 overflow-hidden print:border-black">
-                                    {img_tag}
-                                </div>
-                                <table class="w-full text-sm border-collapse">
-                                    <tr>
-                                        <th class="border border-gray-300 p-2 text-left bg-gray-50 font-bold w-1/5 print:border-black">Observaciones:</th>
-                                        <td class="border border-gray-300 p-2 text-left print:border-black">{obs}</td>
-                                        <th class="border border-gray-300 p-2 text-left bg-gray-50 font-bold w-1/5 print:border-black">Resultado Final:</th>
-                                        <td class="border border-gray-300 p-2 text-center font-bold text-base print:border-black {res_color}">{res_text}</td>
-                                    </tr>
-                                </table>
-                            </div>
-                            """
-                            
-                        fecha_pie_str = datetime.today().strftime("%Y/%m/%d")
-
-                        # --- PLANTILLA MAESTRA CON TAILWIND CSS ---
-                        html_completo = f"""<!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <title>Reporte de Walking Test</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <style>
-        @media print {{ body {{ -webkit-print-color-adjust: exact; }} }}
-    </style>
-</head>
-<body class="bg-gray-100 p-4 md:p-8 font-sans text-sm print:bg-white print:p-0">
-    <div class="max-w-5xl mx-auto mb-6 bg-white p-4 rounded-lg shadow flex justify-end print:hidden">
-        <button onclick="window.print()" class="bg-blue-600 text-white px-6 py-2 rounded font-bold shadow-sm hover:bg-blue-700 transition">🖨️ Imprimir / Guardar PDF</button>
-    </div>
-    
-    <div class="max-w-5xl mx-auto bg-white p-8 shadow-lg print:shadow-none print:p-0">
-        <div class="border-b-4 border-[#003366] pb-4 mb-6 text-center print:border-black">
-            <h1 class="text-2xl font-bold text-[#003366] mb-1 print:text-black">Reporte de Walking Test (Prueba de Caminado)</h1>
-            <p class="text-gray-600 text-sm font-medium">Evaluación de Sistema de Piso y Calzado ESD</p>
-            <p class="text-gray-500 text-xs mt-1"><strong>Estándares aplicables:</strong> ANSI/ESD S20.20 y ANSI/ESD STM97.2</p>
-        </div>
-
-        <h2 class="text-base font-bold text-[#003366] border-b border-gray-300 pb-1 mt-6 mb-3 uppercase tracking-wide print:text-black print:border-black">1. Información General y Condiciones Ambientales</h2>
-        <table class="w-full text-sm border-collapse mb-6">
-            <tr>
-                <th class="border border-gray-300 p-2 bg-gray-50 font-bold w-1/4 print:border-black">Fecha de Prueba:</th>
-                <td class="border border-gray-300 p-2 w-1/4 print:border-black">{fecha_gen}</td>
-                <th class="border border-gray-300 p-2 bg-gray-50 font-bold w-1/4 print:border-black">Periodo:</th>
-                <td class="border border-gray-300 p-2 w-1/4 print:border-black">{periodo_wt}</td>
-            </tr>
-            <tr>
-                <th class="border border-gray-300 p-2 bg-gray-50 font-bold print:border-black">Auditor / Técnico:</th>
-                <td class="border border-gray-300 p-2 print:border-black">{auditor_wt}</td>
-                <th class="border border-gray-300 p-2 bg-gray-50 font-bold print:border-black">Operador de Prueba:</th>
-                <td class="border border-gray-300 p-2 print:border-black">{operador_wt}</td>
-            </tr>
-            <tr>
-                <th class="border border-gray-300 p-2 bg-gray-50 font-bold print:border-black">Temperatura:</th>
-                <td class="border border-gray-300 p-2 print:border-black">{temp_gen}</td>
-                <th class="border border-gray-300 p-2 bg-gray-50 font-bold print:border-black">Humedad:</th>
-                <td class="border border-gray-300 p-2 print:border-black">{hum_gen}</td>
-            </tr>
-        </table>
-
-        <h2 class="text-base font-bold text-[#003366] border-b border-gray-300 pb-1 mt-6 mb-3 uppercase tracking-wide print:text-black print:border-black">2. Equipo de Medición y Sistema Evaluado</h2>
-        <table class="w-full text-sm border-collapse mb-6">
-            <tr>
-                <th class="border border-gray-300 p-2 bg-gray-50 font-bold w-1/4 print:border-black">Equipo Utilizado:</th>
-                <td class="border border-gray-300 p-2 w-1/4 print:border-black">{equipo_wt}</td>
-                <th class="border border-gray-300 p-2 bg-gray-50 font-bold w-1/4 print:border-black">Criterio Aceptación:</th>
-                <td class="border border-gray-300 p-2 w-1/4 font-bold text-[#003366] print:border-black print:text-black">&lt; 100 Voltios (Absoluto)</td>
-            </tr>
-            <tr>
-                <th class="border border-gray-300 p-2 bg-gray-50 font-bold print:border-black">Calzado ESD Evaluado:</th>
-                <td colspan="3" class="border border-gray-300 p-2 print:border-black">{calzado_wt}</td>
-            </tr>
-        </table>
-
-        <h2 class="text-base font-bold text-[#003366] border-b border-gray-300 pb-1 mt-6 mb-4 uppercase tracking-wide print:text-black print:border-black">3. Resultados Consolidados por Ubicación</h2>
-        {html_ubicaciones}
-
-        <div class="flex justify-between mt-12 [page-break-inside:avoid]">
-            <div class="w-[45%] text-center">
-                <div class="border-t border-black mt-10 pt-1.5 text-sm"><strong>Realizado por:</strong><br>{auditor_wt}</div>
-            </div>
-            <div class="w-[45%] text-center">
-                <div class="border-t border-black mt-10 pt-1.5 text-sm"><strong>Revisado / Aprobado por:</strong><br>Coordinador ESD</div>
-            </div>
-        </div>
-
-        <div class="border-t-[3px] border-b-[3px] border-black mt-16 py-1 text-[11px] font-sans [page-break-inside:avoid]">
-            <div class="flex justify-between items-end">
-                <div class="text-left leading-tight">
-                    <div>E_310_4_116_QRO_EN_Rev. A</div>
-                    <div>Formato de Walking Test.</div>
-                </div>
-                <div class="text-center leading-tight">
-                    <div>Fecha: {fecha_pie_str}</div>
-                </div>
-                <div class="text-right leading-tight">
-                    <div>Ref.E_310_3_001_QRO_SP</div>
-                </div>
-            </div>
-        </div>
-
-    </div>
-</body>
-</html>"""
-                        
-                        b64_html = base64.b64encode(html_completo.encode('utf-8')).decode('utf-8')
-                        nombre_archivo = f"Walking_Test_{fecha_gen.replace('/', '-')}_{periodo_wt.replace(' ', '')}.html"
-                        
-                        st.success("✅ ¡Reporte de Walking Test estandarizado y migrado a Tailwind con éxito!")
-                        href = f'<a href="data:text/html;base64,{b64_html}" download="{nombre_archivo}" target="_blank" style="display: block; text-align: center; padding: 15px; background-color: #003366; color: white; text-decoration: none; border-radius: 8px; font-weight: bold; margin-top: 10px; font-size: 16px;">📥 Descargar Reporte Estandarizado (Tailwind)</a>'
-                        st.markdown(href, unsafe_allow_html=True)
-
-    # ==========================================
-    # VISTA 5: VALIDACIÓN ESD (SISTEMA INTEGRAL)
-    # ==========================================
-    elif st.session_state.vista_actual == "Validación" and not st.session_state.modo_lectura:
-        st.markdown("### ✅ Validación Integral de Elementos de Control ESD")
-        st.info("Registro de trazabilidad completa. Selecciona el equipo de medición y el elemento para autocompletar la información.")
-
-        if "val_form_key" not in st.session_state:
-            st.session_state.val_form_key = 0
-
-        # --- CARGAR EQUIPOS DESDE SQL ---
+    with tab_overview:
+        st.markdown("#### Estado Global de Elementos ESD")
         try:
-            resp_eq = supabase.table("equipos_medicion").select("*").execute()
-            df_equipos = pd.DataFrame(resp_eq.data)
-            lista_equipos = df_equipos["id_equipo"].dropna().unique().tolist() if not df_equipos.empty else []
-        except:
-            df_equipos = pd.DataFrame()
-            lista_equipos = ["Error de conexión"]
-
-        tab_registro, tab_historial = st.tabs(["📝 Registrar Validación", "🖼️ Visor de Registros"])
-
-        with tab_registro:
-            if "val_success_msg" in st.session_state and st.session_state.val_success_msg:
-                st.success(st.session_state.val_success_msg)
-                st.session_state.val_success_msg = ""
-
-            st.markdown("#### 1. Selección de Parámetros Globales")
-            c_dyn1, c_dyn2, c_dyn3 = st.columns(3)
-            elemento_sel = c_dyn1.selectbox("Elemento S20.20 a validar:", options=list(INFO_ELEMENTOS_ESD.keys()))
-            info = INFO_ELEMENTOS_ESD[elemento_sel]
+            resp_inv2 = supabase.table("inventario_esd").select("id_producto, clasificacion, linea_ubicacion, estatus_verificacion, fecha_proxima_verif").limit(3000).execute()
+            df_ov = pd.DataFrame(resp_inv2.data)
             
-            id_equipo_sel = c_dyn2.selectbox("ID del Equipo de Medición:", options=lista_equipos)
-            
-            opciones_magnitud = list(MAPA_UNIDADES.keys())
-            idx_mag = opciones_magnitud.index(info["magnitud"]) if info["magnitud"] in opciones_magnitud else 0
-            magnitud_med = c_dyn3.selectbox("Magnitud Medida:", options=opciones_magnitud, index=idx_mag)
-            unidad_auto = MAPA_UNIDADES.get(magnitud_med, "")
-
-            # Obtener metadata del equipo seleccionado
-            eq_data = {k: "N/D" for k in ["tipo_equipo", "reporte_calibracion", "resolucion", "fabricante", "modelo", "numero_serie", "fecha_proxima_calibracion"]}
-            if not df_equipos.empty and id_equipo_sel in lista_equipos:
-                fila_eq = df_equipos[df_equipos["id_equipo"] == id_equipo_sel]
-                if not fila_eq.empty:
-                    eq_data = fila_eq.iloc[0].to_dict()
-
-            with st.form(f"form_validacion_esd_{st.session_state.val_form_key}"):
-                st.markdown("#### 2. Datos del Elemento a Validar")
-                c1, c2 = st.columns([1, 2])
-                id_elemento = c1.text_input("ID del Elemento", placeholder="Ej: SILLA-05")
-                tipo_material = c2.text_input("Tipo de Material", value=info["tipo_material"])
+            if not df_ov.empty:
+                df_ov['Fecha Prox Validación'] = pd.to_datetime(df_ov['fecha_proxima_verif'], errors='coerce')
+                hoy = pd.Timestamp(datetime.today().date())
                 
-                c4, c5, c6 = st.columns(3)
-                fab_elem = c4.text_input("Fabricante del Elemento")
-                mod_elem = c5.text_input("Modelo del Elemento")
-                sn_elem = c6.text_input("Número de Serie")
-
-                st.markdown("#### 3. Condiciones Ambientales y Ubicación")
-                c7, c8, c9 = st.columns(3)
-                ubicacion = st.selectbox("Ubicación de Medición (Línea / Área)", options=obtener_catalogo_lineas())
-                temp = c8.text_input("Temperatura", value="23.5 °C")
-                humedad = c9.text_input("Humedad Relativa", value="45 %")
-
-                st.markdown("#### 4. Parámetros y Medición")
-                cm1, cm2, cm3 = st.columns(3)
-                metodo_med = cm1.text_input("Método", value=info["metodo"])
-                modo_med = cm2.text_input("Modo de Medición", placeholder="Ej: RTG")
-                unidad_med = cm3.text_input("Unidad", value=unidad_auto)
-
-                referencia = st.number_input("Límite Permitido (Referencia)", value=float(info["ref_num"]), format="%g")
-
-                # RE-INCORPORAMOS LAS 5 MEDICIONES ORIGINALES
-                st.markdown("##### Resultados")
-                cv1, cv2, cv3, cv4, cv5 = st.columns(5)
-                medicion_1 = cv1.number_input("Medición 1 (Oblig.)", value=0.0, format="%g")
-                med_2 = cv2.number_input("Medición 2 (Opc.)", value=None, format="%g", placeholder="0.0")
-                med_3 = cv3.number_input("Medición 3 (Opc.)", value=None, format="%g", placeholder="0.0")
-                med_4 = cv4.number_input("Medición 4 (Opc.)", value=None, format="%g", placeholder="0.0")
-                med_5 = cv5.number_input("Medición 5 (Opc.)", value=None, format="%g", placeholder="0.0")
+                def estado_validacion(fecha_prox):
+                    if pd.isna(fecha_prox): return "Sin Validación"
+                    dias = (fecha_prox - hoy).days
+                    if dias < 0: return "Vencido"
+                    elif dias <= 30: return "Por Vencer"
+                    else: return "Vigente"
+                        
+                df_ov['Estatus'] = df_ov['Fecha Prox Validación'].apply(estado_validacion)
+                total_vig = len(df_ov[df_ov['Estatus'] == 'Vigente'])
+                total_prx = len(df_ov[df_ov['Estatus'] == 'Por Vencer'])
+                total_ven = len(df_ov[df_ov['Estatus'] == 'Vencido'])
                 
-                notas_val = st.text_area("Notas / Observaciones")
+                col_m1, col_m2, col_m3 = st.columns(3)
+                col_m1.metric("🟢 Vigentes", total_vig)
+                col_m2.metric("🟡 Por Vencer (30 días)", total_prx)
+                col_m3.metric("🔴 Vencidos", total_ven)
+                
+                df_ov['Fecha Prox Validación'] = df_ov['Fecha Prox Validación'].dt.strftime('%d-%b-%Y').fillna("N/D")
+                df_ov = df_ov.rename(columns={'id_producto': 'ID Elemento', 'clasificacion': 'Elemento S20.20', 'linea_ubicacion': 'Ubicación'})
+                st.dataframe(df_ov[['Elemento S20.20', 'ID Elemento', 'Ubicación', 'Estatus', 'Fecha Prox Validación']], use_container_width=True, hide_index=True)
+            else:
+                st.warning("Inventario vacío.")
+        except Exception as e:
+            st.error(f"Error al cargar overview: {e}")
 
-                st.markdown("#### 5. Evidencia")
-                col_img1, col_img2 = st.columns(2)
-                imagen_camara = col_img1.camera_input("Foto")
-                imagen_subida = col_img2.file_uploader("Subir imagen", type=["jpg", "png"])
-                imagen_final = imagen_camara if imagen_camara else imagen_subida
+# ==========================================
+# VISTA 2: ESCÁNER Y DETALLES
+# ==========================================
+elif st.session_state.vista_actual == "Escáner":
+    if not id_escaneado_url:
+        st.markdown("### 📷 Apunta al Código QR")
+        html_code_qr = """
+        <script src="https://unpkg.com/html5-qrcode"></script>
+        <div id="reader_main" style="width:100%; max-width:500px; margin:auto; border-radius:10px; overflow:hidden; border: 2px solid #0052cc; background-color: #f9f9f9;"></div>
+        
+        <div style="text-align:center; margin-top:10px; display:flex; justify-content:center; gap:5px; flex-wrap:wrap;">
+            <button type="button" id="cam_wide_main" style="padding:10px; background:#28a745; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">📸 LENTE ESTÁNDAR</button>
+            <button type="button" id="cam_cycle_main" style="padding:10px; background:#555; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">🔄 OTRA CÁMARA</button>
+        </div>
+        <div style="text-align:center; margin-top:10px; display:flex; justify-content:center; gap:5px;">
+            <button type="button" id="zoom_1x_main" style="padding:10px 20px; background:#0052cc; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">🔍 1X (NORMAL)</button>
+            <button type="button" id="zoom_3x_main" style="padding:10px 20px; background:#666; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">🔍 3X (CURVO)</button>
+        </div>
+        <p id="cam-status-main" style="text-align:center; color:#666; font-size: 14px; margin-top: 10px;">Buscando cámaras...</p>
+        
+        <script>
+        let html5QrCodeMain;
+        let rearCamsMain = [];
+        let currentIdxMain = 0;
+        let wideIdMain = null;
 
-                if st.form_submit_button("💾 Evaluar y Guardar Trazabilidad Completa", use_container_width=True):
-                    if not id_elemento or not ubicacion or not imagen_final:
-                        st.error("⚠️ ID, Ubicación y Foto son obligatorios.")
-                    else:
-                        with st.spinner("Procesando..."):
-                            resultado_calc = "CUMPLE (APROBADO)" if medicion_1 < referencia else "NO CUMPLE (RECHAZADO)"
-                            url_foto = subir_evidencia_storage(imagen_final, id_elemento.upper())
-                            
-                            # EMPAQUETAMOS LAS MEDICIONES EXTRAS
-                            lista_extras = [str(m) for m in [med_2, med_3, med_4, med_5] if pd.notna(m) and m is not None]
-                            mediciones_extra_str = ", ".join(lista_extras)
+        function applyZoomMain(scale) {
+            const vid = document.querySelector("#reader_main video");
+            if (vid) {
+                vid.style.transform = `scale(${scale})`;
+                vid.style.transformOrigin = "center center";
+            }
+            document.getElementById('zoom_1x_main').style.background = (scale === 1) ? "#0052cc" : "#666";
+            document.getElementById('zoom_3x_main').style.background = (scale === 3) ? "#0052cc" : "#666";
+        }
 
-                            try:
-                                supabase.table("validacion_esd").insert({
-                                    "fecha_auditoria": datetime.now().isoformat(),
-                                    "auditor": st.session_state.usuario_nombre,
-                                    "elemento_s20_20": elemento_sel,
-                                    "id_elemento": id_elemento.upper(),
-                                    "tipo_material": tipo_material,
-                                    "fabricante_elem": fab_elem,
-                                    "modelo_elem": mod_elem,
-                                    "sn_elem": sn_elem,
-                                    "temperatura": temp,
-                                    "humedad": humedad,
-                                    "ubicacion": ubicacion,
-                                    "id_equipo_utilizado": id_equipo_sel,
-                                    "tipo_equipo": eq_data.get('tipo_equipo'),
-                                    "reporte_cal": eq_data.get('reporte_calibracion'),
-                                    "resolucion": eq_data.get('resolucion'),
-                                    "fabricante_eq": eq_data.get('fabricante'),
-                                    "modelo_eq": eq_data.get('modelo'),
-                                    "sn_eq": eq_data.get('numero_serie'),
-                                    "fecha_prox_cal": str(eq_data.get('fecha_proxima_calibracion')),
-                                    "limite_referencia": float(referencia),
-                                    "medicion_1": float(medicion_1) if medicion_1 else None,
-                                    "medicion_2": float(med_2) if med_2 is not None else None,
-                                    "medicion_3": float(med_3) if med_3 is not None else None,
-                                    "medicion_4": float(med_4) if med_4 is not None else None,
-                                    "medicion_5": float(med_5) if med_5 is not None else None,
-                                    "unidad": unidad_med,
-                                    "metodo": metodo_med,
-                                    "modo_medicion": modo_med,
-                                    "resultado": resultado_calc,
-                                    "notas": notas_val,
-                                    "imagen_url": url_foto
-                                }).execute()
-                                
-                                st.session_state.val_success_msg = f"✅ Guardado. Resultado: {resultado_calc}"
-                                st.session_state.val_form_key += 1
-                                st.cache_data.clear()
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"Error SQL: {e}")
+        function startScannerMain(camId) {
+            if(!html5QrCodeMain) html5QrCodeMain = new Html5Qrcode("reader_main");
+            if (html5QrCodeMain.isScanning) {
+                html5QrCodeMain.stop().then(() => { runScanMain(camId); }).catch(e => console.log(e));
+            } else {
+                runScanMain(camId);
+            }
+        }
 
-        with tab_historial:
-            col_h1, col_h2 = st.columns([0.8, 0.2])
-            col_h1.markdown("#### 🗂️ Dashboard de Registros Históricos")
-            if col_h2.button("🔄 Actualizar Datos", use_container_width=True):
-                st.cache_data.clear()
+        function runScanMain(camId) {
+            html5QrCodeMain.start(
+                camId, { fps: 15, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 },
+                (decodedText) => {
+                    html5QrCodeMain.stop();
+                    const url = new URL(window.parent.location.href);
+                    url.searchParams.set("qr_id", decodedText);
+                    window.parent.history.replaceState({}, "", url);
+                    window.parent.location.reload();
+                }, (err) => {} 
+            ).then(() => { 
+                let activeCam = rearCamsMain.find(c => c.id === camId);
+                document.getElementById("cam-status-main").innerText = "Lente activo: " + (activeCam ? activeCam.label : "Cámara");
+                applyZoomMain(1);
+            }).catch(err => {
+                document.getElementById("cam-status-main").innerText = "Error iniciando lente. Intenta 'Otra Cámara'.";
+            });
+        }
+
+        Html5Qrcode.getCameras().then(devices => {
+            if (devices && devices.length) {
+                rearCamsMain = devices.filter(c => c.label.toLowerCase().includes('back') || c.label.toLowerCase().includes('trasera') || c.label.toLowerCase().includes('environment'));
+                if(rearCamsMain.length === 0) rearCamsMain = devices;
+
+                wideIdMain = rearCamsMain[0].id;
+                for (let c of rearCamsMain) {
+                    let lbl = c.label.toLowerCase();
+                    if (lbl.includes('wide') && !lbl.includes('ultra')) {
+                        wideIdMain = c.id; break;
+                    }
+                }
+
+                currentIdxMain = rearCamsMain.findIndex(c => c.id === wideIdMain);
+                if(currentIdxMain === -1) currentIdxMain = 0;
+
+                startScannerMain(wideIdMain);
+
+                document.getElementById('cam_wide_main').addEventListener('click', () => {
+                    currentIdxMain = rearCamsMain.findIndex(c => c.id === wideIdMain);
+                    startScannerMain(wideIdMain);
+                });
+
+                document.getElementById('cam_cycle_main').addEventListener('click', () => {
+                    currentIdxMain = (currentIdxMain + 1) % rearCamsMain.length;
+                    startScannerMain(rearCamsMain[currentIdxMain].id);
+                });
+
+                document.getElementById('zoom_1x_main').addEventListener('click', () => applyZoomMain(1));
+                document.getElementById('zoom_3x_main').addEventListener('click', () => applyZoomMain(3));
+            }
+        }).catch(err => { document.getElementById("cam-status-main").innerText = "Permisos de cámara denegados."; });
+        </script>
+        """
+        components.html(html_code_qr, height=750) 
+        
+        id_manual = st.text_input("O ingresa el ID manual:", key="input_manual")
+        if id_manual:
+            st.query_params["qr_id"] = id_manual
+            st.rerun()
+
+    if id_escaneado_url:
+        colA, colB = st.columns([0.8, 0.2])
+        with colA: st.info(f"🔍 **ID:** {id_escaneado_url}")
+        with colB:
+            if st.button("❌ Cerrar"):
+                limpiar_url_escaneo()
                 st.rerun()
 
-            try:
-                resp_val = supabase.table("validacion_esd").select("*").limit(10000).execute()
-                df_val = pd.DataFrame(resp_val.data)
+        id_limpio = str(id_escaneado_url).strip().upper()
+        mob_ids_limpios = df_mob_local.get('Id de producto', pd.Series()).astype(str).str.strip().str.upper()
+        ion_ids_limpios = df_ion_local.get('Id de producto', pd.Series()).astype(str).str.strip().str.upper()
+
+        # --- NUEVO: Búsqueda en tabla de Maquinaria ---
+        try:
+            resp_maq_scan = supabase.table("mediciones_maquinaria").select("*").eq("id_maquinaria", id_limpio).order("fecha_medicion", desc=True).execute()
+            df_maq_scan = pd.DataFrame(resp_maq_scan.data)
+            es_maq = not df_maq_scan.empty
+        except:
+            df_maq_scan = pd.DataFrame()
+            es_maq = False
+        # ----------------------------------------------
+
+        es_mob = id_limpio in mob_ids_limpios.values
+        es_ion = id_limpio in ion_ids_limpios.values
+
+        if es_mob or es_ion or es_maq:
+            
+            # ==========================================
+            # LÓGICA DE VISUALIZACIÓN: MOBILIARIO / IONIZADORES
+            # ==========================================
+            if es_mob or es_ion:
+                df_actual = df_mob_local if es_mob else df_ion_local
+                serie_busqueda = mob_ids_limpios if es_mob else ion_ids_limpios
+                idx = serie_busqueda[serie_busqueda == id_limpio].index[0]
+                equipo = df_actual.loc[idx]
                 
-                if df_val.empty:
-                    st.info("Aún no hay registros.")
+                estatus_op = str(equipo.get('Estatus operativo', '')).strip().upper()
+                texto_check = "✅ REACTIVAR" if estatus_op == "NO OPERATIVO" else "✅ Registrar medición"
+                
+                st.markdown(f"### 📊 Detalles del Equipo")
+                c_linea, c_tipo, c_estatus = st.columns(3)
+                c_linea.metric("Ubicación", str(equipo.get('Línea', 'N/A')))
+                clasificacion_equipo = str(equipo.get('Clasificación', 'N/A'))
+                c_tipo.metric("Clasificación", clasificacion_equipo)
+                c_estatus.metric("Estatus", str(equipo.get('Estatus de verificación', 'N/A')))
+                
+                c_val, c_bal = st.columns(2)
+                val_previo = equipo.get('Valor de verificación', 0)
+                if es_ion:
+                    c_val.metric("Descarga", f"{float(val_previo):.2f} s" if pd.notna(val_previo) else "N/A")
+                    
+                    # --- NUEVO: FORMATEO DEL BALANCE CON UNIDAD DE VOLTS ---
+                    bal_previo = equipo.get('Balance')
+                    if pd.notna(bal_previo) and str(bal_previo).strip() not in ['', 'N/A', 'nan', 'None']:
+                        c_bal.metric("Balance", f"{float(bal_previo):.2f} V")
+                    else:
+                        c_bal.metric("Balance", "N/A")
+                    # -------------------------------------------------------
                 else:
-                    df_val = df_val.sort_values('fecha_auditoria', ascending=False)
+                    c_val.metric("Resistencia", f"{float(val_previo):.2E} Ω" if pd.notna(val_previo) else "N/A")
 
-                    for index, row in df_val.iterrows():
-                        res = safe_str(row.get('resultado', ''))
-                        icono = "🟢" if "CUMPLE" in res.upper() else "🔴"
-                        fecha_corta = str(row.get('fecha_auditoria'))[:10]
-                        
-                        with st.expander(f"{icono} {fecha_corta} | {row.get('id_elemento')} ({row.get('elemento_s20_20')}) - {row.get('ubicacion')}"):
-                            c_det1, c_det2, c_det3, c_img = st.columns([1, 1, 1, 1.5])
-                            
-                            with c_det1:
-                                st.markdown("##### 📦 Elemento")
-                                st.write(f"**ID:** {row.get('id_elemento')}")
-                                st.write(f"**Fabricante:** {row.get('fabricante_elem')}")
-                                st.write(f"**Modelo:** {row.get('modelo_elem')}")
-                                st.write(f"**Material:** {row.get('tipo_material')}")
-                            
-                            with c_det2:
-                                st.markdown("##### 🛠️ Trazabilidad")
-                                st.write(f"**Equipo:** {row.get('id_equipo_utilizado')}")
-                                st.write(f"**Certificado:** {row.get('reporte_cal')}")
-                                st.write(f"**Próx. Cal:** {row.get('fecha_prox_cal')}")
-                            
-                            with c_det3:
-                                st.markdown("##### 📊 Resultados")
-                                st.write(f"**Medición:** {row.get('medicion_1')} {row.get('unidad')}")
-                                st.write(f"**Límite:** < {row.get('limite_referencia')}")
-                                st.write(f"**Resultado:** {res}")
-
-                            with c_img:
-                                url = row.get('imagen_url')
-                                if url and url.startswith('http'):
-                                    st.image(url, use_container_width=True)
-                                else:
-                                    st.warning("Sin imagen")
-
-                            st.divider()
-                            # GENERADOR DE REPORTE CON FORMATO COMPLETO
-                            html_reporte = generar_html_reporte_completo(row, index)
-                            b64_html = base64.b64encode(html_reporte.encode('utf-8')).decode('utf-8')
-                            
-                            # --- NUEVA LÓGICA DE NOMENCLATURA CON ID REAL ---
-                            db_id = row.get('id', index)
-                            try:
-                                db_id = int(db_id)
-                            except:
-                                db_id = index
-                                
-                            año_actual_rep = datetime.today().strftime("%y")
-                            nombre_oficial = f"BCS-PV-{db_id:03d}-{año_actual_rep}"
-                            
-                            st.markdown(
-                                f'<a href="data:text/html;base64,{b64_html}" download="{nombre_oficial}.html" '
-                                f'style="display: block; width: 100%; text-align: center; padding: 12px; '
-                                f'background-color: #2563eb; color: white; text-decoration: none; border-radius: 8px; font-weight: bold;">'
-                                f'📥 Descargar Reporte Original Completo</a>', 
-                                unsafe_allow_html=True
-                            )
-            except Exception as e:
-                st.error(f"Error cargando historial: {e}")
-
-    # ==========================================
-    # VISTA 6: AJUSTES (CATÁLOGOS MAESTROS)
-    # ==========================================
-    elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_lectura:
-        st.markdown("### ⚙️ Ajustes del Sistema (Catálogos)")
-        st.info("Administra de forma centralizada las Líneas/Ubicaciones y los Equipos de Medición para que estén disponibles en todos los módulos de captura.")
-
-        tab_ubicaciones, tab_equipos, tab_maquinaria, tab_exportar = st.tabs(["📍 Líneas y Ubicaciones", "🛠️ Equipos de Medición", "🏭 Maquinaria (Operaciones)", "💾 Exportar Datos"])
-
-# --- PESTAÑA 1: UBICACIONES ---
-        with tab_ubicaciones:
-            # Panel de herramientas automáticas (Migración del Historial)
-            st.markdown("#### 🔄 Herramientas de Inicialización")
-            st.caption("Utiliza esta utilidad para escanear de forma automática tus registros anteriores e inicializar el catálogo de líneas.")
-            
-            if st.button("🔍 Escanear e Importar Líneas del Historial Automáticamente", width="stretch"):
-                with st.spinner("Analizando base de datos histórica..."):
-                    insertados, totales = ejecutar_automigracion_lineas()
-                    if totales > 0:
-                        st.success(f"🎉 ¡Migración completada con éxito! Se detectaron {totales} líneas únicas. Se registraron {insertados} nuevas ubicaciones que no existían en el catálogo.")
-                    else:
-                        st.info("No se detectaron líneas nuevas o el historial se encuentra vacío.")
-                    st.cache_data.clear()
-                    st.rerun()
-            
-            st.divider()
-            
-            # Formulario manual y visualización
-            col_u1, col_u2 = st.columns([1, 1])
-            
-            with col_u1:
-                st.markdown("#### ➕ Agregar Nueva Ubicación Manual")
-                with st.form("form_nueva_ubicacion"):
-                    nueva_ub = st.text_input("Nombre de la Línea o Ubicación", placeholder="Ej: SMT 1, CR3, Metrology Lab")
-                    if st.form_submit_button("💾 Guardar Ubicación", width="stretch"):
-                        if nueva_ub:
-                            try:
-                                supabase.table("catalogo_lineas").insert({"nombre_linea": nueva_ub.strip().upper()}).execute()
-                                st.success(f"✅ Ubicación '{nueva_ub.upper()}' guardada.")
-                                st.cache_data.clear()
-                                st.rerun()
-                            except Exception as e:
-                                st.error("⚠️ Error (¿Quizás la ubicación ya existe?).")
-                        else:
-                            st.error("El nombre no puede estar vacío.")
-            
-            with col_u2:
-                st.markdown("#### 📋 Ubicaciones en el Catálogo Maestro")
                 try:
-                    resp_ub = supabase.table("catalogo_lineas").select("nombre_linea").order("nombre_linea").execute()
-                    df_ub = pd.DataFrame(resp_ub.data)
-                    if not df_ub.empty:
-                        st.dataframe(df_ub, use_container_width=True, hide_index=True)
+                    resp_fechas = supabase.table("inventario_esd").select("fecha_ultima_verif, fecha_proxima_verif").eq("id_producto", id_limpio).execute()
+                    if resp_fechas.data:
+                        f_val_sql = resp_fechas.data[0].get('fecha_ultima_verif', 'N/A')
+                        f_venc_sql = resp_fechas.data[0].get('fecha_proxima_verif', 'N/A')
                     else:
-                        st.info("No hay ubicaciones registradas aún.")
+                        f_val_sql, f_venc_sql = "N/A", "N/A"
                 except Exception as e:
-                    st.error(f"Error al cargar ubicaciones: {e}")
+                    f_val_sql, f_venc_sql = "Error", "Error"
 
-        # --- PESTAÑA 2: EQUIPOS DE MEDICIÓN ---
-        with tab_equipos:
-            st.markdown("#### ➕ Agregar Nuevo Equipo de Medición")
-            with st.form("form_nuevo_equipo"):
-                c_eq1, c_eq2, c_eq3 = st.columns(3)
-                id_eq = c_eq1.text_input("ID del Equipo (Obligatorio)", placeholder="Ej: BCS-QRO-LAB-01")
-                tipo_eq = c_eq2.text_input("Tipo de Equipo", placeholder="Ej: Medidor de Resistencia")
-                rep_cal = c_eq3.text_input("Reporte de Calibración")
+                c_fval, c_fvenc = st.columns(2)
+                c_fval.metric("Fecha de Validación", str(f_val_sql)[:10] if f_val_sql != "N/A" else "N/A")
+                c_fvenc.metric("Fecha de Vencimiento", str(f_venc_sql)[:10] if f_venc_sql != "N/A" else "N/A")
                 
-                c_eq4, c_eq5, c_eq6 = st.columns(3)
-                res_eq = c_eq4.text_input("Resolución / Alcance")
-                fab_eq = c_eq5.text_input("Fabricante")
-                mod_eq = c_eq6.text_input("Modelo")
+                with st.expander("🕰️ Consultar Historial de Mediciones Anteriores"):
+                    try:
+                        resp_hist = supabase.table("historial_mediciones").select("*").eq("id_equipo", id_limpio).order("fecha_modificacion", desc=True).execute()
+                        df_historial = pd.DataFrame(resp_hist.data)
+                        if not df_historial.empty:
+                            if es_ion and 'balance_ionizador' in df_historial.columns:
+                                df_historial = df_historial[['fecha_modificacion', 'valor_actual', 'balance_ionizador', 'fecha_validacion', 'ubicacion', 'auditor']]
+                                df_historial.columns = ['Actualizado el', 'T. Descarga (s)', 'Balance (V)', 'Fecha Val.', 'Ubicación', 'Auditor']
+                            else:
+                                df_historial = df_historial[['fecha_modificacion', 'valor_actual', 'fecha_validacion', 'ubicacion', 'auditor']]
+                                df_historial.columns = ['Actualizado el', 'Valor', 'Fecha Val.', 'Ubicación', 'Auditor']
+                            
+                            st.dataframe(df_historial, use_container_width=True, hide_index=True)
+                        else:
+                            st.info("No hay mediciones históricas registradas para este equipo aún.")
+                    except Exception as e:
+                        st.error(f"Error al cargar el historial: {e}")
+
+                st.divider()
+
+                if not st.session_state.modo_lectura:
+                    hacer_medicion = st.checkbox(texto_check)
+                    if hacer_medicion:
+                        with st.form("form_actualizacion"):
+                            st.text_input("Clasificación (Tipo de Equipo)", value=clasificacion_equipo, disabled=True)
+                            
+                            # --- 1. LÍNEA POR DEFECTO ASEGURADA ---
+                            if 'obtener_catalogo_lineas' in globals():
+                                lineas_opc = obtener_catalogo_lineas()
+                            else:
+                                lineas_opc = sorted([str(x).strip() for x in df_mob_local['Línea'].dropna().unique()])
+                                
+                            ub_actual = str(equipo.get('Línea', '')).strip()
+                            
+                            # Si la ubicación actual no está en la lista del catálogo, la inyectamos para no perder la referencia visual
+                            if ub_actual and ub_actual not in lineas_opc:
+                                lineas_opc = [ub_actual] + lineas_opc
+                                
+                            idx_l = lineas_opc.index(ub_actual) if ub_actual in lineas_opc else 0
+                            nueva_linea_upd = st.selectbox("Línea / Ubicación", options=lineas_opc, index=idx_l)
+                            
+                            # --- 2. CAMPOS VACÍOS (value=None) ---
+                            if es_ion:
+                                c_ion1, c_ion2 = st.columns(2)
+                                v_act = c_ion1.number_input("Descarga (s)", value=None, format="%.2f", placeholder="0.0")
+                                bal_act = c_ion2.number_input("Balance (V)", value=None, format="%.2f", placeholder="0.0")
+                            else:
+                                c_b, c_e = st.columns(2)
+                                base_upd = c_b.number_input("Base (Ohms)", value=None, placeholder="Ej: 3.5")
+                                exp_upd = c_e.number_input("Exponente", value=None, step=1, placeholder="Ej: 6")
+                                
+                            fecha_hoy = datetime.today().date()
+                            nueva_fecha = st.date_input("Fecha de Validación", fecha_hoy)
+                            
+                            if st.form_submit_button("💾 Guardar Actualización e Historial"):
+                                # --- 3. VALIDACIÓN DE CAMPOS ---
+                                # Como los campos inician vacíos (None), debemos evitar que el programa truene si le dan a Guardar accidentalmente.
+                                if es_ion and (v_act is None or bal_act is None):
+                                    st.error("⚠️ Debes ingresar los valores de Descarga y Balance.")
+                                elif not es_ion and (base_upd is None or exp_upd is None):
+                                    st.error("⚠️ Debes ingresar los valores de Base y Exponente.")
+                                else:
+                                    with st.spinner("Guardando registro..."):
+                                        if es_ion:
+                                            nuevo_valor_final = float(v_act)
+                                            bal_act = float(bal_act)
+                                        else:
+                                            nuevo_valor_final = float(base_upd) * (10 ** int(exp_upd))
+                                            bal_act = None
+                                            
+                                        freq = str(equipo.get('Frecuencia de verificación', 'Anual'))
+                                        proxy = calcular_proxima_fecha(nueva_fecha, freq)
+                                        
+                                        try:
+                                            # --- 4. GUARDAR EL ESTADO ANTERIOR EN LA TABLA HISTORIAL ---
+                                            # Extraemos los valores previos que ya tenemos cargados de la BD
+                                            val_previo_hist = str(equipo.get('Valor de verificación', 0))
+                                            ubicacion_previa = str(equipo.get('Línea', 'N/D'))
+                                            auditor_previo = str(equipo.get('Auditor', st.session_state.usuario_nombre))
+                                            
+                                            # Solo guardamos en el historial si realmente existía una medición anterior (evita guardar registros vacíos/nuevos)
+                                            if f_val_sql != 'N/A' and f_val_sql != 'Error':
+                                                historial_data = {
+                                                    "id_equipo": id_limpio,
+                                                    "tipo_equipo": clasificacion_equipo,
+                                                    "ubicacion": ubicacion_previa,
+                                                    "valor_actual": val_previo_hist,
+                                                    "fecha_validacion": f_val_sql, # <--- FECHA ANTERIOR
+                                                    "fecha_vencimiento": f_venc_sql if f_venc_sql != 'N/A' else None,
+                                                    "auditor": auditor_previo, # <--- AUDITOR ANTERIOR
+                                                    "fecha_modificacion": datetime.now().isoformat() # <--- Cuándo se archivó
+                                                }
+                                                if es_ion:
+                                                    historial_data["balance_ionizador"] = str(equipo.get('Balance', 0))
+                                                    
+                                                supabase.table("historial_mediciones").insert(historial_data).execute()
+
+                                            # --- 5. ACTUALIZAR EL ESTADO NUEVO EN INVENTARIO MAESTRO ---
+                                            update_data = {
+                                                "linea_ubicacion": nueva_linea_upd,
+                                                "valor_actual": float(nuevo_valor_final),
+                                                "fecha_ultima_verif": nueva_fecha.isoformat(), # <--- FECHA NUEVA (HOY)
+                                                "fecha_proxima_verif": proxy.isoformat(),
+                                                "estatus_verificacion": "VIGENTE",
+                                                "estatus_operativo": "OPERATIVO",
+                                                "auditor_responsable": st.session_state.usuario_nombre, # <--- AUDITOR NUEVO (TÚ)
+                                            }
+                                            if es_ion:
+                                                update_data["balance_ionizador"] = float(bal_act)
+                                            
+                                            supabase.table("inventario_esd").update(update_data).eq("id_producto", id_limpio).execute()
+                                            
+                                            st.success("💾 ¡Equipo actualizado y medición anterior archivada en el historial!")
+                                            st.cache_data.clear()
+                                            limpiar_url_escaneo()
+                                            st.rerun()
+                                        except Exception as e:
+                                            st.error(f"Error actualizando el equipo en SQL: {e}")
+                # --- NUEVO: LISTADO DE OTROS EQUIPOS EN LA MISMA LÍNEA ---
+                if es_mob:
+                    ub_actual_lista = str(equipo.get('Línea', '')).strip()
+                    if ub_actual_lista and ub_actual_lista != 'N/A' and 'df_inv_full' in locals() and not df_inv_full.empty:
+                        st.divider()
+                        st.markdown(f"#### 📍 Otros equipos en la línea: `{ub_actual_lista}`")
+                        
+                        # Filtramos el inventario por la misma línea, quitamos el equipo actual y los que estén dados de baja
+                        df_otros = df_inv_full[
+                            (df_inv_full['Línea'].astype(str).str.strip() == ub_actual_lista) & 
+                            (df_inv_full['Id de producto'].astype(str).str.strip().str.upper() != id_limpio) &
+                            (df_inv_full['Estatus operativo'].astype(str).str.strip().str.upper() != 'NO OPERATIVO')
+                        ]
+                        
+                        if not df_otros.empty:
+                            # Seleccionamos columnas clave para mostrar
+                            df_mostrar_otros = df_otros[['Id de producto', 'Clasificación', 'Estatus de verificación', 'Fecha de próxima verificación']].copy()
+                            df_mostrar_otros = df_mostrar_otros.rename(columns={
+                                'Id de producto': 'ID Equipo', 
+                                'Fecha de próxima verificación': 'Vencimiento'
+                            })
+                            
+                            # Formateamos la fecha visualmente para que sea corta
+                            df_mostrar_otros['Vencimiento'] = pd.to_datetime(df_mostrar_otros['Vencimiento'], errors='coerce').dt.strftime('%d-%b-%Y').fillna('N/D')
+                            
+                            # Agregamos emojis de estatus rápido
+                            def emoji_estatus(val):
+                                v = str(val).upper()
+                                if 'VIGENTE' in v: return f"🟢 {val}"
+                                if 'VENCIDO' in v: return f"🔴 {val}"
+                                return f"🟡 {val}"
+                                
+                            df_mostrar_otros['Estatus de verificación'] = df_mostrar_otros['Estatus de verificación'].apply(emoji_estatus)
+                            
+                            st.dataframe(df_mostrar_otros, use_container_width=True, hide_index=True)
+                        else:
+                            st.info("No hay otros equipos operativos registrados en esta línea.")
+                # ---------------------------------------------------------
+            # ==========================================
+            # LÓGICA DE VISUALIZACIÓN: MAQUINARIA
+            # ==========================================
+            elif es_maq:
+                equipo = df_maq_scan.iloc[0]
                 
-                c_eq7, c_eq8 = st.columns(2)
-                sn_eq = c_eq7.text_input("Número de Serie")
-                venc_cal = c_eq8.date_input("Fecha de Próxima Calibración")
+                st.markdown(f"### 🏭 Detalles de la Maquinaria")
+                c_linea, c_tipo, c_estatus = st.columns(3)
+                c_linea.metric("Ubicación", str(equipo.get('linea_ubicacion', 'N/A')))
+                clasificacion_equipo = str(equipo.get('clasificacion', 'N/A'))
+                c_tipo.metric("Clasificación", clasificacion_equipo)
+                c_estatus.metric("Estatus", str(equipo.get('resultado_estatus', 'N/A')))
                 
-                if st.form_submit_button("💾 Guardar Equipo", width="stretch"):
-                    if id_eq:
+                c_val, c_bal = st.columns(2)
+                res_tierra = equipo.get('resistencia_tierra')
+                c_val.metric("Resistencia a Tierra", f"{float(res_tierra):.2E} Ω" if pd.notna(res_tierra) and res_tierra else "N/D")
+                campo_est = equipo.get('campo_estatico_voltaje')
+                c_bal.metric("Campo Estático", f"{float(campo_est):.1f} V" if pd.notna(campo_est) else "N/D")
+
+                f_val_sql = str(equipo.get('fecha_medicion', 'N/A'))[:10]
+                f_venc_sql = str(equipo.get('fecha_proxima', 'N/A'))[:10]
+                
+                c_fval, c_fvenc = st.columns(2)
+                c_fval.metric("Fecha de Validación", f_val_sql)
+                c_fvenc.metric("Fecha de Vencimiento", f_venc_sql)
+                
+                with st.expander("🕰️ Consultar Historial de Mediciones Anteriores"):
+                    df_maq_hist = df_maq_scan[['fecha_medicion', 'resistencia_tierra', 'campo_estatico_voltaje', 'tomacorriente_estatus', 'resultado_estatus', 'auditor']].copy()
+                    df_maq_hist.columns = ['Fecha', 'Resistencia (Ω)', 'Campo (V)', 'Toma', 'Estatus', 'Auditor']
+                    
+                    def formatear_res_hist(val):
                         try:
-                            supabase.table("equipos_medicion").insert({
-                                "id_equipo": id_eq.strip().upper(),
-                                "tipo_equipo": tipo_eq,
-                                "reporte_calibracion": rep_cal,
-                                "resolucion": res_eq,
-                                "fabricante": fab_eq,
-                                "modelo": mod_eq,
-                                "numero_serie": sn_eq,
-                                "fecha_proxima_calibracion": str(venc_cal)
+                            v = float(val)
+                            return f"{v:.2f}" if v < 10 else f"{v:.2E}"
+                        except:
+                            return "N/D"
+                            
+                    if 'Resistencia (Ω)' in df_maq_hist.columns:
+                        df_maq_hist['Resistencia (Ω)'] = df_maq_hist['Resistencia (Ω)'].apply(formatear_res_hist)
+                        
+                    df_maq_hist['Fecha'] = pd.to_datetime(df_maq_hist['Fecha']).dt.strftime('%d-%b-%Y')
+                    st.dataframe(df_maq_hist.fillna("N/D"), use_container_width=True, hide_index=True)
+
+                st.divider()
+
+                if not st.session_state.modo_lectura:
+                    st.info("💡 Para registrar una nueva validación, utiliza el módulo de maquinaria.")
+                    if st.button("🏭 Ir al Módulo de Maquinaria", use_container_width=True):
+                        st.session_state.vista_actual = "Maquinaria"
+                        limpiar_url_escaneo()
+                        st.rerun()
+
+        else:
+            st.error("❌ El ID no se encontró en la base de datos (Mobiliario, Ionizadores o Maquinaria).")
+# ==========================================
+# VISTA 3: EVENT METER
+# ==========================================
+elif st.session_state.vista_actual == "Event Meter" and not st.session_state.modo_lectura:
+    st.markdown("### ⚡ Estudio de Event Meter (PCBA)")
+    st.info("Mide descargas electrostáticas y transitorios durante la operación normal de la maquinaria/proceso.")
+
+    # --- SECCIÓN: GENERADOR DE REPORTE POR LÍNEA (ESTILO WALKING TEST) ---
+    with st.expander("📄 Generar Reporte Oficial por Línea (Estilo Walking Test)", expanded=False):
+        st.write("Selecciona una línea para consolidar todas sus operaciones guardadas en la base de datos en un único reporte oficial.")
+        
+        lineas_reporte = []
+        if df_em_local is not None and not df_em_local.empty and 'Línea' in df_em_local.columns:
+            lineas_reporte = sorted([str(x).strip() for x in df_em_local['Línea'].dropna().unique() if str(x).strip() != ''])
+        
+        if not lineas_reporte:
+            st.warning("⚠️ No hay registros históricos en 'event_meter' para generar reportes consolidados.")
+        else:
+            linea_rep_sel = st.selectbox("Seleccionar Línea para el Reporte Consolidado:", options=lineas_reporte, key="em_linea_rep_sel")
+            
+            with st.form("form_reporte_em_consolidado"):
+                st.markdown("#### Datos Generales del Estudio")
+                col_g1, col_g2 = st.columns(2)
+                auditor_em = col_g1.text_input("Auditor / Técnico", value=st.session_state.usuario_nombre if st.session_state.usuario_nombre else "")
+                periodo_em = col_g2.selectbox("Periodo de Evaluación", ["Semestre 1", "Semestre 2", "Evaluación Anual"])
+                
+                col_g3, col_g4 = st.columns(2)
+                equipo_em = col_g3.text_input("Equipo de Medición Utilizado", value="SCS EM EYE")
+                serial_em = col_g4.text_input("No. de Serie del Equipo", value="2451005")
+                
+                submit_reporte_em = st.form_submit_button("Generar Reporte Consolidado por Línea", use_container_width=True)
+                
+                if submit_reporte_em:
+                    df_filtrado = df_em_local[df_em_local['Línea'].astype(str).str.strip() == linea_rep_sel].copy()
+                    
+                    if df_filtrado.empty:
+                        st.error("No se encontraron registros en la base de datos para la línea seleccionada.")
+                    else:
+                        html_rows = ""
+                        for i, row in enumerate(df_filtrado.to_dict('records'), 1):
+                            op = str(row.get('Id de Operación', 'N/A'))
+                            tipo_c = str(row.get('Tipo de contacto', 'N/D'))
+                            
+                            # --- EXTRACCIÓN SEGURA DE NÚMEROS ---
+                            raw_eventos = row.get('Detección (Cantidad)', 0)
+                            eventos = int(float(raw_eventos)) if pd.notna(raw_eventos) and str(raw_eventos).strip() != '' else 0
+                            
+                            raw_vmax = row.get('Voltaje máximo', 0.0)
+                            vmax = float(raw_vmax) if pd.notna(raw_vmax) and str(raw_vmax).strip() != '' else 0.0
+                            # ------------------------------------
+                            
+                            estatus = str(row.get('Estatus de verificación', '')).upper()
+                            notas = str(row.get('Notas', ''))
+                            if notas.lower() in ['nan', 'none', 'null']: 
+                                notas = ""
+                            
+                            color_estatus = "text-green-600" if "APROBADO" in estatus else "text-red-600"
+                            pass_fail = "PASA" if "APROBADO" in estatus else "FALLA"
+                            
+                            html_rows += f"""
+                            <tr class="text-center border-b border-gray-300">
+                                <td class="border border-gray-800 p-2 font-bold text-gray-600">{i}</td>
+                                <td class="border border-gray-800 p-2 text-left">{op}</td>
+                                <td class="border border-gray-800 p-2">{tipo_c}</td>
+                                <td class="border border-gray-800 p-2 font-mono">{eventos}</td>
+                                <td class="border border-gray-800 p-2 font-mono font-bold">{vmax}V</td>
+                                <td class="border border-gray-800 p-2 font-bold {color_estatus}">{pass_fail}</td>
+                                <td class="border border-gray-800 p-2 text-left text-xs">{notas}</td>
+                            </tr>
+                            """
+                        
+                        fecha_hoy_str = datetime.today().strftime("%Y-%m-%d")
+                        fecha_pie_str = datetime.today().strftime("%Y/%m/%d")
+                        
+                        # --- PLANTILLA HTML OFICIAL SIN OPERADOR DE PRUEBA ---
+                        html_template = f"""<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Reporte Event Meter - {linea_rep_sel}</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+    @media print {{
+        body {{ background-color: white; padding: 0; }}
+        .no-print {{ display: none !important; }}
+        .print-border {{ border: 1px solid #000; }}
+        .shadow-lg {{ box-shadow: none; }}
+    }}
+</style>
+</head>
+<body class="bg-gray-100 p-4 md:p-8 text-gray-800 font-sans">
+<div class="max-w-5xl mx-auto bg-white p-8 shadow-lg print:shadow-none print:w-full">
+    <div class="flex justify-end space-x-4 mb-6 no-print">
+        <button onclick="window.print()" class="bg-gray-800 text-white px-4 py-2 rounded shadow hover:bg-gray-900 transition flex items-center font-bold">
+            🖨️ Imprimir / Guardar PDF
+        </button>
+    </div>
+    
+    <div class="border-2 border-gray-800 mb-6 flex flex-col md:flex-row text-sm print-border">
+        <div class="p-4 border-b-2 md:border-b-0 md:border-r-2 border-gray-800 flex items-center justify-center w-full md:w-1/4">
+            <img src="https://github.com/aldoaoa/Visualizador-BCS-IDS/blob/main/BCS%20LOGO.png?raw=true" alt="Logo BCS" class="max-h-20 object-contain">
+        </div>
+        <div class="p-4 flex-1 border-b-2 md:border-b-0 md:border-r-2 border-gray-800 text-center flex flex-col justify-center">
+            <h1 class="text-lg font-bold uppercase">Registro de Estudio de Eventos ESD (Event Meter)</h1>
+            <p class="text-gray-600 font-semibold">Norma de Referencia: ANSI/ESD S20.20</p>
+        </div>
+        <div class="p-2 w-full md:w-1/4 flex flex-col justify-center text-xs space-y-1">
+            <div class="flex justify-between"><span class="font-bold">Código:</span> <span>F-ESD-001</span></div>
+            <div class="flex justify-between"><span class="font-bold">Límite Permitido:</span> <span class="font-bold text-red-600">&lt; 100V</span></div>
+        </div>
+    </div>
+    
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6 text-sm">
+        <div class="space-y-2">
+            <div class="flex justify-between border-b pb-1"><span class="font-bold">Fecha de Estudio:</span><span>{fecha_hoy_str}</span></div>
+            <div class="flex justify-between border-b pb-1"><span class="font-bold">Línea / Área Evaluada:</span><span>{linea_rep_sel}</span></div>
+            <div class="flex justify-between border-b pb-1"><span class="font-bold">Auditor / Técnico:</span><span>{auditor_em}</span></div>
+        </div>
+        <div class="space-y-2">
+            <div class="flex justify-between border-b pb-1"><span class="font-bold">Periodo de Evaluación:</span><span>{periodo_em}</span></div>
+            <div class="flex justify-between border-b pb-1"><span class="font-bold">Equipo de Medición (SN):</span><span>{equipo_em} ({serial_em})</span></div>
+        </div>
+    </div>
+    
+    <div class="overflow-x-auto mb-8">
+        <table class="w-full text-sm border-collapse border border-gray-800 print-border">
+            <thead>
+                <tr class="bg-gray-200 text-center">
+                    <th class="border border-gray-800 p-2 w-10">No.</th>
+                    <th class="border border-gray-800 p-2 text-left">Operación / Estación</th>
+                    <th class="border border-gray-800 p-2">Tipo de Contacto</th>
+                    <th class="border border-gray-800 p-2 w-24">Eventos</th>
+                    <th class="border border-gray-800 p-2 w-24">Voltaje Máx.</th>
+                    <th class="border border-gray-800 p-2 w-24">Resultado</th>
+                    <th class="border border-gray-800 p-2 text-left">Observaciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                {html_rows}
+            </tbody>
+        </table>
+    </div>
+    
+    <div class="grid grid-cols-2 gap-8 mt-12 text-sm text-center">
+        <div><div class="border-b border-gray-800 w-3/4 mx-auto mb-2 h-8"></div><p class="font-bold">Realizado por: {auditor_em}</p></div>
+        <div><div class="border-b border-gray-800 w-3/4 mx-auto mb-2 h-8"></div><p class="font-bold">Revisado / Aprobado por: Coordinador ESD</p></div>
+    </div>
+
+    <div class="border-t-[3px] border-b-[3px] border-black mt-16 py-1 text-[11px] font-sans">
+        <div class="flex justify-between items-end">
+            <div class="text-left leading-tight">
+                <div>E_310_4_111_QRO_SP_Rev.A</div>
+                <div>Registro de estudio de eventos ESD.</div>
+            </div>
+            <div class="text-center leading-tight">
+                <div>Fecha:{fecha_pie_str}</div>
+            </div>
+            <div class="text-right leading-tight">
+                <div>Ref.E_310_3_001_QRO_SP</div>
+            </div>
+        </div>
+    </div>
+</div>
+</body>
+</html>"""
+                        b64_html = base64.b64encode(html_template.encode('utf-8')).decode('utf-8')
+                        nombre_archivo = f"Reporte_Consolidado_EventMeter_{linea_rep_sel.replace(' ', '_')}.html"
+                        
+                        st.success(f"✅ ¡Reporte consolidado para la línea {linea_rep_sel} generado con éxito!")
+                        href = f'<a href="data:text/html;base64,{b64_html}" download="{nombre_archivo}" target="_blank" style="display: block; text-align: center; padding: 15px; background-color: #003366; color: white; text-decoration: none; border-radius: 8px; font-weight: bold; margin-top: 10px; font-size: 16px;">📥 Descargar Reporte Completo de la Línea (Abrir para imprimir PDF)</a>'
+                        st.markdown(href, unsafe_allow_html=True)
+
+    # --- SECCIÓN DEL TEMPORIZADOR (5 MINUTOS) ---
+    st.divider()
+    st.markdown("#### ⏱️ Temporizador de Medición")
+    st.info("Utiliza este temporizador para asegurar la medición estándar de 5 minutos por estación antes de guardar el registro.")
+    
+    col_t1, col_t2 = st.columns([1, 2])
+    with col_t1:
+        iniciar_timer = st.button("▶️ Iniciar 5 Minutos", use_container_width=True)
+    with col_t2:
+        timer_placeholder = st.empty()
+        if iniciar_timer:
+            for t in range(300, -1, -1):
+                mins, secs = divmod(t, 60)
+                timer_placeholder.markdown(f"### ⏳ Tiempo restante: {mins:02d}:{secs:02d}")
+                time.sleep(1)
+            
+            timer_placeholder.success("✅ ¡Tiempo de medición completado! Procede a registrar los datos.")
+            st.balloons()
+
+    # --- FORMULARIO DE CAPTURA DE NUEVOS REGISTROS ---
+    st.divider()
+    st.markdown("#### 📍 Ubicación y Operación")
+    c_loc1, c_loc2 = st.columns(2)
+
+    lineas_existentes = sorted([str(x).strip() for x in df_em_local['Línea'].dropna().unique() if str(x).strip() != '']) if not df_em_local.empty else []
+    if not lineas_existentes:
+        lineas_existentes = ["Sin registros"]
+
+    linea_seleccionada = c_loc1.selectbox("Línea", options=lineas_existentes, key="em_linea_seleccionada_captura")
+    nueva_op_check = c_loc2.checkbox("➕ Registrar nueva Operación o Línea")
+
+    if nueva_op_check:
+        linea_final = c_loc1.text_input("Ingresa Nueva Línea", value=linea_seleccionada if linea_seleccionada != "Sin registros" else "")
+        id_operacion_final = c_loc2.text_input("Ingresa Nuevo ID de Operación (Ej: OP50-AUDIO)")
+    else:
+        linea_final = linea_seleccionada
+        ops_existentes = []
+        if not df_em_local.empty and 'Id de Operación' in df_em_local.columns:
+            ops_filtradas = df_em_local[df_em_local['Línea'].astype(str).str.strip() == linea_seleccionada]
+            ops_existentes = sorted([str(x).strip() for x in ops_filtradas['Id de Operación'].dropna().unique() if str(x).strip() != ''])
+        
+        if not ops_existentes:
+            id_operacion_final = c_loc2.selectbox("ID de Operación", options=["(Sin operaciones previas)"])
+        else:
+            id_operacion_final = c_loc2.selectbox("Selecciona ID de Operación", options=ops_existentes)
+
+    with st.form("form_event_meter_captura"):
+        col1, col2 = st.columns(2)
+        tipo_contacto = col1.selectbox("Tipo de contacto", options=["Maquinaria", "EOLT", "AOI", "Herramienta Manual", "Humano", "Otro"])
+        if tipo_contacto == "Otro":
+            tipo_contacto = col1.text_input("Especifique Tipo de Contacto")
+
+        st.markdown("#### ⚡ Resultados de Detección")
+        col_d1, col_d2 = st.columns(2)
+        deteccion_eventos = col_d1.number_input("Cantidad de Eventos Detectados", min_value=0, step=1, value=0)
+        voltaje_max = col_d2.number_input("Voltaje máximo de descarga (V)", min_value=0.0, max_value=999.0, step=0.1, value=0.0)
+
+        notas_em = st.text_area("Notas / Observaciones")
+
+        limite_maximo_v = 100.0  
+        estatus_verificacion = "APROBADO" if voltaje_max <= limite_maximo_v else "RECHAZADO"
+        fecha_hoy = datetime.today().date()
+        frecuencia_em = "Semestral" 
+        proxima_fecha = calcular_proxima_fecha(fecha_hoy, frecuencia_em)
+
+        submit_em = st.form_submit_button("💾 Guardar Registro de Event Meter", use_container_width=True)
+
+        if submit_em:
+            if not id_operacion_final or id_operacion_final == "(Sin operaciones previas)":
+                st.error("⚠️ Debes proporcionar un ID de Operación válido.")
+            else:
+                with st.spinner("Guardando en la tabla EVENT_METER de SQL..."):
+                    try:
+                        supabase.table("event_meter").insert({
+                            "linea_ubicacion": linea_final,
+                            "id_operacion": id_operacion_final.upper(),
+                            "tipo_contacto": tipo_contacto,
+                            "cantidad_eventos": int(deteccion_eventos),
+                            "voltaje_maximo": float(voltaje_max),
+                            "estatus_verificacion": estatus_verificacion,
+                            "notas": notas_em,
+                            "auditor": st.session_state.usuario_nombre,
+                            "fecha": datetime.now().isoformat()
+                        }).execute()
+                        
+                        st.success(f"✅ ¡Estudio de {id_operacion_final} registrado exitosamente! Estatus: {estatus_verificacion}")
+                        st.cache_data.clear()
+                        st.balloons()
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error SQL al guardar en Event Meter: {e}")
+
+# ==========================================
+# VISTA 4: WALKING TEST
+# ==========================================
+elif st.session_state.vista_actual == "Walking Test" and not st.session_state.modo_lectura:
+    st.markdown("### 🚶‍♂️ Análisis de Walking Test")
+    st.info("Sube uno o varios archivos PDF generados por el equipo de medición para extraer los datos automáticamente vía OCR y generar un reporte consolidado.")
+
+    archivos_pdf = st.file_uploader("Selecciona los archivos PDF", type=["pdf"], accept_multiple_files=True)
+
+    if archivos_pdf:
+        st.markdown("#### Resultados Extraídos")
+        datos_extraidos_wt = [] 
+        
+        for archivo in archivos_pdf:
+            with st.expander(f"📄 Reporte: {archivo.name}", expanded=True):
+                try:
+                    doc = fitz.open(stream=archivo.read(), filetype="pdf")
+                    pagina = doc[0] 
+                    imagen_grafica = None
+                    texto_ocr = ""
+                    img_b64 = "" 
+
+                    imagenes_pdf = pagina.get_images(full=True)
+                    if imagenes_pdf:
+                        xref = imagenes_pdf[0][0]
+                        base_image = doc.extract_image(xref)
+                        image_bytes = base_image["image"]
+                        imagen_grafica = Image.open(io.BytesIO(image_bytes))
+
+                        with st.spinner("Analizando imagen con OCR..."):
+                            texto_ocr = pytesseract.image_to_string(imagen_grafica)
+                        
+                        buffered = io.BytesIO()
+                        imagen_grafica.save(buffered, format="PNG")
+                        img_b64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
+                    else:
+                        st.warning("No se detectó ninguna imagen/gráfica en este PDF para analizar.")
+                        continue
+
+                    fecha_hora_match = re.search(r"(\d{2}/\d{2}/\d{2})\s+(\d{2}:\d{2})", texto_ocr)
+                    fecha = fecha_hora_match.group(1) if fecha_hora_match else "N/D"
+                    hora = fecha_hora_match.group(2) if fecha_hora_match else "N/D"
+
+                    hum_match = re.search(r"(\d{1,3}(?:\.\d+)?)\s*%?\s*RH", texto_ocr, re.IGNORECASE)
+                    humedad = f"{hum_match.group(1)} %" if hum_match else "N/D"
+
+                    temp_match = re.search(r"(\d{1,3}(?:\.\d+)?)\s*[^C]*C", texto_ocr, re.IGNORECASE)
+                    temperatura = f"{temp_match.group(1)} °C" if temp_match else "N/D"
+
+                    peaks_match = re.search(r"highest peaks:\s*(.*?)(?:\(|Arithmetic|\n|$)", texto_ocr, re.IGNORECASE)
+                    picos = peaks_match.group(1).strip() if peaks_match else "N/D"
+
+                    valleys_match = re.search(r"highest valleys:\s*(.*?)(?:\(|Arithmetic|\n|$)", texto_ocr, re.IGNORECASE)
+                    valles = valleys_match.group(1).strip() if valleys_match else "N/D"
+
+                    max_abs = 0.0
+                    promedio_picos = 0.0
+                    try:
+                        p_vals = [float(x) for x in re.findall(r"[-+]?\d*\.\d+|\d+", picos)]
+                        v_vals = [float(x) for x in re.findall(r"[-+]?\d*\.\d+|\d+", valles)]
+                        todos_los_valores = p_vals + v_vals
+                        if todos_los_valores:
+                            max_abs = max(abs(x) for x in todos_los_valores)
+                        if p_vals:
+                            promedio_picos = sum(p_vals) / len(p_vals)
+                    except:
+                        pass
+
+                    col_datos1, col_datos2 = st.columns(2)
+                    with col_datos1:
+                        st.metric("📅 Fecha", fecha)
+                        st.metric("🌡️ Temperatura", temperatura)
+                        st.metric("⚡ Voltaje Máx (Absoluto)", f"{max_abs:.2f} V")
+                    with col_datos2:
+                        st.metric("🕒 Hora", hora)
+                        st.metric("💧 Humedad", humedad)
+                        st.metric("📊 Promedio Picos", f"{promedio_picos:.2f} V")
+
+                    st.divider()
+                    st.markdown("**Gráfica Extraída:**")
+                    st.image(imagen_grafica, use_container_width=True)
+
+                    datos_extraidos_wt.append({
+                        "archivo": archivo.name, "fecha": fecha, "temp": temperatura,
+                        "hum": humedad, "max_abs": max_abs, "promedio_picos": promedio_picos,
+                        "img_b64": img_b64
+                    })
+
+                except Exception as e:
+                    st.error(f"Ocurrió un error al procesar el archivo {archivo.name}: {e}")
+
+        if datos_extraidos_wt:
+            st.divider()
+            st.markdown("### 📄 Generar Reporte Oficial Consolidado")
+            st.write("Completa la información general para generar un solo reporte con todas las ubicaciones procesadas.")
+            
+            fecha_defecto = datos_extraidos_wt[0]['fecha'] if datos_extraidos_wt[0]['fecha'] != "N/D" else datetime.today().strftime("%d/%m/%Y")
+            temp_defecto = datos_extraidos_wt[0]['temp']
+            hum_defecto = datos_extraidos_wt[0]['hum']
+            
+            with st.form("form_reporte_wt"):
+                st.markdown("#### Datos Generales")
+                col_g1, col_g2, col_g3 = st.columns(3)
+                auditor_wt = col_g1.text_input("Auditor / Técnico", value=st.session_state.usuario_nombre if st.session_state.usuario_nombre else "")
+                operador_wt = col_g2.text_input("Operador de Prueba")
+                periodo_wt = col_g3.selectbox("Periodo de Evaluación", ["Semestre 1", "Semestre 2"])
+                
+                col_g4, col_g5 = st.columns(2)
+                equipo_wt = col_g4.text_input("Equipo de Medición Utilizado", value="DESCO 46006")
+                calzado_wt = col_g5.text_input("Calzado ESD Utilizado", value="Zapato antiestático Workman")
+                
+                st.markdown("#### 🌡️ Condiciones Ambientales (Edítalas si es necesario)")
+                col_amb1, col_amb2, col_amb3 = st.columns(3)
+                fecha_gen = col_amb1.text_input("Fecha de Prueba", value=fecha_defecto)
+                temp_gen = col_amb2.text_input("Temperatura", value=temp_defecto)
+                hum_gen = col_amb3.text_input("Humedad", value=hum_defecto)
+                
+                st.markdown("#### Configuración de Ubicaciones")
+                bloques_ubicaciones = []
+                
+                for i, dato in enumerate(datos_extraidos_wt):
+                    st.markdown(f"**Ubicación {i+1} (Archivo: {dato['archivo']})**")
+                    c_ub1, c_ub2, c_ub3 = st.columns([1.5, 1.5, 1])
+                    nombre_ub = c_ub1.text_input(f"Nombre de Línea/Área", value=dato['archivo'].replace(".pdf", ""), key=f"nombre_{i}")
+                    tipo_piso = c_ub2.selectbox(f"Tipo de Piso", ["Piso Epóxico ESD", "Loseta Vinílica Conductiva", "Tapete Antifatiga ESD", "Otro"], key=f"piso_{i}")
+                    
+                    # Control interactivo que no se activa por defecto (asigna 'No')
+                    limpieza_chk = c_ub3.checkbox("Limpieza previa", value=False, key=f"limpieza_{i}")
+                    
+                    bloques_ubicaciones.append({
+                        "nombre": nombre_ub, 
+                        "piso": tipo_piso, 
+                        "limpieza": "Sí" if limpieza_chk else "No",
+                        "datos": dato
+                    })
+                    st.write("") 
+
+                # AHORA ESTÁ DENTRO DEL FORMULARIO Y SE ELIMINÓ EL WARNING USANDO width="stretch"
+                submit_reporte = st.form_submit_button("Generar Reporte Consolidado en PDF/HTML", width="stretch")
+                
+                if submit_reporte:
+                    html_ubicaciones = ""
+                    for idx, block in enumerate(bloques_ubicaciones, 1):
+                        data = block['datos']
+                        if data['max_abs'] < 100:
+                            res_text, res_color = "CUMPLE (PASS)", "text-green-600"
+                            obs = "Ninguna anomalía. Los picos se mantuvieron por debajo del límite normativo de 100V."
+                        else:
+                            res_text, res_color = "NO CUMPLE (FAIL)", "text-red-600"
+                            obs = f"ATENCIÓN: Se registró un pico absoluto de {data['max_abs']:.2f}V, superando el límite permitido de 100V. Se requiere limpieza o revisión."
+
+                        img_tag = f'<img src="data:image/png;base64,{data["img_b64"]}" class="max-w-full max-h-full object-contain" alt="Gráfica">' if data['img_b64'] else '<i class="text-gray-400">Sin gráfica disponible</i>'
+
+                        # --- BLOQUES DINÁMICOS DE UBICACIÓN EN TAILWIND ---
+                        html_ubicaciones += f"""
+                        <div class="border-2 border-[#003366] rounded-md p-5 mb-8 [page-break-inside:avoid] print:border-black">
+                            <div class="text-[18px] font-bold text-white bg-[#003366] p-2.5 -mx-5 -mt-5 mb-5 rounded-t-sm print:bg-black">Ubicación {idx}: {block['nombre']}</div>
+                            <table class="w-full text-sm border-collapse mb-5 text-center">
+                                <tr>
+                                    <th class="border border-gray-300 p-2 text-left bg-gray-50 font-bold w-1/4 print:border-black">Tipo de Piso:</th>
+                                    <td class="border border-gray-300 p-2 text-left w-1/4 print:border-black">{block['piso']}</td>
+                                    <th class="border border-gray-300 p-2 text-left bg-gray-50 font-bold w-1/4 print:border-black">Limpieza previa:</th>
+                                    <td class="border border-gray-300 p-2 text-left w-1/4 print:border-black">{block['limpieza']}</td>
+                                </tr>
+                                <tr>
+                                    <th class="border border-gray-300 p-2 text-left bg-gray-50 font-bold print:border-black">Voltaje Máx (Abs):</th>
+                                    <td class="border border-gray-300 p-2 text-left font-mono font-bold print:border-black">{data['max_abs']:.2f} V</td>
+                                    <th class="border border-gray-300 p-2 text-left bg-gray-50 font-bold print:border-black">Promedio de Picos:</th>
+                                    <td class="border border-gray-300 p-2 text-left font-mono print:border-black">{data['promedio_picos']:.2f} V</td>
+                                </tr>
+                            </table>
+                            <div class="w-full h-64 bg-gray-50 border-2 border-dashed border-gray-300 flex items-center justify-center my-5 overflow-hidden print:border-black">
+                                {img_tag}
+                            </div>
+                            <table class="w-full text-sm border-collapse">
+                                <tr>
+                                    <th class="border border-gray-300 p-2 text-left bg-gray-50 font-bold w-1/5 print:border-black">Observaciones:</th>
+                                    <td class="border border-gray-300 p-2 text-left print:border-black">{obs}</td>
+                                    <th class="border border-gray-300 p-2 text-left bg-gray-50 font-bold w-1/5 print:border-black">Resultado Final:</th>
+                                    <td class="border border-gray-300 p-2 text-center font-bold text-base print:border-black {res_color}">{res_text}</td>
+                                </tr>
+                            </table>
+                        </div>
+                        """
+                        
+                    fecha_pie_str = datetime.today().strftime("%Y/%m/%d")
+
+                    # --- PLANTILLA MAESTRA CON TAILWIND CSS ---
+                    html_completo = f"""<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Reporte de Walking Test</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+    @media print {{ body {{ -webkit-print-color-adjust: exact; }} }}
+</style>
+</head>
+<body class="bg-gray-100 p-4 md:p-8 font-sans text-sm print:bg-white print:p-0">
+<div class="max-w-5xl mx-auto mb-6 bg-white p-4 rounded-lg shadow flex justify-end print:hidden">
+    <button onclick="window.print()" class="bg-blue-600 text-white px-6 py-2 rounded font-bold shadow-sm hover:bg-blue-700 transition">🖨️ Imprimir / Guardar PDF</button>
+</div>
+
+<div class="max-w-5xl mx-auto bg-white p-8 shadow-lg print:shadow-none print:p-0">
+    <div class="border-b-4 border-[#003366] pb-4 mb-6 text-center print:border-black">
+        <h1 class="text-2xl font-bold text-[#003366] mb-1 print:text-black">Reporte de Walking Test (Prueba de Caminado)</h1>
+        <p class="text-gray-600 text-sm font-medium">Evaluación de Sistema de Piso y Calzado ESD</p>
+        <p class="text-gray-500 text-xs mt-1"><strong>Estándares aplicables:</strong> ANSI/ESD S20.20 y ANSI/ESD STM97.2</p>
+    </div>
+
+    <h2 class="text-base font-bold text-[#003366] border-b border-gray-300 pb-1 mt-6 mb-3 uppercase tracking-wide print:text-black print:border-black">1. Información General y Condiciones Ambientales</h2>
+    <table class="w-full text-sm border-collapse mb-6">
+        <tr>
+            <th class="border border-gray-300 p-2 bg-gray-50 font-bold w-1/4 print:border-black">Fecha de Prueba:</th>
+            <td class="border border-gray-300 p-2 w-1/4 print:border-black">{fecha_gen}</td>
+            <th class="border border-gray-300 p-2 bg-gray-50 font-bold w-1/4 print:border-black">Periodo:</th>
+            <td class="border border-gray-300 p-2 w-1/4 print:border-black">{periodo_wt}</td>
+        </tr>
+        <tr>
+            <th class="border border-gray-300 p-2 bg-gray-50 font-bold print:border-black">Auditor / Técnico:</th>
+            <td class="border border-gray-300 p-2 print:border-black">{auditor_wt}</td>
+            <th class="border border-gray-300 p-2 bg-gray-50 font-bold print:border-black">Operador de Prueba:</th>
+            <td class="border border-gray-300 p-2 print:border-black">{operador_wt}</td>
+        </tr>
+        <tr>
+            <th class="border border-gray-300 p-2 bg-gray-50 font-bold print:border-black">Temperatura:</th>
+            <td class="border border-gray-300 p-2 print:border-black">{temp_gen}</td>
+            <th class="border border-gray-300 p-2 bg-gray-50 font-bold print:border-black">Humedad:</th>
+            <td class="border border-gray-300 p-2 print:border-black">{hum_gen}</td>
+        </tr>
+    </table>
+
+    <h2 class="text-base font-bold text-[#003366] border-b border-gray-300 pb-1 mt-6 mb-3 uppercase tracking-wide print:text-black print:border-black">2. Equipo de Medición y Sistema Evaluado</h2>
+    <table class="w-full text-sm border-collapse mb-6">
+        <tr>
+            <th class="border border-gray-300 p-2 bg-gray-50 font-bold w-1/4 print:border-black">Equipo Utilizado:</th>
+            <td class="border border-gray-300 p-2 w-1/4 print:border-black">{equipo_wt}</td>
+            <th class="border border-gray-300 p-2 bg-gray-50 font-bold w-1/4 print:border-black">Criterio Aceptación:</th>
+            <td class="border border-gray-300 p-2 w-1/4 font-bold text-[#003366] print:border-black print:text-black">&lt; 100 Voltios (Absoluto)</td>
+        </tr>
+        <tr>
+            <th class="border border-gray-300 p-2 bg-gray-50 font-bold print:border-black">Calzado ESD Evaluado:</th>
+            <td colspan="3" class="border border-gray-300 p-2 print:border-black">{calzado_wt}</td>
+        </tr>
+    </table>
+
+    <h2 class="text-base font-bold text-[#003366] border-b border-gray-300 pb-1 mt-6 mb-4 uppercase tracking-wide print:text-black print:border-black">3. Resultados Consolidados por Ubicación</h2>
+    {html_ubicaciones}
+
+    <div class="flex justify-between mt-12 [page-break-inside:avoid]">
+        <div class="w-[45%] text-center">
+            <div class="border-t border-black mt-10 pt-1.5 text-sm"><strong>Realizado por:</strong><br>{auditor_wt}</div>
+        </div>
+        <div class="w-[45%] text-center">
+            <div class="border-t border-black mt-10 pt-1.5 text-sm"><strong>Revisado / Aprobado por:</strong><br>Coordinador ESD</div>
+        </div>
+    </div>
+
+    <div class="border-t-[3px] border-b-[3px] border-black mt-16 py-1 text-[11px] font-sans [page-break-inside:avoid]">
+        <div class="flex justify-between items-end">
+            <div class="text-left leading-tight">
+                <div>E_310_4_116_QRO_EN_Rev. A</div>
+                <div>Formato de Walking Test.</div>
+            </div>
+            <div class="text-center leading-tight">
+                <div>Fecha: {fecha_pie_str}</div>
+            </div>
+            <div class="text-right leading-tight">
+                <div>Ref.E_310_3_001_QRO_SP</div>
+            </div>
+        </div>
+    </div>
+
+</div>
+</body>
+</html>"""
+                    
+                    b64_html = base64.b64encode(html_completo.encode('utf-8')).decode('utf-8')
+                    nombre_archivo = f"Walking_Test_{fecha_gen.replace('/', '-')}_{periodo_wt.replace(' ', '')}.html"
+                    
+                    st.success("✅ ¡Reporte de Walking Test estandarizado y migrado a Tailwind con éxito!")
+                    href = f'<a href="data:text/html;base64,{b64_html}" download="{nombre_archivo}" target="_blank" style="display: block; text-align: center; padding: 15px; background-color: #003366; color: white; text-decoration: none; border-radius: 8px; font-weight: bold; margin-top: 10px; font-size: 16px;">📥 Descargar Reporte Estandarizado (Tailwind)</a>'
+                    st.markdown(href, unsafe_allow_html=True)
+
+# ==========================================
+# VISTA 5: VALIDACIÓN ESD (SISTEMA INTEGRAL)
+# ==========================================
+elif st.session_state.vista_actual == "Validación" and not st.session_state.modo_lectura:
+    st.markdown("### ✅ Validación Integral de Elementos de Control ESD")
+    st.info("Registro de trazabilidad completa. Selecciona el equipo de medición y el elemento para autocompletar la información.")
+
+    if "val_form_key" not in st.session_state:
+        st.session_state.val_form_key = 0
+
+    # --- CARGAR EQUIPOS DESDE SQL ---
+    try:
+        resp_eq = supabase.table("equipos_medicion").select("*").execute()
+        df_equipos = pd.DataFrame(resp_eq.data)
+        lista_equipos = df_equipos["id_equipo"].dropna().unique().tolist() if not df_equipos.empty else []
+    except:
+        df_equipos = pd.DataFrame()
+        lista_equipos = ["Error de conexión"]
+
+    tab_registro, tab_historial = st.tabs(["📝 Registrar Validación", "🖼️ Visor de Registros"])
+
+    with tab_registro:
+        if "val_success_msg" in st.session_state and st.session_state.val_success_msg:
+            st.success(st.session_state.val_success_msg)
+            st.session_state.val_success_msg = ""
+
+        st.markdown("#### 1. Selección de Parámetros Globales")
+        c_dyn1, c_dyn2, c_dyn3 = st.columns(3)
+        elemento_sel = c_dyn1.selectbox("Elemento S20.20 a validar:", options=list(INFO_ELEMENTOS_ESD.keys()))
+        info = INFO_ELEMENTOS_ESD[elemento_sel]
+        
+        id_equipo_sel = c_dyn2.selectbox("ID del Equipo de Medición:", options=lista_equipos)
+        
+        opciones_magnitud = list(MAPA_UNIDADES.keys())
+        idx_mag = opciones_magnitud.index(info["magnitud"]) if info["magnitud"] in opciones_magnitud else 0
+        magnitud_med = c_dyn3.selectbox("Magnitud Medida:", options=opciones_magnitud, index=idx_mag)
+        unidad_auto = MAPA_UNIDADES.get(magnitud_med, "")
+
+        # Obtener metadata del equipo seleccionado
+        eq_data = {k: "N/D" for k in ["tipo_equipo", "reporte_calibracion", "resolucion", "fabricante", "modelo", "numero_serie", "fecha_proxima_calibracion"]}
+        if not df_equipos.empty and id_equipo_sel in lista_equipos:
+            fila_eq = df_equipos[df_equipos["id_equipo"] == id_equipo_sel]
+            if not fila_eq.empty:
+                eq_data = fila_eq.iloc[0].to_dict()
+
+        with st.form(f"form_validacion_esd_{st.session_state.val_form_key}"):
+            st.markdown("#### 2. Datos del Elemento a Validar")
+            c1, c2 = st.columns([1, 2])
+            id_elemento = c1.text_input("ID del Elemento", placeholder="Ej: SILLA-05")
+            tipo_material = c2.text_input("Tipo de Material", value=info["tipo_material"])
+            
+            c4, c5, c6 = st.columns(3)
+            fab_elem = c4.text_input("Fabricante del Elemento")
+            mod_elem = c5.text_input("Modelo del Elemento")
+            sn_elem = c6.text_input("Número de Serie")
+
+            st.markdown("#### 3. Condiciones Ambientales y Ubicación")
+            c7, c8, c9 = st.columns(3)
+            ubicacion = st.selectbox("Ubicación de Medición (Línea / Área)", options=obtener_catalogo_lineas())
+            temp = c8.text_input("Temperatura", value="23.5 °C")
+            humedad = c9.text_input("Humedad Relativa", value="45 %")
+
+            st.markdown("#### 4. Parámetros y Medición")
+            cm1, cm2, cm3 = st.columns(3)
+            metodo_med = cm1.text_input("Método", value=info["metodo"])
+            modo_med = cm2.text_input("Modo de Medición", placeholder="Ej: RTG")
+            unidad_med = cm3.text_input("Unidad", value=unidad_auto)
+
+            referencia = st.number_input("Límite Permitido (Referencia)", value=float(info["ref_num"]), format="%g")
+
+            # RE-INCORPORAMOS LAS 5 MEDICIONES ORIGINALES
+            st.markdown("##### Resultados")
+            cv1, cv2, cv3, cv4, cv5 = st.columns(5)
+            medicion_1 = cv1.number_input("Medición 1 (Oblig.)", value=0.0, format="%g")
+            med_2 = cv2.number_input("Medición 2 (Opc.)", value=None, format="%g", placeholder="0.0")
+            med_3 = cv3.number_input("Medición 3 (Opc.)", value=None, format="%g", placeholder="0.0")
+            med_4 = cv4.number_input("Medición 4 (Opc.)", value=None, format="%g", placeholder="0.0")
+            med_5 = cv5.number_input("Medición 5 (Opc.)", value=None, format="%g", placeholder="0.0")
+            
+            notas_val = st.text_area("Notas / Observaciones")
+
+            st.markdown("#### 5. Evidencia")
+            col_img1, col_img2 = st.columns(2)
+            imagen_camara = col_img1.camera_input("Foto")
+            imagen_subida = col_img2.file_uploader("Subir imagen", type=["jpg", "png"])
+            imagen_final = imagen_camara if imagen_camara else imagen_subida
+
+            if st.form_submit_button("💾 Evaluar y Guardar Trazabilidad Completa", use_container_width=True):
+                if not id_elemento or not ubicacion or not imagen_final:
+                    st.error("⚠️ ID, Ubicación y Foto son obligatorios.")
+                else:
+                    with st.spinner("Procesando..."):
+                        resultado_calc = "CUMPLE (APROBADO)" if medicion_1 < referencia else "NO CUMPLE (RECHAZADO)"
+                        url_foto = subir_evidencia_storage(imagen_final, id_elemento.upper())
+                        
+                        # EMPAQUETAMOS LAS MEDICIONES EXTRAS
+                        lista_extras = [str(m) for m in [med_2, med_3, med_4, med_5] if pd.notna(m) and m is not None]
+                        mediciones_extra_str = ", ".join(lista_extras)
+
+                        try:
+                            supabase.table("validacion_esd").insert({
+                                "fecha_auditoria": datetime.now().isoformat(),
+                                "auditor": st.session_state.usuario_nombre,
+                                "elemento_s20_20": elemento_sel,
+                                "id_elemento": id_elemento.upper(),
+                                "tipo_material": tipo_material,
+                                "fabricante_elem": fab_elem,
+                                "modelo_elem": mod_elem,
+                                "sn_elem": sn_elem,
+                                "temperatura": temp,
+                                "humedad": humedad,
+                                "ubicacion": ubicacion,
+                                "id_equipo_utilizado": id_equipo_sel,
+                                "tipo_equipo": eq_data.get('tipo_equipo'),
+                                "reporte_cal": eq_data.get('reporte_calibracion'),
+                                "resolucion": eq_data.get('resolucion'),
+                                "fabricante_eq": eq_data.get('fabricante'),
+                                "modelo_eq": eq_data.get('modelo'),
+                                "sn_eq": eq_data.get('numero_serie'),
+                                "fecha_prox_cal": str(eq_data.get('fecha_proxima_calibracion')),
+                                "limite_referencia": float(referencia),
+                                "medicion_1": float(medicion_1) if medicion_1 else None,
+                                "medicion_2": float(med_2) if med_2 is not None else None,
+                                "medicion_3": float(med_3) if med_3 is not None else None,
+                                "medicion_4": float(med_4) if med_4 is not None else None,
+                                "medicion_5": float(med_5) if med_5 is not None else None,
+                                "unidad": unidad_med,
+                                "metodo": metodo_med,
+                                "modo_medicion": modo_med,
+                                "resultado": resultado_calc,
+                                "notas": notas_val,
+                                "imagen_url": url_foto
                             }).execute()
-                            st.success(f"✅ Equipo '{id_eq.upper()}' guardado exitosamente.")
+                            
+                            st.session_state.val_success_msg = f"✅ Guardado. Resultado: {resultado_calc}"
+                            st.session_state.val_form_key += 1
                             st.cache_data.clear()
                             st.rerun()
                         except Exception as e:
-                            st.error(f"⚠️ Error al guardar (¿El ID ya existe?): {e}")
-                    else:
-                        st.error("El ID del equipo es obligatorio.")
-            
-            st.divider()
-            st.markdown("#### 📋 Equipos Registrados")
-            try:
-                resp_eq_list = supabase.table("equipos_medicion").select("id_equipo, tipo_equipo, fabricante, fecha_proxima_calibracion").order("id_equipo").execute()
-                df_eq_list = pd.DataFrame(resp_eq_list.data)
-                if not df_eq_list.empty:
-                    st.dataframe(df_eq_list, use_container_width=True, hide_index=True)
-                else:
-                    st.info("No hay equipos registrados aún.")
-            except Exception as e:
-                st.error(f"Error al cargar equipos: {e}")
+                            st.error(f"Error SQL: {e}")
 
-        # --- PESTAÑA 3: MAQUINARIA / OPERACIONES ---
-        with tab_maquinaria:
-            st.markdown("#### ➕ Asignar Nueva Maquinaria a una Línea")
-            st.info("Pre-registra una máquina u operación. Al guardarla, aparecerá automáticamente como 'PENDIENTE' en los menús de la sección de auditoría de Maquinaria.")
+    with tab_historial:
+        col_h1, col_h2 = st.columns([0.8, 0.2])
+        col_h1.markdown("#### 🗂️ Dashboard de Registros Históricos")
+        if col_h2.button("🔄 Actualizar Datos", use_container_width=True):
+            st.cache_data.clear()
+            st.rerun()
 
-            with st.form("form_nueva_maquinaria_catalogo"):
-                c_m1, c_m2 = st.columns(2)
-                
-                # Leemos directamente del catálogo maestro que alimentas en la primera pestaña
-                lineas_disponibles_cat = obtener_catalogo_lineas()
-                linea_asignada = c_m1.selectbox("1. Línea / Ubicación de destino", options=lineas_disponibles_cat)
-                
-                id_nueva_maq = c_m2.text_input("2. ID de la Maquinaria / Operación", placeholder="Ej: OP50-AUDIO, EOLT-01")
-                
-                c_m3, c_m4 = st.columns(2)
-                clasif_opciones = ["Maquinaria", "EOLT", "AOI", "Ensamble Manual", "Herramienta", "Otro"]
-                clasif_nueva_maq = c_m3.selectbox("3. Clasificación", options=clasif_opciones)
-                
-                if clasif_nueva_maq == "Otro":
-                    clasif_nueva_maq = c_m3.text_input("Especifique clasificación de la máquina")
-                    
-                marca_nueva_maq = c_m4.text_input("4. Marca / Fabricante (Opcional)", value="N/D")
-
-                if st.form_submit_button("💾 Pre-registrar Maquinaria", width="stretch"):
-                    if id_nueva_maq:
-                        id_limpio_maq = str(id_nueva_maq).strip().upper()
-                        
-                        # --- NUEVA VERIFICACIÓN GLOBAL DE DUPLICADOS ---
-                        check_inv_maq = supabase.table("inventario_esd").select("id_producto").eq("id_producto", id_limpio_maq).execute()
-                        check_maq_maq = supabase.table("mediciones_maquinaria").select("id_maquinaria").eq("id_maquinaria", id_limpio_maq).execute()
-                        
-                        if len(check_inv_maq.data) > 0 or len(check_maq_maq.data) > 0:
-                            st.error(f"❌ El ID '{id_nueva_maq}' ya se encuentra registrado en el sistema. Por favor, usa un ID diferente.")
-                        else:
-                            with st.spinner("Registrando..."):
-                                try:
-                                    # Creamos un registro semilla para que la vista de Maquinaria lo detecte
-                                    data_inicial = {
-                                        "linea_ubicacion": linea_asignada,
-                                        "id_maquinaria": id_limpio_maq,
-                                        "clasificacion": clasif_nueva_maq,
-                                        "marca": marca_nueva_maq,
-                                        "status_operativo": "OPERATIVO",
-                                        "frecuencia_verificacion": "Anual",
-                                        "fecha_medicion": datetime.now().isoformat(),
-                                        "auditor": st.session_state.usuario_nombre,
-                                        "resultado_estatus": "PENDIENTE",
-                                        "observaciones": "Pre-registro desde módulo de Catálogos."
-                                    }
-                                    supabase.table("mediciones_maquinaria").insert(data_inicial).execute()
-                                
-                                    st.success(f"✅ Maquinaria '{id_nueva_maq.upper()}' vinculada exitosamente a la línea '{linea_asignada}'.")
-                                    st.balloons()
-                                    time.sleep(1)
-                                    st.cache_data.clear()
-                                    st.rerun()
-                                except Exception as e:
-                                    st.error(f"⚠️ Error al registrar maquinaria: {e}")
-                    else:
-                        st.error("❌ El ID de la maquinaria es obligatorio.")
-        # --- PESTAÑA 4: EXPORTAR BASES DE DATOS ---
-        with tab_exportar:
-            st.markdown("#### 📥 Exportar Bases de Datos a CSV")
-            st.info("Descarga la información completa de tus inventarios y catálogos en formato CSV para realizar respaldos o análisis en Excel.")
-            
-            c_exp1, c_exp2 = st.columns(2)
-            
-            # 1. MOBILIARIO
-            with c_exp1:
-                st.markdown("**🛋️ Inventario de Mobiliario (y Piso)**")
-                if not df_mob_local.empty:
-                    # Convertimos a CSV
-                    csv_mob = df_mob_local.to_csv(index=False).encode('utf-8')
-                    st.download_button(
-                        label="📥 Descargar Mobiliario.csv",
-                        data=csv_mob,
-                        file_name=f"Mobiliario_ESD_{datetime.today().strftime('%Y%m%d')}.csv",
-                        mime="text/csv",
-                        use_container_width=True
-                    )
-                else:
-                    st.warning("No hay datos de Mobiliario disponibles.")
-
-            # 2. IONIZADORES
-            with c_exp2:
-                st.markdown("**⚡ Inventario de Ionizadores**")
-                if not df_ion_local.empty:
-                    csv_ion = df_ion_local.to_csv(index=False).encode('utf-8')
-                    st.download_button(
-                        label="📥 Descargar Ionizadores.csv",
-                        data=csv_ion,
-                        file_name=f"Ionizadores_ESD_{datetime.today().strftime('%Y%m%d')}.csv",
-                        mime="text/csv",
-                        use_container_width=True
-                    )
-                else:
-                    st.warning("No hay datos de Ionizadores disponibles.")
-            
-            st.write("") # Espaciador
-            c_exp3, c_exp4 = st.columns(2)
-
-            # 3. EQUIPOS DE MEDICIÓN
-            with c_exp3:
-                st.markdown("**🛠️ Catálogo de Equipos de Medición**")
-                try:
-                    # Hacemos una consulta fresca para traer todos los equipos
-                    resp_eq_exp = supabase.table("equipos_medicion").select("*").execute()
-                    df_eq_exp = pd.DataFrame(resp_eq_exp.data)
-                    
-                    if not df_eq_exp.empty:
-                        csv_eq = df_eq_exp.to_csv(index=False).encode('utf-8')
-                        st.download_button(
-                            label="📥 Descargar Equipos.csv",
-                            data=csv_eq,
-                            file_name=f"Equipos_Medicion_{datetime.today().strftime('%Y%m%d')}.csv",
-                            mime="text/csv",
-                            use_container_width=True
-                        )
-                    else:
-                        st.warning("No hay equipos registrados.")
-                except Exception as e:
-                    st.error(f"Error al obtener equipos: {e}")
-
-            # 4. MAQUINARIA
-            with c_exp4:
-                st.markdown("**🏭 Historial de Maquinaria**")
-                try:
-                    # Traemos todo el histórico de maquinaria
-                    resp_maq_exp = supabase.table("mediciones_maquinaria").select("*").order("fecha_medicion", desc=True).execute()
-                    df_maq_exp = pd.DataFrame(resp_maq_exp.data)
-                    
-                    if not df_maq_exp.empty:
-                        csv_maq = df_maq_exp.to_csv(index=False).encode('utf-8')
-                        st.download_button(
-                            label="📥 Descargar Maquinaria.csv",
-                            data=csv_maq,
-                            file_name=f"Maquinaria_ESD_{datetime.today().strftime('%Y%m%d')}.csv",
-                            mime="text/csv",
-                            use_container_width=True
-                        )
-                    else:
-                        st.warning("No hay registros de Maquinaria.")
-                except Exception as e:
-                    st.error(f"Error al obtener maquinaria: {e}")
-                    
-    # ==========================================
-    # VISTA 7: LÍNEAS DE PRODUCCIÓN Y MAQUINARIA
-    # ==========================================
-    elif st.session_state.vista_actual == "Maquinaria" and not st.session_state.modo_lectura:
-        st.markdown("### 🏭 Control de Maquinaria en Líneas de Producción")
-        
-        # 1. Obtenemos datos directamente de la tabla mediciones_maquinaria para los desplegables e histórico
         try:
-            resp_med = supabase.table("mediciones_maquinaria").select("*").order("fecha_medicion", desc=True).execute()
-            df_med_maq = pd.DataFrame(resp_med.data)
-        except Exception:
-            df_med_maq = pd.DataFrame()
-
-        # Extraer líneas y clasificaciones únicas basadas exclusivamente en las mediciones registradas
-        if not df_med_maq.empty and 'linea_ubicacion' in df_med_maq.columns:
-            lineas_disp = sorted([str(x).strip() for x in df_med_maq['linea_ubicacion'].dropna().unique() if str(x).strip() != ''])
+            resp_val = supabase.table("validacion_esd").select("*").limit(10000).execute()
+            df_val = pd.DataFrame(resp_val.data)
             
-            if 'clasificacion' in df_med_maq.columns:
-                clasificaciones_dinamicas = sorted([str(x).strip() for x in df_med_maq['clasificacion'].dropna().unique() if str(x).strip() not in ['None', 'nan', '']])
+            if df_val.empty:
+                st.info("Aún no hay registros.")
             else:
-                clasificaciones_dinamicas = ["Maquinaria"]
-        else:
-            lineas_disp = ["Sin registros previos"]
-            clasificaciones_dinamicas = ["Maquinaria"]
+                df_val = df_val.sort_values('fecha_auditoria', ascending=False)
 
-        if not clasificaciones_dinamicas:
-            clasificaciones_dinamicas = ["Maquinaria"]
-
-        # SECCIÓN A: SELECCIÓN DE LÍNEA Y VISUALIZACIÓN DEL REGISTRO ANTERIOR
-        st.markdown("#### 🔍 Consulta de Mediciones Anteriores")
-        linea_sel = st.selectbox("1. Selecciona Línea / Ubicación para revisar historial", options=lineas_disp)
-
-        # Filtrar el histórico de la línea seleccionada
-        if not df_med_maq.empty and linea_sel != "Sin registros previos":
-            df_historico_linea = df_med_maq[df_med_maq['linea_ubicacion'] == linea_sel].copy()
-            
-            if not df_historico_linea.empty:
-                st.markdown(f"**Historial de operaciones en la línea {linea_sel}:**")
-                
-                df_mostrar = pd.DataFrame()
-                df_mostrar["Operación / ID"] = df_historico_linea.get("id_maquinaria", pd.Series(dtype=str))
-                df_mostrar["Clasificación"] = df_historico_linea.get("clasificacion", pd.Series(dtype=str))
-                
-                # Aplicar formato condicional a la resistencia (2 decimales si es < 10, exponencial si es mayor)
-                def formatear_resistencia(val):
-                    try:
-                        v = float(val)
-                        return f"{v:.2f} Ω" if v < 10 else f"{v:.2E} Ω"
-                    except:
-                        return "N/D"
-                
-                if "resistencia_tierra" in df_historico_linea.columns:
-                    df_mostrar["Resistencia Tierra"] = df_historico_linea["resistencia_tierra"].apply(formatear_resistencia)
-                else:
-                    df_mostrar["Resistencia Tierra"] = "N/D"
-
-                df_mostrar["Estatus Red"] = df_historico_linea.get("tomacorriente_estatus", "N/A")
-                
-                if "campo_estatico_voltaje" in df_historico_linea.columns:
-                    df_mostrar["Campo Estático"] = df_historico_linea["campo_estatico_voltaje"].astype(str) + " V"
-                else:
-                    df_mostrar["Campo Estático"] = "0.0 V"
-                
-                # Ajustado para leer la nueva estructura homologada de estatus dinámicos
-                df_mostrar["Estatus Final"] = df_historico_linea.get("resultado_estatus", "PENDIENTE")
-                df_mostrar["Frecuencia"] = df_historico_linea.get("frecuencia_verificacion", "Anual")
-                
-                # Formatear la fecha para que sea legible de forma segura
-                if "fecha_medicion" in df_historico_linea.columns:
-                    df_mostrar["Fecha Medición"] = pd.to_datetime(df_historico_linea["fecha_medicion"]).dt.strftime('%d-%b-%Y %H:%M')
-                else:
-                    df_mostrar["Fecha Medición"] = "N/D"
+                for index, row in df_val.iterrows():
+                    res = safe_str(row.get('resultado', ''))
+                    icono = "🟢" if "CUMPLE" in res.upper() else "🔴"
+                    fecha_corta = str(row.get('fecha_auditoria'))[:10]
                     
-                df_mostrar["Auditor"] = df_historico_linea.get("auditor", "N/D")
-
-                # Limpieza final de NaN
-                df_mostrar = df_mostrar.fillna("N/D")
-
-                st.dataframe(df_mostrar, use_container_width=True, hide_index=True)
-            else:
-                st.info(f"No se encontraron mediciones previas grabadas en la línea {linea_sel}.")
-        else:
-            st.info("No hay registros históricos disponibles en este momento.")
-
-        st.divider()
-
-        # SECCIÓN B: ACCIÓN DE ACTUALIZAR VALIDACIÓN / NUEVA MEDICIÓN
-        st.markdown("#### ➕ Registrar / Actualizar Validación de la Línea")
-        
-        tab_individual, tab_lote = st.tabs(["📝 Captura Individual", "🚀 Auditoría Rápida por Línea (Lote)"])
-        
-        # Obtenemos las máquinas de la línea seleccionada (para ambas pestañas)
-        maquinas_en_linea = []
-        if not df_med_maq.empty and linea_sel != "Sin registros previos" and 'id_maquinaria' in df_med_maq.columns:
-            df_filtrado = df_med_maq[df_med_maq['linea_ubicacion'] == linea_sel]
-            maquinas_en_linea = sorted([str(x).strip() for x in df_filtrado['id_maquinaria'].dropna().unique() if str(x).strip() != ''])
-
-        with tab_individual:
-            if not maquinas_en_linea:
-                maquina_sel = st.text_input("Ingresa el ID de la maquinaria manualmente para iniciar registro:")
-            else:
-                maquina_sel = st.selectbox("Selecciona la Maquinaria específica", options=maquinas_en_linea)
-
-            if maquina_sel:
-            # Consultamos el Inventario Maestro solo para traer los límites técnicos fijos
-                info_maq = {}
-                limite_fijo = 1.0e9
-                marca_defecto = ""
-                clasif_defecto = clasificaciones_dinamicas[0]
-
-                if 'df_inv_full' in locals() and not df_inv_full.empty:
-                    df_inv_filtrado = df_inv_full[df_inv_full['Id de producto'] == maquina_sel]
-                    if not df_inv_filtrado.empty:
-                        info_maq = df_inv_filtrado.iloc[0]
-                        limite_fijo = float(info_maq.get('Maximo', 1.0e9))
-                        marca_defecto = str(info_maq.get('Marca', ''))
-                    
-                        val_clasif = str(info_maq.get('Clasificación', ''))
-                        if val_clasif in clasificaciones_dinamicas:
-                            clasif_defecto = val_clasif
-
-                try:
-                    idx_clasif = clasificaciones_dinamicas.index(clasif_defecto)
-                except ValueError:
-                    idx_clasif = 0
-
-                st.markdown(f"##### 📝 Nueva captura para la estación: `{maquina_sel}`")
-            
-                with st.form("form_medicion_maquinaria"):
-                    c_eq1, c_eq2, c_eq3 = st.columns(3)
-                    clasificacion_maq = c_eq1.selectbox("Clasificación", options=clasificaciones_dinamicas, index=idx_clasif)
-                    marca_maq = c_eq2.text_input("Marca / Fabricante", value=marca_defecto)
-                    status_maq = c_eq3.selectbox("Estatus Operativo Actual", ["OPERATIVO", "NO OPERATIVO", "MANTENIMIENTO"])
-                
-                    c_amb1, c_amb2, c_amb3 = st.columns(3)
-                    temperatura_maq = c_amb1.text_input("Temperatura", value="23.5 °C")
-                    humedad_maq = c_amb2.text_input("Humedad Relativa", value="45 %")
-                    frecuencia_maq = c_amb3.selectbox("Frecuencia de Verificación", ["Anual", "Semestral", "Trimestral", "Mensual"], index=0)
-
-                    st.markdown("---")
-                    st.markdown("##### ⚡ 1. Resistencia a Tierra")
-                    col_r1, col_r2 = st.columns(2)
-                
-                    # Inicializar de forma segura el valor en el session_state si no existe
-                    if "resistencia_maq_val" not in st.session_state:
-                        st.session_state.resistencia_maq_val = 0.0
-
-                    # SOLUCIÓN AL ERR0R: Validamos el formato usando el session_state existente para evitar ciclos
-                    formato_dinamico = "%.2f" if st.session_state.resistencia_maq_val < 10.0 else "%.2e"
-                    step_dinamico = 0.01 if st.session_state.resistencia_maq_val < 10.0 else 1.0
-
-                    resistencia = col_r1.number_input(
-                        "Valor de Resistencia (Ohms)", 
-                        min_value=0.0, 
-                        max_value=1e12, 
-                        value=st.session_state.resistencia_maq_val,
-                        step=step_dinamico,
-                        format=formato_dinamico
-                    )
-                    # Sincronizar el valor modificado para el siguiente refresco de la app
-                    st.session_state.resistencia_maq_val = resistencia
-
-                    col_r2.text_input("Límite Máximo Permitido (Referencia Fija)", value=f"{limite_fijo:.2e}", disabled=True)
-                
-                    # Validación automática visual e interna PASA / FALLA
-                    resultado_auto = "PASA" if resistencia <= limite_fijo else "FALLA"
-                    if resultado_auto == "FALLA":
-                        st.error(f"❌ RESULTADO EVALUACIÓN: FALLA (Resistencia {resistencia:.2e} excede el límite de {limite_fijo:.2e})")
-                    else:
-                        st.success(f"✅ RESULTADO EVALUACIÓN: PASA")
-
-                    st.markdown("##### 🔌 2. Tomacorriente (Opcional)")
-                    col_t1, col_t2 = st.columns(2)
-                    aplica_toma = col_t1.checkbox("Aplica medición a la red", value=True)
-                    estado_toma = "N/A"
-                    comentario_toma = ""
-                    if aplica_toma:
-                        estado_toma = col_t1.radio("Estatus de Conexión", ["PASA", "FALLA"], horizontal=True)
-                        if estado_toma == "FALLA":
-                            comentario_toma = col_t2.text_input("Comentario de Falla (Requerido)", placeholder="Ej: Polaridad invertida...")
-
-                    st.markdown("##### 🧲 3. Medición de Campo Electrostático")
-                    c_campo1, c_campo2 = st.columns(2)
-                    voltaje_campo = c_campo1.number_input("Voltaje Detectado (V)", min_value=0.0, format="%.2f", step=1.0)
-                    comentario_campo = ""
-                    if voltaje_campo > 0:
-                        comentario_campo = c_campo2.text_input("Ubicación de la carga (Requerido)", placeholder="Ej: En la banda...")
-                
-                    obs_maq = st.text_area("Notas / Observaciones Generales")
-                
-                    submit_maq = st.form_submit_button("💾 Guardar Nueva Validación en Historial", use_container_width=True)
-                
-                    if submit_maq:
-                        if aplica_toma and estado_toma == "FALLA" and not comentario_toma.strip():
-                            st.error("⚠️ Debes escribir un comentario justificando la falla del tomacorriente.")
-                        elif voltaje_campo > 0 and not comentario_campo.strip():
-                            st.error("⚠️ Como detectaste voltaje, debes indicar dónde se encontró la carga electrostática.")
-                        else:
-                            with st.spinner("Actualizando registro transaccional en SQL..."):
-                                try:
-                                    fecha_hoy = datetime.today().date()
-                                    proxima_fecha = calcular_proxima_fecha(fecha_hoy, frecuencia_maq)
-
-                                    # Implementación de la nueva lógica de negocio
-                                    if resistencia is None or resistencia == 0.0: 
-                                    # Si dejas la resistencia vacía o en 0 en el number_input
-                                        estatus_calculado = "PENDIENTE"
-                                    elif proxima_fecha < fecha_hoy:
-                                        estatus_calculado = "VENCIDO"
-                                    else:
-                                        estatus_calculado = "VIGENTE"
-                                
-                                    data_insert = {
-                                        "linea_ubicacion": linea_sel,
-                                        "id_maquinaria": maquina_sel,
-                                        "clasificacion": clasificacion_maq,
-                                        "marca": marca_maq,
-                                        "status_operativo": status_maq,
-                                        "temperatura": temperatura_maq,
-                                        "humedad":  humedad_maq,
-                                        "frecuencia_verificacion": "Anual",              # Forzado a "Anual" como solicitaste
-                                        "fecha_proxima": proxima_fecha.isoformat(),
-                                        "resistencia_tierra": float(resistencia) if resistencia > 0 else None,
-                                        "resistencia_max": limite_fijo, 
-                                        "tomacorriente_aplica": aplica_toma,
-                                        "tomacorriente_estatus": estado_toma,
-                                        "tomacorriente_comentario": comentario_toma,
-                                        "campo_estatico_voltaje": float(voltaje_campo),
-                                        "campo_estatico_comentario": comentario_campo,
-                                        "observaciones": obs_maq,
-                                        "fecha_medicion": datetime.now().isoformat(),
-                                        "auditor": st.session_state.usuario_nombre,
-                                        "resultado_estatus": estatus_calculado           # Tu nueva lógica automatizada
-                                    }
-                                
-                                    supabase.table("mediciones_maquinaria").insert(data_insert).execute()
-                                
-                                    st.success(f"✅ ¡Medición guardada! Próxima verificación calculada para: {proxima_fecha.strftime('%d-%b-%Y')}")
-                                    st.balloons()
-                                    time.sleep(1)
-                                    st.cache_data.clear()
-                                    st.rerun()
-                                except Exception as e:
-                                    st.error(f"Error al guardar: {e}")
-    
-        # ==========================================
-        # MODO 2: CAPTURA EN LOTE (RESPONSIVA PARA TABLET/MÓVIL)
-        # ==========================================
-        with tab_lote:
-            st.info("💡 **Modo Rápido Móvil/Tablet:** Despliega cada estación para registrar sus datos. Las columnas se adaptarán a tu pantalla. Al finalizar, presiona el botón al fondo para guardar toda la línea.")
-            
-            if not maquinas_en_linea:
-                st.warning("Selecciona una línea con máquinas registradas previamente para usar el modo en lote.")
-            else:
-                with st.form("form_lote_movil"):
-                    # Diccionario para almacenar los inputs temporales de cada máquina
-                    resultados_lote = {}
-                    
-                    for i, maq in enumerate(maquinas_en_linea):
-                        # Extraer clasificación histórica si existe
-                        clasif = "Maquinaria"
-                        if not df_filtrado[df_filtrado['id_maquinaria'] == maq].empty:
-                            clasif = df_filtrado[df_filtrado['id_maquinaria'] == maq].iloc[0].get('clasificacion', 'Maquinaria')
+                    with st.expander(f"{icono} {fecha_corta} | {row.get('id_elemento')} ({row.get('elemento_s20_20')}) - {row.get('ubicacion')}"):
+                        c_det1, c_det2, c_det3, c_img = st.columns([1, 1, 1, 1.5])
                         
-                        # Expandir solo el primer elemento por defecto para no abrumar la pantalla
-                        with st.expander(f"⚙️ {maq} ({clasif})", expanded=(i == 0)):
-                            # En tablet se ven en fila, en teléfono se apilan en columna
-                            col_t, col_r, col_c = st.columns(3)
-                            
-                            toma_val = col_t.selectbox(
-                                "1. Tomacorriente", 
-                                ["PASA", "FALLA", "N/A"], 
-                                key=f"toma_{maq}"
-                            )
-                            
-                            res_val = col_r.number_input(
-                                "2. Res. Tierra (Ω)", 
-                                min_value=0.0, step=0.1, format="%.2e", 
-                                key=f"res_{maq}"
-                            )
-                            
-                            campo_val = col_c.number_input(
-                                "3. Campo Est. (V)", 
-                                min_value=0.0, step=1.0, format="%.1f", 
-                                key=f"camp_{maq}"
-                            )
-                            
-                            notas_val = st.text_input(f"Observaciones para {maq} (opcional)", key=f"not_{maq}")
-                            
-                            # Guardamos en el diccionario usando el ID de la máquina como llave
-                            resultados_lote[maq] = {
-                                "clasificacion": clasif,
-                                "tomacorriente": toma_val,
-                                "resistencia": res_val,
-                                "campo": campo_val,
-                                "notas": notas_val
-                            }
+                        with c_det1:
+                            st.markdown("##### 📦 Elemento")
+                            st.write(f"**ID:** {row.get('id_elemento')}")
+                            st.write(f"**Fabricante:** {row.get('fabricante_elem')}")
+                            st.write(f"**Modelo:** {row.get('modelo_elem')}")
+                            st.write(f"**Material:** {row.get('tipo_material')}")
+                        
+                        with c_det2:
+                            st.markdown("##### 🛠️ Trazabilidad")
+                            st.write(f"**Equipo:** {row.get('id_equipo_utilizado')}")
+                            st.write(f"**Certificado:** {row.get('reporte_cal')}")
+                            st.write(f"**Próx. Cal:** {row.get('fecha_prox_cal')}")
+                        
+                        with c_det3:
+                            st.markdown("##### 📊 Resultados")
+                            st.write(f"**Medición:** {row.get('medicion_1')} {row.get('unidad')}")
+                            st.write(f"**Límite:** < {row.get('limite_referencia')}")
+                            st.write(f"**Resultado:** {res}")
 
-                    st.divider()
-                    # Botón grande y fácil de presionar en móviles
-                    submit_lote = st.form_submit_button("💾 Procesar y Guardar Línea Completa", use_container_width=True)
+                        with c_img:
+                            url = row.get('imagen_url')
+                            if url and url.startswith('http'):
+                                st.image(url, use_container_width=True)
+                            else:
+                                st.warning("Sin imagen")
+
+                        st.divider()
+                        # GENERADOR DE REPORTE CON FORMATO COMPLETO
+                        html_reporte = generar_html_reporte_completo(row, index)
+                        b64_html = base64.b64encode(html_reporte.encode('utf-8')).decode('utf-8')
+                        
+                        # --- NUEVA LÓGICA DE NOMENCLATURA CON ID REAL ---
+                        db_id = row.get('id', index)
+                        try:
+                            db_id = int(db_id)
+                        except:
+                            db_id = index
+                            
+                        año_actual_rep = datetime.today().strftime("%y")
+                        nombre_oficial = f"BCS-PV-{db_id:03d}-{año_actual_rep}"
+                        
+                        st.markdown(
+                            f'<a href="data:text/html;base64,{b64_html}" download="{nombre_oficial}.html" '
+                            f'style="display: block; width: 100%; text-align: center; padding: 12px; '
+                            f'background-color: #2563eb; color: white; text-decoration: none; border-radius: 8px; font-weight: bold;">'
+                            f'📥 Descargar Reporte Original Completo</a>', 
+                            unsafe_allow_html=True
+                        )
+        except Exception as e:
+            st.error(f"Error cargando historial: {e}")
+
+# ==========================================
+# VISTA 6: AJUSTES (CATÁLOGOS MAESTROS)
+# ==========================================
+elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_lectura:
+    st.markdown("### ⚙️ Ajustes del Sistema (Catálogos)")
+    st.info("Administra de forma centralizada las Líneas/Ubicaciones y los Equipos de Medición para que estén disponibles en todos los módulos de captura.")
+
+    tab_ubicaciones, tab_equipos, tab_maquinaria, tab_exportar = st.tabs(["📍 Líneas y Ubicaciones", "🛠️ Equipos de Medición", "🏭 Maquinaria (Operaciones)", "💾 Exportar Datos"])
+
+# --- PESTAÑA 1: UBICACIONES ---
+    with tab_ubicaciones:
+        # Panel de herramientas automáticas (Migración del Historial)
+        st.markdown("#### 🔄 Herramientas de Inicialización")
+        st.caption("Utiliza esta utilidad para escanear de forma automática tus registros anteriores e inicializar el catálogo de líneas.")
+        
+        if st.button("🔍 Escanear e Importar Líneas del Historial Automáticamente", width="stretch"):
+            with st.spinner("Analizando base de datos histórica..."):
+                insertados, totales = ejecutar_automigracion_lineas()
+                if totales > 0:
+                    st.success(f"🎉 ¡Migración completada con éxito! Se detectaron {totales} líneas únicas. Se registraron {insertados} nuevas ubicaciones que no existían en el catálogo.")
+                else:
+                    st.info("No se detectaron líneas nuevas o el historial se encuentra vacío.")
+                st.cache_data.clear()
+                st.rerun()
+        
+        st.divider()
+        
+        # Formulario manual y visualización
+        col_u1, col_u2 = st.columns([1, 1])
+        
+        with col_u1:
+            st.markdown("#### ➕ Agregar Nueva Ubicación Manual")
+            with st.form("form_nueva_ubicacion"):
+                nueva_ub = st.text_input("Nombre de la Línea o Ubicación", placeholder="Ej: SMT 1, CR3, Metrology Lab")
+                if st.form_submit_button("💾 Guardar Ubicación", width="stretch"):
+                    if nueva_ub:
+                        try:
+                            supabase.table("catalogo_lineas").insert({"nombre_linea": nueva_ub.strip().upper()}).execute()
+                            st.success(f"✅ Ubicación '{nueva_ub.upper()}' guardada.")
+                            st.cache_data.clear()
+                            st.rerun()
+                        except Exception as e:
+                            st.error("⚠️ Error (¿Quizás la ubicación ya existe?).")
+                    else:
+                        st.error("El nombre no puede estar vacío.")
+        
+        with col_u2:
+            st.markdown("#### 📋 Ubicaciones en el Catálogo Maestro")
+            try:
+                resp_ub = supabase.table("catalogo_lineas").select("nombre_linea").order("nombre_linea").execute()
+                df_ub = pd.DataFrame(resp_ub.data)
+                if not df_ub.empty:
+                    st.dataframe(df_ub, use_container_width=True, hide_index=True)
+                else:
+                    st.info("No hay ubicaciones registradas aún.")
+            except Exception as e:
+                st.error(f"Error al cargar ubicaciones: {e}")
+
+    # --- PESTAÑA 2: EQUIPOS DE MEDICIÓN ---
+    with tab_equipos:
+        st.markdown("#### ➕ Agregar Nuevo Equipo de Medición")
+        with st.form("form_nuevo_equipo"):
+            c_eq1, c_eq2, c_eq3 = st.columns(3)
+            id_eq = c_eq1.text_input("ID del Equipo (Obligatorio)", placeholder="Ej: BCS-QRO-LAB-01")
+            tipo_eq = c_eq2.text_input("Tipo de Equipo", placeholder="Ej: Medidor de Resistencia")
+            rep_cal = c_eq3.text_input("Reporte de Calibración")
+            
+            c_eq4, c_eq5, c_eq6 = st.columns(3)
+            res_eq = c_eq4.text_input("Resolución / Alcance")
+            fab_eq = c_eq5.text_input("Fabricante")
+            mod_eq = c_eq6.text_input("Modelo")
+            
+            c_eq7, c_eq8 = st.columns(2)
+            sn_eq = c_eq7.text_input("Número de Serie")
+            venc_cal = c_eq8.date_input("Fecha de Próxima Calibración")
+            
+            if st.form_submit_button("💾 Guardar Equipo", width="stretch"):
+                if id_eq:
+                    try:
+                        supabase.table("equipos_medicion").insert({
+                            "id_equipo": id_eq.strip().upper(),
+                            "tipo_equipo": tipo_eq,
+                            "reporte_calibracion": rep_cal,
+                            "resolucion": res_eq,
+                            "fabricante": fab_eq,
+                            "modelo": mod_eq,
+                            "numero_serie": sn_eq,
+                            "fecha_proxima_calibracion": str(venc_cal)
+                        }).execute()
+                        st.success(f"✅ Equipo '{id_eq.upper()}' guardado exitosamente.")
+                        st.cache_data.clear()
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"⚠️ Error al guardar (¿El ID ya existe?): {e}")
+                else:
+                    st.error("El ID del equipo es obligatorio.")
+        
+        st.divider()
+        st.markdown("#### 📋 Equipos Registrados")
+        try:
+            resp_eq_list = supabase.table("equipos_medicion").select("id_equipo, tipo_equipo, fabricante, fecha_proxima_calibracion").order("id_equipo").execute()
+            df_eq_list = pd.DataFrame(resp_eq_list.data)
+            if not df_eq_list.empty:
+                st.dataframe(df_eq_list, use_container_width=True, hide_index=True)
+            else:
+                st.info("No hay equipos registrados aún.")
+        except Exception as e:
+            st.error(f"Error al cargar equipos: {e}")
+
+    # --- PESTAÑA 3: MAQUINARIA / OPERACIONES ---
+    with tab_maquinaria:
+        st.markdown("#### ➕ Asignar Nueva Maquinaria a una Línea")
+        st.info("Pre-registra una máquina u operación. Al guardarla, aparecerá automáticamente como 'PENDIENTE' en los menús de la sección de auditoría de Maquinaria.")
+
+        with st.form("form_nueva_maquinaria_catalogo"):
+            c_m1, c_m2 = st.columns(2)
+            
+            # Leemos directamente del catálogo maestro que alimentas en la primera pestaña
+            lineas_disponibles_cat = obtener_catalogo_lineas()
+            linea_asignada = c_m1.selectbox("1. Línea / Ubicación de destino", options=lineas_disponibles_cat)
+            
+            id_nueva_maq = c_m2.text_input("2. ID de la Maquinaria / Operación", placeholder="Ej: OP50-AUDIO, EOLT-01")
+            
+            c_m3, c_m4 = st.columns(2)
+            clasif_opciones = ["Maquinaria", "EOLT", "AOI", "Ensamble Manual", "Herramienta", "Otro"]
+            clasif_nueva_maq = c_m3.selectbox("3. Clasificación", options=clasif_opciones)
+            
+            if clasif_nueva_maq == "Otro":
+                clasif_nueva_maq = c_m3.text_input("Especifique clasificación de la máquina")
+                
+            marca_nueva_maq = c_m4.text_input("4. Marca / Fabricante (Opcional)", value="N/D")
+
+            if st.form_submit_button("💾 Pre-registrar Maquinaria", width="stretch"):
+                if id_nueva_maq:
+                    id_limpio_maq = str(id_nueva_maq).strip().upper()
                     
-                    if submit_lote:
-                        with st.spinner("Registrando auditoría masiva en SQL..."):
-                            errores = 0
-                            fecha_hoy = datetime.today().isoformat()
-                            proxima_fecha = (datetime.today().date() + relativedelta(years=1)).isoformat() # Asumiendo frecuencia anual
-                            limite_fijo = 1.0e9 # Límite estándar, se puede conectar a tu diccionario
-                            
-                            for maq_id, datos in resultados_lote.items():
-                                res = float(datos["resistencia"])
-                                
-                                # Calcular estatus
-                                if res == 0.0:
-                                    estatus_calculado = "PENDIENTE"
-                                elif res <= limite_fijo and datos["tomacorriente"] != "FALLA":
-                                    estatus_calculado = "VIGENTE"
-                                else:
-                                    estatus_calculado = "FALLA"
-
-                                data_insert = {
-                                    "linea_ubicacion": linea_sel,
-                                    "id_maquinaria": maq_id.strip().upper(),
-                                    "clasificacion": datos["clasificacion"],
-                                    "marca": "N/D",
+                    # --- NUEVA VERIFICACIÓN GLOBAL DE DUPLICADOS ---
+                    check_inv_maq = supabase.table("inventario_esd").select("id_producto").eq("id_producto", id_limpio_maq).execute()
+                    check_maq_maq = supabase.table("mediciones_maquinaria").select("id_maquinaria").eq("id_maquinaria", id_limpio_maq).execute()
+                    
+                    if len(check_inv_maq.data) > 0 or len(check_maq_maq.data) > 0:
+                        st.error(f"❌ El ID '{id_nueva_maq}' ya se encuentra registrado en el sistema. Por favor, usa un ID diferente.")
+                    else:
+                        with st.spinner("Registrando..."):
+                            try:
+                                # Creamos un registro semilla para que la vista de Maquinaria lo detecte
+                                data_inicial = {
+                                    "linea_ubicacion": linea_asignada,
+                                    "id_maquinaria": id_limpio_maq,
+                                    "clasificacion": clasif_nueva_maq,
+                                    "marca": marca_nueva_maq,
                                     "status_operativo": "OPERATIVO",
-                                    "temperatura": "23.5 °C", 
-                                    "humedad": "45 %",
                                     "frecuencia_verificacion": "Anual",
-                                    "fecha_proxima": proxima_fecha,
-                                    "resistencia_tierra": res if res > 0 else None,
-                                    "resistencia_max": limite_fijo, 
-                                    "tomacorriente_aplica": datos["tomacorriente"] != "N/A",
-                                    "tomacorriente_estatus": datos["tomacorriente"] if datos["tomacorriente"] != "N/A" else None,
-                                    "campo_estatico_voltaje": float(datos["campo"]),
-                                    "observaciones": datos["notas"],
-                                    "fecha_medicion": fecha_hoy,
+                                    "fecha_medicion": datetime.now().isoformat(),
                                     "auditor": st.session_state.usuario_nombre,
-                                    "resultado_estatus": estatus_calculado
+                                    "resultado_estatus": "PENDIENTE",
+                                    "observaciones": "Pre-registro desde módulo de Catálogos."
                                 }
-                                
-                                try:
-                                    supabase.table("mediciones_maquinaria").insert(data_insert).execute()
-                                except Exception as e:
-                                    errores += 1
-                                    st.write(f"Error oculto en {maq_id}: {e}") # Útil para debug
+                                supabase.table("mediciones_maquinaria").insert(data_inicial).execute()
                             
-                            if errores == 0:
-                                st.success(f"✅ ¡Auditoría masiva completada para {len(resultados_lote)} estaciones en {linea_sel}!")
+                                st.success(f"✅ Maquinaria '{id_nueva_maq.upper()}' vinculada exitosamente a la línea '{linea_asignada}'.")
                                 st.balloons()
-                                time.sleep(1.5)
+                                time.sleep(1)
                                 st.cache_data.clear()
                                 st.rerun()
-                            else:
-                                st.warning(f"Se procesaron los registros, pero hubo {errores} errores en la inserción.")
+                            except Exception as e:
+                                st.error(f"⚠️ Error al registrar maquinaria: {e}")
+                else:
+                    st.error("❌ El ID de la maquinaria es obligatorio.")
+    # --- PESTAÑA 4: EXPORTAR BASES DE DATOS ---
+    with tab_exportar:
+        st.markdown("#### 📥 Exportar Bases de Datos a CSV")
+        st.info("Descarga la información completa de tus inventarios y catálogos en formato CSV para realizar respaldos o análisis en Excel.")
+        
+        c_exp1, c_exp2 = st.columns(2)
+        
+        # 1. MOBILIARIO
+        with c_exp1:
+            st.markdown("**🛋️ Inventario de Mobiliario (y Piso)**")
+            if not df_mob_local.empty:
+                # Convertimos a CSV
+                csv_mob = df_mob_local.to_csv(index=False).encode('utf-8')
+                st.download_button(
+                    label="📥 Descargar Mobiliario.csv",
+                    data=csv_mob,
+                    file_name=f"Mobiliario_ESD_{datetime.today().strftime('%Y%m%d')}.csv",
+                    mime="text/csv",
+                    use_container_width=True
+                )
+            else:
+                st.warning("No hay datos de Mobiliario disponibles.")
+
+        # 2. IONIZADORES
+        with c_exp2:
+            st.markdown("**⚡ Inventario de Ionizadores**")
+            if not df_ion_local.empty:
+                csv_ion = df_ion_local.to_csv(index=False).encode('utf-8')
+                st.download_button(
+                    label="📥 Descargar Ionizadores.csv",
+                    data=csv_ion,
+                    file_name=f"Ionizadores_ESD_{datetime.today().strftime('%Y%m%d')}.csv",
+                    mime="text/csv",
+                    use_container_width=True
+                )
+            else:
+                st.warning("No hay datos de Ionizadores disponibles.")
+        
+        st.write("") # Espaciador
+        c_exp3, c_exp4 = st.columns(2)
+
+        # 3. EQUIPOS DE MEDICIÓN
+        with c_exp3:
+            st.markdown("**🛠️ Catálogo de Equipos de Medición**")
+            try:
+                # Hacemos una consulta fresca para traer todos los equipos
+                resp_eq_exp = supabase.table("equipos_medicion").select("*").execute()
+                df_eq_exp = pd.DataFrame(resp_eq_exp.data)
+                
+                if not df_eq_exp.empty:
+                    csv_eq = df_eq_exp.to_csv(index=False).encode('utf-8')
+                    st.download_button(
+                        label="📥 Descargar Equipos.csv",
+                        data=csv_eq,
+                        file_name=f"Equipos_Medicion_{datetime.today().strftime('%Y%m%d')}.csv",
+                        mime="text/csv",
+                        use_container_width=True
+                    )
+                else:
+                    st.warning("No hay equipos registrados.")
+            except Exception as e:
+                st.error(f"Error al obtener equipos: {e}")
+
+        # 4. MAQUINARIA
+        with c_exp4:
+            st.markdown("**🏭 Historial de Maquinaria**")
+            try:
+                # Traemos todo el histórico de maquinaria
+                resp_maq_exp = supabase.table("mediciones_maquinaria").select("*").order("fecha_medicion", desc=True).execute()
+                df_maq_exp = pd.DataFrame(resp_maq_exp.data)
+                
+                if not df_maq_exp.empty:
+                    csv_maq = df_maq_exp.to_csv(index=False).encode('utf-8')
+                    st.download_button(
+                        label="📥 Descargar Maquinaria.csv",
+                        data=csv_maq,
+                        file_name=f"Maquinaria_ESD_{datetime.today().strftime('%Y%m%d')}.csv",
+                        mime="text/csv",
+                        use_container_width=True
+                    )
+                else:
+                    st.warning("No hay registros de Maquinaria.")
+            except Exception as e:
+                st.error(f"Error al obtener maquinaria: {e}")
+                
+# ==========================================
+# VISTA 7: LÍNEAS DE PRODUCCIÓN Y MAQUINARIA
+# ==========================================
+elif st.session_state.vista_actual == "Maquinaria" and not st.session_state.modo_lectura:
+    st.markdown("### 🏭 Control de Maquinaria en Líneas de Producción")
     
-    # ==========================================
-    # VISTA 8: SCHEDULE (CRONOGRAMA DE VENCIMIENTOS)
-    # ==========================================
-    elif st.session_state.vista_actual == "Schedule" and not st.session_state.modo_lectura:
-        st.markdown("### 📅 Cronograma de Verificaciones ESD")
-        st.info("Selecciona una línea para visualizar las fechas de medición y vencimiento de Equipos, Mobiliarios e Ionizadores combinados.")
+    # 1. Obtenemos datos directamente de la tabla mediciones_maquinaria para los desplegables e histórico
+    try:
+        resp_med = supabase.table("mediciones_maquinaria").select("*").order("fecha_medicion", desc=True).execute()
+        df_med_maq = pd.DataFrame(resp_med.data)
+    except Exception:
+        df_med_maq = pd.DataFrame()
+
+    # Extraer líneas y clasificaciones únicas basadas exclusivamente en las mediciones registradas
+    if not df_med_maq.empty and 'linea_ubicacion' in df_med_maq.columns:
+        lineas_disp = sorted([str(x).strip() for x in df_med_maq['linea_ubicacion'].dropna().unique() if str(x).strip() != ''])
         
-        # Obtener datos frescos de maquinaria para consolidar
-        try:
-            resp_maq = supabase.table("mediciones_maquinaria").select("linea_ubicacion, id_maquinaria, clasificacion, fecha_medicion, fecha_proxima, resultado_estatus").execute()
-            df_maq_sched = pd.DataFrame(resp_maq.data)
-        except Exception as e:
-            df_maq_sched = pd.DataFrame()
-            st.warning(f"Error al cargar maquinaria: {e}")
-
-        # Consolidar datos en una sola lista
-        lista_registros = []
-        
-        # 1. Extraer del Inventario (Mobiliario, Ionizadores, Piso, etc.)
-        if df_inv_full is not None and not df_inv_full.empty:
-            for _, row in df_inv_full.iterrows():
-                lista_registros.append({
-                    "Línea": str(row.get('Línea', 'N/D')),
-                    "Categoría": str(row.get('categoria', 'N/D')),
-                    "ID / Nombre": str(row.get('Id de producto', 'N/D')),
-                    "Clasificación": str(row.get('Clasificación', 'N/D')),
-                    "Última Medición": str(row.get('Fecha de verificación', 'N/D'))[:10],
-                    "Próximo Vencimiento": str(row.get('Fecha de próxima verificación', 'N/D'))[:10],
-                    "Estatus": str(row.get('Estatus de verificación', 'N/D'))
-                })
-                
-        # 2. Extraer de Maquinaria
-        if not df_maq_sched.empty:
-            # Mantener solo el registro más reciente por cada id_maquinaria
-            df_maq_sched = df_maq_sched.sort_values('fecha_medicion', ascending=False).drop_duplicates(subset=['id_maquinaria'])
-            for _, row in df_maq_sched.iterrows():
-                f_med = str(row.get('fecha_medicion', 'N/D'))[:10] if pd.notna(row.get('fecha_medicion')) else 'N/D'
-                # Corrección aquí: jalar de forma segura 'fecha_proxima' o 'fecha_proxima_verif' según tu esquema estructurado
-                f_prox = str(row.get('fecha_proxima', 'N/D'))[:10] if pd.notna(row.get('fecha_proxima')) else 'N/D'
-                
-                lista_registros.append({
-                    "Línea": str(row.get('linea_ubicacion', 'N/D')),
-                    "Categoría": "Maquinaria / Equipo",
-                    "ID / Nombre": str(row.get('id_maquinaria', 'N/D')),
-                    "Clasificación": str(row.get('clasificacion', 'N/D')),
-                    "Última Medición": f_med,
-                    "Próximo Vencimiento": f_prox,
-                    "Estatus": str(row.get('resultado_estatus', 'PENDIENTE')) # Si viene vacío, por defecto es PENDIENTE
-                })
-
-        df_schedule_full = pd.DataFrame(lista_registros)
-
-        if not df_schedule_full.empty:
-            # Obtener líneas únicas
-            lineas_disponibles = sorted([x for x in df_schedule_full['Línea'].unique() if x not in ['N/D', 'nan', 'None']])
-            
-            c_filtro1, c_filtro2 = st.columns(2)
-            linea_sel = c_filtro1.selectbox("📍 Selecciona la Línea / Ubicación:", ["Todas las Líneas"] + lineas_disponibles)
-            categoria_sel = c_filtro2.selectbox("🏷️ Filtrar por Categoría:", ["Todas", "Maquinaria / Equipo", "Mobiliario", "Ionizador", "Piso"])
-            
-            # Aplicar filtros
-            df_filtrado = df_schedule_full.copy()
-            if linea_sel != "Todas las Líneas":
-                df_filtrado = df_filtrado[df_filtrado['Línea'] == linea_sel]
-            if categoria_sel != "Todas":
-                df_filtrado = df_filtrado[df_filtrado['Categoría'] == categoria_sel]
-            
-            # REPARACIÓN DE ORDENACIÓN: Reemplazar N/D por NaT para que no rompa la conversión de fecha
-            df_filtrado['Fecha Orden'] = df_filtrado['Próximo Vencimiento'].replace('N/D', None)
-            df_filtrado['Fecha Orden'] = pd.to_datetime(df_filtrado['Fecha Orden'], errors='coerce')
-            
-            # Los NaT (valores sin fecha/PENDIENTES) los mandamos al final para que no estorben la visualización crítica
-            df_filtrado = df_filtrado.sort_values(by=['Fecha Orden', 'Línea'], ascending=[True, True], na_position='last').drop(columns=['Fecha Orden'])
-            
-            # Añadir emojis de estado para mayor claridad visual
-            def add_emoji(val):
-                val_str = str(val).upper()
-                if 'VIGENTE' in val_str or 'PASA' in val_str: return f"🟢 {val}"
-                if 'VENCIDO' in val_str or 'FALLA' in val_str or 'RECHAZADO' in val_str: return f"🔴 {val}"
-                if 'PENDIENTE' in val_str: return f"🟡 {val}"
-                return val
-                
-            df_filtrado['Estatus'] = df_filtrado['Estatus'].apply(add_emoji)
-            
-            st.markdown(f"**Mostrando {len(df_filtrado)} registros:**")
-            st.dataframe(df_filtrado, use_container_width=True, hide_index=True)
+        if 'clasificacion' in df_med_maq.columns:
+            clasificaciones_dinamicas = sorted([str(x).strip() for x in df_med_maq['clasificacion'].dropna().unique() if str(x).strip() not in ['None', 'nan', '']])
         else:
-            st.warning("No hay registros disponibles para mostrar en el cronograma.")
+            clasificaciones_dinamicas = ["Maquinaria"]
+    else:
+        lineas_disp = ["Sin registros previos"]
+        clasificaciones_dinamicas = ["Maquinaria"]
+
+    if not clasificaciones_dinamicas:
+        clasificaciones_dinamicas = ["Maquinaria"]
+
+    # SECCIÓN A: SELECCIÓN DE LÍNEA Y VISUALIZACIÓN DEL REGISTRO ANTERIOR
+    st.markdown("#### 🔍 Consulta de Mediciones Anteriores")
+    linea_sel = st.selectbox("1. Selecciona Línea / Ubicación para revisar historial", options=lineas_disp)
+
+    # Filtrar el histórico de la línea seleccionada
+    if not df_med_maq.empty and linea_sel != "Sin registros previos":
+        df_historico_linea = df_med_maq[df_med_maq['linea_ubicacion'] == linea_sel].copy()
+        
+        if not df_historico_linea.empty:
+            st.markdown(f"**Historial de operaciones en la línea {linea_sel}:**")
+            
+            df_mostrar = pd.DataFrame()
+            df_mostrar["Operación / ID"] = df_historico_linea.get("id_maquinaria", pd.Series(dtype=str))
+            df_mostrar["Clasificación"] = df_historico_linea.get("clasificacion", pd.Series(dtype=str))
+            
+            # Aplicar formato condicional a la resistencia (2 decimales si es < 10, exponencial si es mayor)
+            def formatear_resistencia(val):
+                try:
+                    v = float(val)
+                    return f"{v:.2f} Ω" if v < 10 else f"{v:.2E} Ω"
+                except:
+                    return "N/D"
+            
+            if "resistencia_tierra" in df_historico_linea.columns:
+                df_mostrar["Resistencia Tierra"] = df_historico_linea["resistencia_tierra"].apply(formatear_resistencia)
+            else:
+                df_mostrar["Resistencia Tierra"] = "N/D"
+
+            df_mostrar["Estatus Red"] = df_historico_linea.get("tomacorriente_estatus", "N/A")
+            
+            if "campo_estatico_voltaje" in df_historico_linea.columns:
+                df_mostrar["Campo Estático"] = df_historico_linea["campo_estatico_voltaje"].astype(str) + " V"
+            else:
+                df_mostrar["Campo Estático"] = "0.0 V"
+            
+            # Ajustado para leer la nueva estructura homologada de estatus dinámicos
+            df_mostrar["Estatus Final"] = df_historico_linea.get("resultado_estatus", "PENDIENTE")
+            df_mostrar["Frecuencia"] = df_historico_linea.get("frecuencia_verificacion", "Anual")
+            
+            # Formatear la fecha para que sea legible de forma segura
+            if "fecha_medicion" in df_historico_linea.columns:
+                df_mostrar["Fecha Medición"] = pd.to_datetime(df_historico_linea["fecha_medicion"]).dt.strftime('%d-%b-%Y %H:%M')
+            else:
+                df_mostrar["Fecha Medición"] = "N/D"
+                
+            df_mostrar["Auditor"] = df_historico_linea.get("auditor", "N/D")
+
+            # Limpieza final de NaN
+            df_mostrar = df_mostrar.fillna("N/D")
+
+            st.dataframe(df_mostrar, use_container_width=True, hide_index=True)
+        else:
+            st.info(f"No se encontraron mediciones previas grabadas en la línea {linea_sel}.")
+    else:
+        st.info("No hay registros históricos disponibles en este momento.")
+
+    st.divider()
+
+    # SECCIÓN B: ACCIÓN DE ACTUALIZAR VALIDACIÓN / NUEVA MEDICIÓN
+    st.markdown("#### ➕ Registrar / Actualizar Validación de la Línea")
+    
+    tab_individual, tab_lote = st.tabs(["📝 Captura Individual", "🚀 Auditoría Rápida por Línea (Lote)"])
+    
+    # Obtenemos las máquinas de la línea seleccionada (para ambas pestañas)
+    maquinas_en_linea = []
+    if not df_med_maq.empty and linea_sel != "Sin registros previos" and 'id_maquinaria' in df_med_maq.columns:
+        df_filtrado = df_med_maq[df_med_maq['linea_ubicacion'] == linea_sel]
+        maquinas_en_linea = sorted([str(x).strip() for x in df_filtrado['id_maquinaria'].dropna().unique() if str(x).strip() != ''])
+
+    with tab_individual:
+        if not maquinas_en_linea:
+            maquina_sel = st.text_input("Ingresa el ID de la maquinaria manualmente para iniciar registro:")
+        else:
+            maquina_sel = st.selectbox("Selecciona la Maquinaria específica", options=maquinas_en_linea)
+
+        if maquina_sel:
+        # Consultamos el Inventario Maestro solo para traer los límites técnicos fijos
+            info_maq = {}
+            limite_fijo = 1.0e9
+            marca_defecto = ""
+            clasif_defecto = clasificaciones_dinamicas[0]
+
+            if 'df_inv_full' in locals() and not df_inv_full.empty:
+                df_inv_filtrado = df_inv_full[df_inv_full['Id de producto'] == maquina_sel]
+                if not df_inv_filtrado.empty:
+                    info_maq = df_inv_filtrado.iloc[0]
+                    limite_fijo = float(info_maq.get('Maximo', 1.0e9))
+                    marca_defecto = str(info_maq.get('Marca', ''))
+                
+                    val_clasif = str(info_maq.get('Clasificación', ''))
+                    if val_clasif in clasificaciones_dinamicas:
+                        clasif_defecto = val_clasif
+
+            try:
+                idx_clasif = clasificaciones_dinamicas.index(clasif_defecto)
+            except ValueError:
+                idx_clasif = 0
+
+            st.markdown(f"##### 📝 Nueva captura para la estación: `{maquina_sel}`")
+        
+            with st.form("form_medicion_maquinaria"):
+                c_eq1, c_eq2, c_eq3 = st.columns(3)
+                clasificacion_maq = c_eq1.selectbox("Clasificación", options=clasificaciones_dinamicas, index=idx_clasif)
+                marca_maq = c_eq2.text_input("Marca / Fabricante", value=marca_defecto)
+                status_maq = c_eq3.selectbox("Estatus Operativo Actual", ["OPERATIVO", "NO OPERATIVO", "MANTENIMIENTO"])
+            
+                c_amb1, c_amb2, c_amb3 = st.columns(3)
+                temperatura_maq = c_amb1.text_input("Temperatura", value="23.5 °C")
+                humedad_maq = c_amb2.text_input("Humedad Relativa", value="45 %")
+                frecuencia_maq = c_amb3.selectbox("Frecuencia de Verificación", ["Anual", "Semestral", "Trimestral", "Mensual"], index=0)
+
+                st.markdown("---")
+                st.markdown("##### ⚡ 1. Resistencia a Tierra")
+                col_r1, col_r2 = st.columns(2)
+            
+                # Inicializar de forma segura el valor en el session_state si no existe
+                if "resistencia_maq_val" not in st.session_state:
+                    st.session_state.resistencia_maq_val = 0.0
+
+                # SOLUCIÓN AL ERR0R: Validamos el formato usando el session_state existente para evitar ciclos
+                formato_dinamico = "%.2f" if st.session_state.resistencia_maq_val < 10.0 else "%.2e"
+                step_dinamico = 0.01 if st.session_state.resistencia_maq_val < 10.0 else 1.0
+
+                resistencia = col_r1.number_input(
+                    "Valor de Resistencia (Ohms)", 
+                    min_value=0.0, 
+                    max_value=1e12, 
+                    value=st.session_state.resistencia_maq_val,
+                    step=step_dinamico,
+                    format=formato_dinamico
+                )
+                # Sincronizar el valor modificado para el siguiente refresco de la app
+                st.session_state.resistencia_maq_val = resistencia
+
+                col_r2.text_input("Límite Máximo Permitido (Referencia Fija)", value=f"{limite_fijo:.2e}", disabled=True)
+            
+                # Validación automática visual e interna PASA / FALLA
+                resultado_auto = "PASA" if resistencia <= limite_fijo else "FALLA"
+                if resultado_auto == "FALLA":
+                    st.error(f"❌ RESULTADO EVALUACIÓN: FALLA (Resistencia {resistencia:.2e} excede el límite de {limite_fijo:.2e})")
+                else:
+                    st.success(f"✅ RESULTADO EVALUACIÓN: PASA")
+
+                st.markdown("##### 🔌 2. Tomacorriente (Opcional)")
+                col_t1, col_t2 = st.columns(2)
+                aplica_toma = col_t1.checkbox("Aplica medición a la red", value=True)
+                estado_toma = "N/A"
+                comentario_toma = ""
+                if aplica_toma:
+                    estado_toma = col_t1.radio("Estatus de Conexión", ["PASA", "FALLA"], horizontal=True)
+                    if estado_toma == "FALLA":
+                        comentario_toma = col_t2.text_input("Comentario de Falla (Requerido)", placeholder="Ej: Polaridad invertida...")
+
+                st.markdown("##### 🧲 3. Medición de Campo Electrostático")
+                c_campo1, c_campo2 = st.columns(2)
+                voltaje_campo = c_campo1.number_input("Voltaje Detectado (V)", min_value=0.0, format="%.2f", step=1.0)
+                comentario_campo = ""
+                if voltaje_campo > 0:
+                    comentario_campo = c_campo2.text_input("Ubicación de la carga (Requerido)", placeholder="Ej: En la banda...")
+            
+                obs_maq = st.text_area("Notas / Observaciones Generales")
+            
+                submit_maq = st.form_submit_button("💾 Guardar Nueva Validación en Historial", use_container_width=True)
+            
+                if submit_maq:
+                    if aplica_toma and estado_toma == "FALLA" and not comentario_toma.strip():
+                        st.error("⚠️ Debes escribir un comentario justificando la falla del tomacorriente.")
+                    elif voltaje_campo > 0 and not comentario_campo.strip():
+                        st.error("⚠️ Como detectaste voltaje, debes indicar dónde se encontró la carga electrostática.")
+                    else:
+                        with st.spinner("Actualizando registro transaccional en SQL..."):
+                            try:
+                                fecha_hoy = datetime.today().date()
+                                proxima_fecha = calcular_proxima_fecha(fecha_hoy, frecuencia_maq)
+
+                                # Implementación de la nueva lógica de negocio
+                                if resistencia is None or resistencia == 0.0: 
+                                # Si dejas la resistencia vacía o en 0 en el number_input
+                                    estatus_calculado = "PENDIENTE"
+                                elif proxima_fecha < fecha_hoy:
+                                    estatus_calculado = "VENCIDO"
+                                else:
+                                    estatus_calculado = "VIGENTE"
+                            
+                                data_insert = {
+                                    "linea_ubicacion": linea_sel,
+                                    "id_maquinaria": maquina_sel,
+                                    "clasificacion": clasificacion_maq,
+                                    "marca": marca_maq,
+                                    "status_operativo": status_maq,
+                                    "temperatura": temperatura_maq,
+                                    "humedad":  humedad_maq,
+                                    "frecuencia_verificacion": "Anual",              # Forzado a "Anual" como solicitaste
+                                    "fecha_proxima": proxima_fecha.isoformat(),
+                                    "resistencia_tierra": float(resistencia) if resistencia > 0 else None,
+                                    "resistencia_max": limite_fijo, 
+                                    "tomacorriente_aplica": aplica_toma,
+                                    "tomacorriente_estatus": estado_toma,
+                                    "tomacorriente_comentario": comentario_toma,
+                                    "campo_estatico_voltaje": float(voltaje_campo),
+                                    "campo_estatico_comentario": comentario_campo,
+                                    "observaciones": obs_maq,
+                                    "fecha_medicion": datetime.now().isoformat(),
+                                    "auditor": st.session_state.usuario_nombre,
+                                    "resultado_estatus": estatus_calculado           # Tu nueva lógica automatizada
+                                }
+                            
+                                supabase.table("mediciones_maquinaria").insert(data_insert).execute()
+                            
+                                st.success(f"✅ ¡Medición guardada! Próxima verificación calculada para: {proxima_fecha.strftime('%d-%b-%Y')}")
+                                st.balloons()
+                                time.sleep(1)
+                                st.cache_data.clear()
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Error al guardar: {e}")
+
+    # ==========================================
+    # MODO 2: CAPTURA EN LOTE (RESPONSIVA PARA TABLET/MÓVIL)
+    # ==========================================
+    with tab_lote:
+        st.info("💡 **Modo Rápido Móvil/Tablet:** Despliega cada estación para registrar sus datos. Las columnas se adaptarán a tu pantalla. Al finalizar, presiona el botón al fondo para guardar toda la línea.")
+        
+        if not maquinas_en_linea:
+            st.warning("Selecciona una línea con máquinas registradas previamente para usar el modo en lote.")
+        else:
+            with st.form("form_lote_movil"):
+                # Diccionario para almacenar los inputs temporales de cada máquina
+                resultados_lote = {}
+                
+                for i, maq in enumerate(maquinas_en_linea):
+                    # Extraer clasificación histórica si existe
+                    clasif = "Maquinaria"
+                    if not df_filtrado[df_filtrado['id_maquinaria'] == maq].empty:
+                        clasif = df_filtrado[df_filtrado['id_maquinaria'] == maq].iloc[0].get('clasificacion', 'Maquinaria')
+                    
+                    # Expandir solo el primer elemento por defecto para no abrumar la pantalla
+                    with st.expander(f"⚙️ {maq} ({clasif})", expanded=(i == 0)):
+                        # En tablet se ven en fila, en teléfono se apilan en columna
+                        col_t, col_r, col_c = st.columns(3)
+                        
+                        toma_val = col_t.selectbox(
+                            "1. Tomacorriente", 
+                            ["PASA", "FALLA", "N/A"], 
+                            key=f"toma_{maq}"
+                        )
+                        
+                        res_val = col_r.number_input(
+                            "2. Res. Tierra (Ω)", 
+                            min_value=0.0, step=0.1, format="%.2e", 
+                            key=f"res_{maq}"
+                        )
+                        
+                        campo_val = col_c.number_input(
+                            "3. Campo Est. (V)", 
+                            min_value=0.0, step=1.0, format="%.1f", 
+                            key=f"camp_{maq}"
+                        )
+                        
+                        notas_val = st.text_input(f"Observaciones para {maq} (opcional)", key=f"not_{maq}")
+                        
+                        # Guardamos en el diccionario usando el ID de la máquina como llave
+                        resultados_lote[maq] = {
+                            "clasificacion": clasif,
+                            "tomacorriente": toma_val,
+                            "resistencia": res_val,
+                            "campo": campo_val,
+                            "notas": notas_val
+                        }
+
+                st.divider()
+                # Botón grande y fácil de presionar en móviles
+                submit_lote = st.form_submit_button("💾 Procesar y Guardar Línea Completa", use_container_width=True)
+                
+                if submit_lote:
+                    with st.spinner("Registrando auditoría masiva en SQL..."):
+                        errores = 0
+                        fecha_hoy = datetime.today().isoformat()
+                        proxima_fecha = (datetime.today().date() + relativedelta(years=1)).isoformat() # Asumiendo frecuencia anual
+                        limite_fijo = 1.0e9 # Límite estándar, se puede conectar a tu diccionario
+                        
+                        for maq_id, datos in resultados_lote.items():
+                            res = float(datos["resistencia"])
+                            
+                            # Calcular estatus
+                            if res == 0.0:
+                                estatus_calculado = "PENDIENTE"
+                            elif res <= limite_fijo and datos["tomacorriente"] != "FALLA":
+                                estatus_calculado = "VIGENTE"
+                            else:
+                                estatus_calculado = "FALLA"
+
+                            data_insert = {
+                                "linea_ubicacion": linea_sel,
+                                "id_maquinaria": maq_id.strip().upper(),
+                                "clasificacion": datos["clasificacion"],
+                                "marca": "N/D",
+                                "status_operativo": "OPERATIVO",
+                                "temperatura": "23.5 °C", 
+                                "humedad": "45 %",
+                                "frecuencia_verificacion": "Anual",
+                                "fecha_proxima": proxima_fecha,
+                                "resistencia_tierra": res if res > 0 else None,
+                                "resistencia_max": limite_fijo, 
+                                "tomacorriente_aplica": datos["tomacorriente"] != "N/A",
+                                "tomacorriente_estatus": datos["tomacorriente"] if datos["tomacorriente"] != "N/A" else None,
+                                "campo_estatico_voltaje": float(datos["campo"]),
+                                "observaciones": datos["notas"],
+                                "fecha_medicion": fecha_hoy,
+                                "auditor": st.session_state.usuario_nombre,
+                                "resultado_estatus": estatus_calculado
+                            }
+                            
+                            try:
+                                supabase.table("mediciones_maquinaria").insert(data_insert).execute()
+                            except Exception as e:
+                                errores += 1
+                                st.write(f"Error oculto en {maq_id}: {e}") # Útil para debug
+                        
+                        if errores == 0:
+                            st.success(f"✅ ¡Auditoría masiva completada para {len(resultados_lote)} estaciones en {linea_sel}!")
+                            st.balloons()
+                            time.sleep(1.5)
+                            st.cache_data.clear()
+                            st.rerun()
+                        else:
+                            st.warning(f"Se procesaron los registros, pero hubo {errores} errores en la inserción.")
+
+# ==========================================
+# VISTA 8: SCHEDULE (CRONOGRAMA DE VENCIMIENTOS)
+# ==========================================
+elif st.session_state.vista_actual == "Schedule" and not st.session_state.modo_lectura:
+    st.markdown("### 📅 Cronograma de Verificaciones ESD")
+    st.info("Selecciona una línea para visualizar las fechas de medición y vencimiento de Equipos, Mobiliarios e Ionizadores combinados.")
+    
+    # Obtener datos frescos de maquinaria para consolidar
+    try:
+        resp_maq = supabase.table("mediciones_maquinaria").select("linea_ubicacion, id_maquinaria, clasificacion, fecha_medicion, fecha_proxima, resultado_estatus").execute()
+        df_maq_sched = pd.DataFrame(resp_maq.data)
+    except Exception as e:
+        df_maq_sched = pd.DataFrame()
+        st.warning(f"Error al cargar maquinaria: {e}")
+
+    # Consolidar datos en una sola lista
+    lista_registros = []
+    
+    # 1. Extraer del Inventario (Mobiliario, Ionizadores, Piso, etc.)
+    if df_inv_full is not None and not df_inv_full.empty:
+        for _, row in df_inv_full.iterrows():
+            lista_registros.append({
+                "Línea": str(row.get('Línea', 'N/D')),
+                "Categoría": str(row.get('categoria', 'N/D')),
+                "ID / Nombre": str(row.get('Id de producto', 'N/D')),
+                "Clasificación": str(row.get('Clasificación', 'N/D')),
+                "Última Medición": str(row.get('Fecha de verificación', 'N/D'))[:10],
+                "Próximo Vencimiento": str(row.get('Fecha de próxima verificación', 'N/D'))[:10],
+                "Estatus": str(row.get('Estatus de verificación', 'N/D'))
+            })
+            
+    # 2. Extraer de Maquinaria
+    if not df_maq_sched.empty:
+        # Mantener solo el registro más reciente por cada id_maquinaria
+        df_maq_sched = df_maq_sched.sort_values('fecha_medicion', ascending=False).drop_duplicates(subset=['id_maquinaria'])
+        for _, row in df_maq_sched.iterrows():
+            f_med = str(row.get('fecha_medicion', 'N/D'))[:10] if pd.notna(row.get('fecha_medicion')) else 'N/D'
+            # Corrección aquí: jalar de forma segura 'fecha_proxima' o 'fecha_proxima_verif' según tu esquema estructurado
+            f_prox = str(row.get('fecha_proxima', 'N/D'))[:10] if pd.notna(row.get('fecha_proxima')) else 'N/D'
+            
+            lista_registros.append({
+                "Línea": str(row.get('linea_ubicacion', 'N/D')),
+                "Categoría": "Maquinaria / Equipo",
+                "ID / Nombre": str(row.get('id_maquinaria', 'N/D')),
+                "Clasificación": str(row.get('clasificacion', 'N/D')),
+                "Última Medición": f_med,
+                "Próximo Vencimiento": f_prox,
+                "Estatus": str(row.get('resultado_estatus', 'PENDIENTE')) # Si viene vacío, por defecto es PENDIENTE
+            })
+
+    df_schedule_full = pd.DataFrame(lista_registros)
+
+    if not df_schedule_full.empty:
+        # Obtener líneas únicas
+        lineas_disponibles = sorted([x for x in df_schedule_full['Línea'].unique() if x not in ['N/D', 'nan', 'None']])
+        
+        c_filtro1, c_filtro2 = st.columns(2)
+        linea_sel = c_filtro1.selectbox("📍 Selecciona la Línea / Ubicación:", ["Todas las Líneas"] + lineas_disponibles)
+        categoria_sel = c_filtro2.selectbox("🏷️ Filtrar por Categoría:", ["Todas", "Maquinaria / Equipo", "Mobiliario", "Ionizador", "Piso"])
+        
+        # Aplicar filtros
+        df_filtrado = df_schedule_full.copy()
+        if linea_sel != "Todas las Líneas":
+            df_filtrado = df_filtrado[df_filtrado['Línea'] == linea_sel]
+        if categoria_sel != "Todas":
+            df_filtrado = df_filtrado[df_filtrado['Categoría'] == categoria_sel]
+        
+        # REPARACIÓN DE ORDENACIÓN: Reemplazar N/D por NaT para que no rompa la conversión de fecha
+        df_filtrado['Fecha Orden'] = df_filtrado['Próximo Vencimiento'].replace('N/D', None)
+        df_filtrado['Fecha Orden'] = pd.to_datetime(df_filtrado['Fecha Orden'], errors='coerce')
+        
+        # Los NaT (valores sin fecha/PENDIENTES) los mandamos al final para que no estorben la visualización crítica
+        df_filtrado = df_filtrado.sort_values(by=['Fecha Orden', 'Línea'], ascending=[True, True], na_position='last').drop(columns=['Fecha Orden'])
+        
+        # Añadir emojis de estado para mayor claridad visual
+        def add_emoji(val):
+            val_str = str(val).upper()
+            if 'VIGENTE' in val_str or 'PASA' in val_str: return f"🟢 {val}"
+            if 'VENCIDO' in val_str or 'FALLA' in val_str or 'RECHAZADO' in val_str: return f"🔴 {val}"
+            if 'PENDIENTE' in val_str: return f"🟡 {val}"
+            return val
+            
+        df_filtrado['Estatus'] = df_filtrado['Estatus'].apply(add_emoji)
+        
+        st.markdown(f"**Mostrando {len(df_filtrado)} registros:**")
+        st.dataframe(df_filtrado, use_container_width=True, hide_index=True)
+    else:
+        st.warning("No hay registros disponibles para mostrar en el cronograma.")
