@@ -1396,70 +1396,91 @@ else:
                             with st.form("form_actualizacion"):
                                 st.text_input("Clasificación (Tipo de Equipo)", value=clasificacion_equipo, disabled=True)
                                 
+                                # --- 1. LÍNEA POR DEFECTO ASEGURADA ---
                                 if 'obtener_catalogo_lineas' in globals():
                                     lineas_opc = obtener_catalogo_lineas()
                                 else:
                                     lineas_opc = sorted([str(x).strip() for x in df_mob_local['Línea'].dropna().unique()])
                                     
-                                ub_actual = str(equipo.get('Línea', ''))
-                                idx_l = lineas_opc.index(ub_actual) if ub_actual in lineas_opc else 0
-                                nueva_linea_upd = st.selectbox("Línea / Ubicación", lineas_opc, index=idx_l)
+                                ub_actual = str(equipo.get('Línea', '')).strip()
                                 
+                                # Si la ubicación actual no está en la lista del catálogo, la inyectamos para no perder la referencia visual
+                                if ub_actual and ub_actual not in lineas_opc:
+                                    lineas_opc = [ub_actual] + lineas_opc
+                                    
+                                idx_l = lineas_opc.index(ub_actual) if ub_actual in lineas_opc else 0
+                                nueva_linea_upd = st.selectbox("Línea / Ubicación", options=lineas_opc, index=idx_l)
+                                
+                                # --- 2. CAMPOS VACÍOS (value=None) ---
                                 if es_ion:
                                     c_ion1, c_ion2 = st.columns(2)
-                                    v_act = c_ion1.number_input("Descarga (s)", value=0.0, format="%.2f")
-                                    bal_act = c_ion2.number_input("Balance (V)", value=0.0, format="%.2f")
-                                    nuevo_valor_final = v_act
+                                    v_act = c_ion1.number_input("Descarga (s)", value=None, format="%.2f", placeholder="0.0")
+                                    bal_act = c_ion2.number_input("Balance (V)", value=None, format="%.2f", placeholder="0.0")
                                 else:
                                     c_b, c_e = st.columns(2)
-                                    base_upd = c_b.number_input("Base (Ohms)", value=0.0)
-                                    exp_upd = c_e.number_input("Exponente", value=0)
-                                    nuevo_valor_final = base_upd * (10 ** exp_upd)
-                                    bal_act = None
+                                    base_upd = c_b.number_input("Base (Ohms)", value=None, placeholder="Ej: 3.5")
+                                    exp_upd = c_e.number_input("Exponente", value=None, step=1, placeholder="Ej: 6")
                                     
                                 fecha_hoy = datetime.today().date()
                                 nueva_fecha = st.date_input("Fecha de Validación", fecha_hoy)
                                 
                                 if st.form_submit_button("💾 Guardar Actualización e Historial"):
-                                    freq = str(equipo.get('Frecuencia de verificación', 'Anual'))
-                                    proxy = calcular_proxima_fecha(nueva_fecha, freq)
-                                    
-                                    try:
-                                        historial_data = {
-                                            "id_equipo": id_limpio,
-                                            "tipo_equipo": clasificacion_equipo,
-                                            "ubicacion": nueva_linea_upd,
-                                            "valor_actual": str(nuevo_valor_final),
-                                            "fecha_validacion": nueva_fecha.isoformat(),
-                                            "fecha_vencimiento": proxy.isoformat(),
-                                            "auditor": st.session_state.usuario_nombre,
-                                            "fecha_modificacion": datetime.now().isoformat()
-                                        }
-                                        if es_ion:
-                                            historial_data["balance_ionizador"] = str(bal_act)
+                                    # --- 3. VALIDACIÓN DE CAMPOS ---
+                                    # Como los campos inician vacíos (None), debemos evitar que el programa truene si le dan a Guardar accidentalmente.
+                                    if es_ion and (v_act is None or bal_act is None):
+                                        st.error("⚠️ Debes ingresar los valores de Descarga y Balance.")
+                                    elif not es_ion and (base_upd is None or exp_upd is None):
+                                        st.error("⚠️ Debes ingresar los valores de Base y Exponente.")
+                                    else:
+                                        with st.spinner("Guardando registro..."):
+                                            if es_ion:
+                                                nuevo_valor_final = float(v_act)
+                                                bal_act = float(bal_act)
+                                            else:
+                                                nuevo_valor_final = float(base_upd) * (10 ** int(exp_upd))
+                                                bal_act = None
+                                                
+                                            freq = str(equipo.get('Frecuencia de verificación', 'Anual'))
+                                            proxy = calcular_proxima_fecha(nueva_fecha, freq)
                                             
-                                        supabase.table("historial_mediciones").insert(historial_data).execute()
+                                            try:
+                                                # Guardar en la tabla HISTORIAL_MEDICIONES
+                                                historial_data = {
+                                                    "id_equipo": id_limpio,
+                                                    "tipo_equipo": clasificacion_equipo,
+                                                    "ubicacion": nueva_linea_upd,
+                                                    "valor_actual": str(nuevo_valor_final),
+                                                    "fecha_validacion": nueva_fecha.isoformat(),
+                                                    "fecha_vencimiento": proxy.isoformat(),
+                                                    "auditor": st.session_state.usuario_nombre,
+                                                    "fecha_modificacion": datetime.now().isoformat()
+                                                }
+                                                if es_ion:
+                                                    historial_data["balance_ionizador"] = str(bal_act)
+                                                    
+                                                supabase.table("historial_mediciones").insert(historial_data).execute()
 
-                                        update_data = {
-                                            "linea_ubicacion": nueva_linea_upd,
-                                            "valor_actual": float(nuevo_valor_final),
-                                            "fecha_ultima_verif": nueva_fecha.isoformat(),
-                                            "fecha_proxima_verif": proxy.isoformat(),
-                                            "estatus_verificacion": "VIGENTE",
-                                            "estatus_operativo": "OPERATIVO",
-                                            "auditor_responsable": st.session_state.usuario_nombre,
-                                        }
-                                        if es_ion:
-                                            update_data["balance_ionizador"] = float(bal_act)
-                                        
-                                        supabase.table("inventario_esd").update(update_data).eq("id_producto", id_limpio).execute()
-                                        
-                                        st.success("💾 ¡Equipo actualizado y guardado en el historial correctamente!")
-                                        st.cache_data.clear()
-                                        limpiar_url_escaneo()
-                                        st.rerun()
-                                    except Exception as e:
-                                        st.error(f"Error actualizando el equipo en SQL: {e}")
+                                                # Guardar en la tabla INVENTARIO_ESD
+                                                update_data = {
+                                                    "linea_ubicacion": nueva_linea_upd,
+                                                    "valor_actual": float(nuevo_valor_final),
+                                                    "fecha_ultima_verif": nueva_fecha.isoformat(),
+                                                    "fecha_proxima_verif": proxy.isoformat(),
+                                                    "estatus_verificacion": "VIGENTE",
+                                                    "estatus_operativo": "OPERATIVO",
+                                                    "auditor_responsable": st.session_state.usuario_nombre,
+                                                }
+                                                if es_ion:
+                                                    update_data["balance_ionizador"] = float(bal_act)
+                                                
+                                                supabase.table("inventario_esd").update(update_data).eq("id_producto", id_limpio).execute()
+                                                
+                                                st.success("💾 ¡Equipo actualizado y guardado en el historial correctamente!")
+                                                st.cache_data.clear()
+                                                limpiar_url_escaneo()
+                                                st.rerun()
+                                            except Exception as e:
+                                                st.error(f"Error actualizando el equipo en SQL: {e}")
 
                 # ==========================================
                 # LÓGICA DE VISUALIZACIÓN: MAQUINARIA
