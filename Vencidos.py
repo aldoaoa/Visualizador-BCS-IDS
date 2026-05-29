@@ -643,80 +643,65 @@ def generar_html_reporte_esd(row, index):
     return html
 
 # ==========================================
-# SEGURIDAD Y ACCESO
+# SEGURIDAD Y ACCESO (SIN MURO DE LOGIN)
 # ==========================================
-if "usuario_nombre" not in st.session_state:
-    st.session_state.usuario_nombre = None
-if "modo_lectura" not in st.session_state:
-    st.session_state.modo_lectura = False
-
 token_actual = st.query_params.get("auth_token")
 
-if token_actual:
-    if token_actual == "consulta_mode":
+if token_actual and token_actual != "consulta_mode":
+    usuario_decodificado = decodificar_sesion(token_actual)
+    if usuario_decodificado:
+        st.session_state.usuario_nombre = usuario_decodificado
+        st.session_state.modo_lectura = False 
+    else:
         st.session_state.usuario_nombre = "Usuario de Consulta"
         st.session_state.modo_lectura = True
-    else:
-        usuario_decodificado = decodificar_sesion(token_actual)
-        if usuario_decodificado:
-            st.session_state.usuario_nombre = usuario_decodificado
-            st.session_state.modo_lectura = False 
-
-if st.session_state.usuario_nombre is None and not st.session_state.modo_lectura:
-    col_img1, col_img2, col_img3 = st.columns([1, 1, 1])
-    with col_img2:
-        st.image("https://raw.githubusercontent.com/aldoaoa/Visualizador-BCS-IDS/refs/heads/main/Logo_BCS_transparent%20(1).png", use_container_width=True)
-    st.markdown("<h2 style='text-align: center;'>🛡️ Sistema de Gestión ESD BCS-AIS</h2>", unsafe_allow_html=True)
-    col_v1, col_c, col_v2 = st.columns([1, 1.2, 1])
-    with col_c:
-        tab_login, tab_monitor = st.tabs(["🔒 Ingreso de Auditor", "👁️ Modo Consulta"])
-        with tab_login:
-            with st.form("login_form"):
-                user_input = st.text_input("Usuario (ID)")
-                pwd_input = st.text_input("Contraseña", type="password")
-                if st.form_submit_button("Ingresar y Editar", use_container_width=True):
-                    try:
-                        usuarios_db = st.secrets["usuarios"]
-                        if user_input in usuarios_db and usuarios_db[user_input]["password"] == pwd_input:
-                            nombre_real = usuarios_db[user_input]["nombre"]
-                            st.query_params["auth_token"] = codificar_sesion(nombre_real)
-                            st.rerun()
-                        else:
-                            st.error("❌ Credenciales incorrectas")
-                    except KeyError:
-                        st.error("⚠️ Error en configuración de usuarios.")
-        with tab_monitor:
-            st.info("El Modo Consulta es de solo lectura.")
-            if st.button("👁️ Entrar en Modo Consulta", use_container_width=True):
-                st.query_params["auth_token"] = "consulta_mode"
-                st.rerun()
 else:
-    # ==========================================
-    # APLICACIÓN PRINCIPAL
-    # ==========================================
-    RUTA_MAPA = "mapa.jpg" 
-    RUTA_COORDENADAS = "coordenadas.csv"
+    st.session_state.usuario_nombre = "Usuario de Consulta"
+    st.session_state.modo_lectura = True
 
-    with st.sidebar:
-        st.image("https://raw.githubusercontent.com/aldoaoa/Visualizador-BCS-IDS/refs/heads/main/Logo_BCS_transparent%20(1).png", use_container_width=True)
-        st.divider()
+# Al no haber muro, la aplicación principal se ejecuta SIEMPRE
+# ==========================================
+# APLICACIÓN PRINCIPAL
+# ==========================================
+RUTA_MAPA = "mapa.jpg" 
+RUTA_COORDENADAS = "coordenadas.csv"
+
+with st.sidebar:
+    st.image("https://raw.githubusercontent.com/aldoaoa/Visualizador-BCS-IDS/refs/heads/main/Logo_BCS_transparent%20(1).png", use_container_width=True)
+    st.divider()
+    
+    if st.session_state.modo_lectura:
+        st.warning("👁️ Modo Consulta Activo")
+        st.markdown("---")
+        st.markdown("#### 🔒 Ingreso de Auditor")
+        with st.form("login_form_sidebar"):
+            user_input = st.text_input("Usuario (ID)")
+            pwd_input = st.text_input("Contraseña", type="password")
+            if st.form_submit_button("Ingresar", use_container_width=True):
+                try:
+                    usuarios_db = st.secrets["usuarios"]
+                    if user_input in usuarios_db and str(usuarios_db[user_input]["password"]) == str(pwd_input):
+                        nombre_real = usuarios_db[user_input]["nombre"]
+                        st.query_params["auth_token"] = codificar_sesion(nombre_real)
+                        st.rerun()
+                    else:
+                        st.error("❌ Credenciales incorrectas")
+                except KeyError:
+                    st.error("⚠️ Error en configuración.")
+    else:
+        st.success(f"👤 Auditor: {st.session_state.usuario_nombre}")
         
-        if st.session_state.modo_lectura:
-            st.warning("👁️ Modo Consulta Activo")
-        else:
-            st.success(f"👤 Auditor: {st.session_state.usuario_nombre}")
-            
-            # --- NUEVO BOTÓN DE AJUSTES (SOLO EN EL SIDEBAR) ---
-            st.divider()
-            if st.button("⚙️ Ajustes (Catálogos)", use_container_width=True, type="primary" if st.session_state.vista_actual == "Ajustes" else "secondary"):
-                st.session_state.vista_actual = "Ajustes"
-                limpiar_url_escaneo()
-                st.rerun()
-            st.divider()
+        # --- BOTÓN DE AJUSTES (SOLO AUDITORES) ---
+        st.divider()
+        if st.button("⚙️ Ajustes (Catálogos)", use_container_width=True, type="primary" if st.session_state.vista_actual == "Ajustes" else "secondary"):
+            st.session_state.vista_actual = "Ajustes"
+            limpiar_url_escaneo()
+            st.rerun()
+        st.divider()
 
-        if st.button("Salir al Menú Principal", use_container_width=True):
+        if st.button("🚪 Cerrar Sesión", use_container_width=True):
             st.session_state.usuario_nombre = None
-            st.session_state.modo_lectura = False
+            st.session_state.modo_lectura = True
             st.query_params.clear() 
             st.rerun()
 
