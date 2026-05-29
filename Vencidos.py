@@ -1519,7 +1519,44 @@ else:
                                                 st.rerun()
                                             except Exception as e:
                                                 st.error(f"Error actualizando el equipo en SQL: {e}")
-
+                    # --- NUEVO: LISTADO DE OTROS EQUIPOS EN LA MISMA LÍNEA ---
+                    if es_mob:
+                        ub_actual_lista = str(equipo.get('Línea', '')).strip()
+                        if ub_actual_lista and ub_actual_lista != 'N/A' and 'df_inv_full' in locals() and not df_inv_full.empty:
+                            st.divider()
+                            st.markdown(f"#### 📍 Otros equipos en la línea: `{ub_actual_lista}`")
+                            
+                            # Filtramos el inventario por la misma línea, quitamos el equipo actual y los que estén dados de baja
+                            df_otros = df_inv_full[
+                                (df_inv_full['Línea'].astype(str).str.strip() == ub_actual_lista) & 
+                                (df_inv_full['Id de producto'].astype(str).str.strip().str.upper() != id_limpio) &
+                                (df_inv_full['Estatus operativo'].astype(str).str.strip().str.upper() != 'NO OPERATIVO')
+                            ]
+                            
+                            if not df_otros.empty:
+                                # Seleccionamos columnas clave para mostrar
+                                df_mostrar_otros = df_otros[['Id de producto', 'Clasificación', 'Estatus de verificación', 'Fecha de próxima verificación']].copy()
+                                df_mostrar_otros = df_mostrar_otros.rename(columns={
+                                    'Id de producto': 'ID Equipo', 
+                                    'Fecha de próxima verificación': 'Vencimiento'
+                                })
+                                
+                                # Formateamos la fecha visualmente para que sea corta
+                                df_mostrar_otros['Vencimiento'] = pd.to_datetime(df_mostrar_otros['Vencimiento'], errors='coerce').dt.strftime('%d-%b-%Y').fillna('N/D')
+                                
+                                # Agregamos emojis de estatus rápido
+                                def emoji_estatus(val):
+                                    v = str(val).upper()
+                                    if 'VIGENTE' in v: return f"🟢 {val}"
+                                    if 'VENCIDO' in v: return f"🔴 {val}"
+                                    return f"🟡 {val}"
+                                    
+                                df_mostrar_otros['Estatus de verificación'] = df_mostrar_otros['Estatus de verificación'].apply(emoji_estatus)
+                                
+                                st.dataframe(df_mostrar_otros, use_container_width=True, hide_index=True)
+                            else:
+                                st.info("No hay otros equipos operativos registrados en esta línea.")
+                    # ---------------------------------------------------------
                 # ==========================================
                 # LÓGICA DE VISUALIZACIÓN: MAQUINARIA
                 # ==========================================
