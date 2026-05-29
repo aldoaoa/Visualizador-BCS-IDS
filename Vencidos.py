@@ -1130,8 +1130,34 @@ else:
         tab_mapa, tab_overview = st.tabs(["📍 Mapa Físico", "📊 Overview (S20.20)"])
 
         with tab_mapa:
-            tipo_mapa = st.radio("Ver en mapa:", ["Mobiliario", "Ionizadores"], horizontal=True)
-            df_total = df_mob_local.copy() if tipo_mapa == "Mobiliario" else df_ion_local.copy()
+            tipo_mapa = st.radio("Ver en mapa:", ["Mobiliario", "Ionizadores", "Maquinaria"], horizontal=True)
+            
+            if tipo_mapa == "Mobiliario":
+                df_total = df_mob_local.copy()
+            elif tipo_mapa == "Ionizadores":
+                df_total = df_ion_local.copy()
+            else:
+                # --- NUEVA LÓGICA: EXTRAER MAQUINARIA ---
+                try:
+                    # Traemos datos ordenados por fecha para que el más reciente quede arriba
+                    resp_maq_mapa = supabase.table("mediciones_maquinaria").select("*").order("fecha_medicion", desc=True).execute()
+                    df_maq_mapa = pd.DataFrame(resp_maq_mapa.data)
+                    if not df_maq_mapa.empty:
+                        # Eliminamos duplicados históricos conservando solo el último registro
+                        df_maq_mapa = df_maq_mapa.drop_duplicates(subset=['id_maquinaria'], keep='first')
+                        
+                        # Homologamos las columnas para que el código del mapa las entienda
+                        df_total = df_maq_mapa.rename(columns={
+                            'status_operativo': 'Estatus operativo',
+                            'resultado_estatus': 'Estatus de verificación',
+                            'linea_ubicacion': 'Línea',
+                            'id_maquinaria': 'Id de producto',
+                            'clasificacion': 'Clasificación'
+                        })
+                    else:
+                        df_total = pd.DataFrame()
+                except:
+                    df_total = pd.DataFrame()
             
             if df_total.empty:
                 st.warning(f"No hay datos registrados en {tipo_mapa}.")
@@ -1149,7 +1175,16 @@ else:
                 if not vencidos.empty:
                     st.error(f"🚨 **Cumplimiento:** {porcentaje:.1f}% | **Vencidos:** {total_vencidos} de {total_equipos} activos.")
                     conteo_tipos = vencidos.groupby(['Línea']).size().reset_index(name='Total Vencidos')
-                    conteo_tipos['Etiqueta'] = ("M: " if tipo_mapa == "Mobiliario" else "I: ") + conteo_tipos['Total Vencidos'].astype(str)
+                    
+                    # Determinamos el prefijo para la etiqueta (M = Mobiliario, I = Ionizador, MQ = Maquinaria)
+                    if tipo_mapa == "Mobiliario":
+                        prefijo = "M: "
+                    elif tipo_mapa == "Ionizadores":
+                        prefijo = "I: "
+                    else:
+                        prefijo = "MQ: "
+                        
+                    conteo_tipos['Etiqueta'] = prefijo + conteo_tipos['Total Vencidos'].astype(str)
                 
                     if os.path.exists(RUTA_MAPA) and os.path.exists(RUTA_COORDENADAS):
                         img = Image.open(RUTA_MAPA)
