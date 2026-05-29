@@ -891,10 +891,13 @@ else:
                     st.error("Por favor complete los campos obligatorios (ID y Fabricante).")
                 else:
                     id_limpio_alta = str(nuevo_id).strip().upper()
-                    check_exist = supabase.table("inventario_esd").select("id_producto").eq("id_producto", id_limpio_alta).execute()
                     
-                    if len(check_exist.data) > 0:
-                        st.error(f"El ID {nuevo_id} ya existe en SQL.")
+                    # --- NUEVA VERIFICACIÓN GLOBAL DE DUPLICADOS ---
+                    check_inv = supabase.table("inventario_esd").select("id_producto").eq("id_producto", id_limpio_alta).execute()
+                    check_maq = supabase.table("mediciones_maquinaria").select("id_maquinaria").eq("id_maquinaria", id_limpio_alta).execute()
+                    
+                    if len(check_inv.data) > 0 or len(check_maq.data) > 0:
+                        st.error(f"❌ El ID '{nuevo_id}' ya se encuentra registrado en el sistema (Mobiliario, Ionizador o Maquinaria). Usa un ID diferente.")
                     else:
                         with st.spinner("Guardando en SQL..."):
                             fecha_hoy = datetime.today().date()
@@ -2442,30 +2445,39 @@ else:
 
                 if st.form_submit_button("💾 Pre-registrar Maquinaria", width="stretch"):
                     if id_nueva_maq:
-                        with st.spinner("Registrando..."):
-                            try:
-                                # Creamos un registro semilla para que la vista de Maquinaria lo detecte
-                                data_inicial = {
-                                    "linea_ubicacion": linea_asignada,
-                                    "id_maquinaria": id_nueva_maq.strip().upper(),
-                                    "clasificacion": clasif_nueva_maq,
-                                    "marca": marca_nueva_maq,
-                                    "status_operativo": "OPERATIVO",
-                                    "frecuencia_verificacion": "Anual",
-                                    "fecha_medicion": datetime.now().isoformat(),
-                                    "auditor": st.session_state.usuario_nombre,
-                                    "resultado_estatus": "PENDIENTE",
-                                    "observaciones": "Pre-registro desde módulo de Catálogos."
-                                }
-                                supabase.table("mediciones_maquinaria").insert(data_inicial).execute()
+                        id_limpio_maq = str(id_nueva_maq).strip().upper()
+                        
+                        # --- NUEVA VERIFICACIÓN GLOBAL DE DUPLICADOS ---
+                        check_inv_maq = supabase.table("inventario_esd").select("id_producto").eq("id_producto", id_limpio_maq).execute()
+                        check_maq_maq = supabase.table("mediciones_maquinaria").select("id_maquinaria").eq("id_maquinaria", id_limpio_maq).execute()
+                        
+                        if len(check_inv_maq.data) > 0 or len(check_maq_maq.data) > 0:
+                            st.error(f"❌ El ID '{id_nueva_maq}' ya se encuentra registrado en el sistema. Por favor, usa un ID diferente.")
+                        else:
+                            with st.spinner("Registrando..."):
+                                try:
+                                    # Creamos un registro semilla para que la vista de Maquinaria lo detecte
+                                    data_inicial = {
+                                        "linea_ubicacion": linea_asignada,
+                                        "id_maquinaria": id_limpio_maq,
+                                        "clasificacion": clasif_nueva_maq,
+                                        "marca": marca_nueva_maq,
+                                        "status_operativo": "OPERATIVO",
+                                        "frecuencia_verificacion": "Anual",
+                                        "fecha_medicion": datetime.now().isoformat(),
+                                        "auditor": st.session_state.usuario_nombre,
+                                        "resultado_estatus": "PENDIENTE",
+                                        "observaciones": "Pre-registro desde módulo de Catálogos."
+                                    }
+                                    supabase.table("mediciones_maquinaria").insert(data_inicial).execute()
                                 
-                                st.success(f"✅ Maquinaria '{id_nueva_maq.upper()}' vinculada exitosamente a la línea '{linea_asignada}'.")
-                                st.balloons()
-                                time.sleep(1)
-                                st.cache_data.clear()
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"⚠️ Error al registrar maquinaria: {e}")
+                                    st.success(f"✅ Maquinaria '{id_nueva_maq.upper()}' vinculada exitosamente a la línea '{linea_asignada}'.")
+                                    st.balloons()
+                                    time.sleep(1)
+                                    st.cache_data.clear()
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"⚠️ Error al registrar maquinaria: {e}")
                     else:
                         st.error("❌ El ID de la maquinaria es obligatorio.")
         # --- PESTAÑA 4: EXPORTAR BASES DE DATOS ---
