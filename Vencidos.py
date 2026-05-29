@@ -1444,38 +1444,45 @@ else:
                                             proxy = calcular_proxima_fecha(nueva_fecha, freq)
                                             
                                             try:
-                                                # Guardar en la tabla HISTORIAL_MEDICIONES
-                                                historial_data = {
-                                                    "id_equipo": id_limpio,
-                                                    "tipo_equipo": clasificacion_equipo,
-                                                    "ubicacion": nueva_linea_upd,
-                                                    "valor_actual": str(nuevo_valor_final),
-                                                    "fecha_validacion": nueva_fecha.isoformat(),
-                                                    "fecha_vencimiento": proxy.isoformat(),
-                                                    "auditor": st.session_state.usuario_nombre,
-                                                    "fecha_modificacion": datetime.now().isoformat()
-                                                }
-                                                if es_ion:
-                                                    historial_data["balance_ionizador"] = str(bal_act)
-                                                    
-                                                supabase.table("historial_mediciones").insert(historial_data).execute()
+                                                # --- 4. GUARDAR EL ESTADO ANTERIOR EN LA TABLA HISTORIAL ---
+                                                # Extraemos los valores previos que ya tenemos cargados de la BD
+                                                val_previo_hist = str(equipo.get('Valor de verificación', 0))
+                                                ubicacion_previa = str(equipo.get('Línea', 'N/D'))
+                                                auditor_previo = str(equipo.get('Auditor', st.session_state.usuario_nombre))
+                                                
+                                                # Solo guardamos en el historial si realmente existía una medición anterior (evita guardar registros vacíos/nuevos)
+                                                if f_val_sql != 'N/A' and f_val_sql != 'Error':
+                                                    historial_data = {
+                                                        "id_equipo": id_limpio,
+                                                        "tipo_equipo": clasificacion_equipo,
+                                                        "ubicacion": ubicacion_previa,
+                                                        "valor_actual": val_previo_hist,
+                                                        "fecha_validacion": f_val_sql, # <--- FECHA ANTERIOR
+                                                        "fecha_vencimiento": f_venc_sql if f_venc_sql != 'N/A' else None,
+                                                        "auditor": auditor_previo, # <--- AUDITOR ANTERIOR
+                                                        "fecha_modificacion": datetime.now().isoformat() # <--- Cuándo se archivó
+                                                    }
+                                                    if es_ion:
+                                                        historial_data["balance_ionizador"] = str(equipo.get('Balance', 0))
+                                                        
+                                                    supabase.table("historial_mediciones").insert(historial_data).execute()
 
-                                                # Guardar en la tabla INVENTARIO_ESD
+                                                # --- 5. ACTUALIZAR EL ESTADO NUEVO EN INVENTARIO MAESTRO ---
                                                 update_data = {
                                                     "linea_ubicacion": nueva_linea_upd,
                                                     "valor_actual": float(nuevo_valor_final),
-                                                    "fecha_ultima_verif": nueva_fecha.isoformat(),
+                                                    "fecha_ultima_verif": nueva_fecha.isoformat(), # <--- FECHA NUEVA (HOY)
                                                     "fecha_proxima_verif": proxy.isoformat(),
                                                     "estatus_verificacion": "VIGENTE",
                                                     "estatus_operativo": "OPERATIVO",
-                                                    "auditor_responsable": st.session_state.usuario_nombre,
+                                                    "auditor_responsable": st.session_state.usuario_nombre, # <--- AUDITOR NUEVO (TÚ)
                                                 }
                                                 if es_ion:
                                                     update_data["balance_ionizador"] = float(bal_act)
                                                 
                                                 supabase.table("inventario_esd").update(update_data).eq("id_producto", id_limpio).execute()
                                                 
-                                                st.success("💾 ¡Equipo actualizado y guardado en el historial correctamente!")
+                                                st.success("💾 ¡Equipo actualizado y medición anterior archivada en el historial!")
                                                 st.cache_data.clear()
                                                 limpiar_url_escaneo()
                                                 st.rerun()
