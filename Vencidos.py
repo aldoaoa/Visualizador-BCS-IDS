@@ -1383,7 +1383,14 @@ else:
                     val_previo = equipo.get('Valor de verificación', 0)
                     if es_ion:
                         c_val.metric("Descarga", f"{float(val_previo):.2f} s" if pd.notna(val_previo) else "N/A")
-                        c_bal.metric("Balance", str(equipo.get('Balance', 'N/A')))
+                        
+                        # --- NUEVO: FORMATEO DEL BALANCE CON UNIDAD DE VOLTS ---
+                        bal_previo = equipo.get('Balance')
+                        if pd.notna(bal_previo) and str(bal_previo).strip() not in ['', 'N/A', 'nan', 'None']:
+                            c_bal.metric("Balance", f"{float(bal_previo):.2f} V")
+                        else:
+                            c_bal.metric("Balance", "N/A")
+                        # -------------------------------------------------------
                     else:
                         c_val.metric("Resistencia", f"{float(val_previo):.2E} Ω" if pd.notna(val_previo) else "N/A")
 
