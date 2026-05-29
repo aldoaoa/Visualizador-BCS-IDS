@@ -1048,52 +1048,80 @@ else:
 
                 id_limpio_baja = str(id_baja_url).strip().upper()
                 
-                # --- INICIO DE NUEVA LÓGICA DE VISUALIZACIÓN ---
-                # Buscamos el ID en el inventario global cargado previamente
-                equipo_encontrado = df_inv_full[df_inv_full['Id de producto'].astype(str).str.upper() == id_limpio_baja]
+                # --- INICIO DE LÓGICA DE VISUALIZACIÓN Y BAJA SELECTIVA ---
+                # 1. Buscar en inventario_esd (Mobiliario / Ionizadores)
+                equipo_encontrado_inv = df_inv_full[df_inv_full['Id de producto'].astype(str).str.upper() == id_limpio_baja]
+                
+                # 2. Buscar en mediciones_maquinaria (Maquinaria)
+                try:
+                    resp_maq_baja = supabase.table("mediciones_maquinaria").select("*").eq("id_maquinaria", id_limpio_baja).order("fecha_medicion", desc=True).limit(1).execute()
+                    df_maq_baja = pd.DataFrame(resp_maq_baja.data)
+                except:
+                    df_maq_baja = pd.DataFrame()
 
-                if not equipo_encontrado.empty:
-                    info_eq = equipo_encontrado.iloc[0]
-
-                    st.markdown("### 📋 Detalles del Equipo a Dar de Baja")
-                    st.info("Verifica los datos antes de confirmar la desactivación del sistema.")
+                if not equipo_encontrado_inv.empty or not df_maq_baja.empty:
+                    st.markdown(f"### 📋 Detalles del Equipo a Dar de Baja: `{id_limpio_baja}`")
+                    st.info("Selecciona de qué catálogo deseas dar de baja este ID de forma independiente.")
                     
-                    # Fila 1 de datos
-                    c_info1, c_info2, c_info3 = st.columns(3)
-                    c_info1.metric("Tipo / Clasificación", str(info_eq.get('Clasificación', 'N/D')))
-                    c_info2.metric("Línea / Ubicación", str(info_eq.get('Línea', 'N/D')))
-                    c_info3.metric("Última Medición", str(info_eq.get('Valor de verificación', 'N/D')))
+                    col_b1, col_b2 = st.columns(2)
+                    
+                    # Panel para Inventario (Mobiliario/Ionizadores)
+                    with col_b1:
+                        if not equipo_encontrado_inv.empty:
+                            info_eq = equipo_encontrado_inv.iloc[0]
+                            st.markdown("#### 🛋️/⚡ Registro en Inventario")
+                            st.metric("Clasificación", str(info_eq.get('Clasificación', 'N/D')))
+                            st.metric("Estatus Actual", str(info_eq.get('Estatus operativo', 'N/D')))
+                            
+                            with st.form("form_baja_inv"):
+                                if st.form_submit_button("🗑️ Dar de Baja en Inventario", use_container_width=True):
+                                    with st.spinner("Actualizando SQL..."):
+                                        try:
+                                            supabase.table("inventario_esd").update({
+                                                "estatus_operativo": "NO OPERATIVO",
+                                                "estatus_verificacion": "BAJA"
+                                            }).eq("id_producto", id_limpio_baja).execute()
+                                            st.success("✅ ¡Desactivado de Inventario!")
+                                            st.cache_data.clear()
+                                            limpiar_url_escaneo()
+                                            st.rerun()
+                                        except Exception as e:
+                                            st.error(f"Error: {e}")
+                        else:
+                            st.warning("No existe en el catálogo de Inventario.")
+                            
+                    # Panel para Maquinaria
+                    with col_b2:
+                        if not df_maq_baja.empty:
+                            info_maq = df_maq_baja.iloc[0]
+                            st.markdown("#### 🏭 Registro en Maquinaria")
+                            st.metric("Clasificación", str(info_maq.get('clasificacion', 'N/D')))
+                            st.metric("Estatus Actual", str(info_maq.get('status_operativo', 'N/D')))
+                            
+                            with st.form("form_baja_maq"):
+                                # Botón principal en rojo/destacado para maquinaria
+                                if st.form_submit_button("🗑️ Dar de Baja en Maquinaria", type="primary", use_container_width=True):
+                                    with st.spinner("Actualizando SQL..."):
+                                        try:
+                                            supabase.table("mediciones_maquinaria").update({
+                                                "status_operativo": "NO OPERATIVO",
+                                                "resultado_estatus": "BAJA"
+                                            }).eq("id_maquinaria", id_limpio_baja).execute()
+                                            st.success("✅ ¡Desactivado de Maquinaria!")
+                                            st.cache_data.clear()
+                                            limpiar_url_escaneo()
+                                            st.rerun()
+                                        except Exception as e:
+                                            st.error(f"Error: {e}")
+                        else:
+                            st.warning("No existe en el registro de Maquinaria.")
 
-                    # Fila 2 de datos
-                    c_info4, c_info5, c_info6 = st.columns(3)
-                    fecha_verif = str(info_eq.get('Fecha de verificación', 'N/D'))[:10]
-                    c_info4.metric("Fecha de Verificación", fecha_verif)
-                    c_info5.metric("Estatus Actual", str(info_eq.get('Estatus de verificación', 'N/D')))
-                    c_info6.metric("Estatus Operativo", str(info_eq.get('Estatus operativo', 'N/D')))
-
-                    st.warning("⚠️ Esta acción cambiará el estatus del equipo a 'NO OPERATIVO' y lo removerá de los reportes activos.")
-
-                    with st.form("form_confirmacion_baja"):
-                        if st.form_submit_button("🗑️ Confirmar Baja (Soft Delete)", width="stretch"):
-                            with st.spinner("Actualizando SQL..."):
-                                try:
-                                    supabase.table("inventario_esd").update({
-                                        "estatus_operativo": "NO OPERATIVO",
-                                        "estatus_verificacion": "BAJA"
-                                    }).eq("id_producto", id_limpio_baja).execute()
-                                    
-                                    st.success(f"✅ ¡Equipo desactivado con éxito!")
-                                    st.cache_data.clear()
-                                    limpiar_url_escaneo()
-                                    st.rerun()
-                                except Exception as e:
-                                    st.error(f"Error procesando la baja: {e}")
                 else:
-                    st.error(f"❌ No se encontró ningún equipo registrado con el ID: {id_limpio_baja}")
+                    st.error(f"❌ No se encontró ningún registro con el ID: {id_limpio_baja}")
                     if st.button("🔄 Volver a intentar", use_container_width=True):
                         limpiar_url_escaneo()
                         st.rerun()
-                # --- FIN DE NUEVA LÓGICA ---
+                # --- FIN DE LÓGICA SELECTIVA ---
     # ==========================================
     # VISTA 1: MAPA Y REPORTES ESD
     # ==========================================
