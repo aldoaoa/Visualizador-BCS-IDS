@@ -16,7 +16,7 @@ from supabase import create_client, Client
 import time
 
 if "vista_actual" not in st.session_state:
-    st.session_state.vista_actual = "Overview" # O la vista principal que uses por defecto
+    st.session_state.vista_actual = "Mapa" # O la vista principal que uses por defecto
 
 if "usuario_nombre" not in st.session_state:
     st.session_state.usuario_nombre = None
