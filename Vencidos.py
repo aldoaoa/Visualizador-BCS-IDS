@@ -133,6 +133,7 @@ def generar_html_reporte_linea(linea, df_linea, auditor, comentarios, db_id):
         categoria = str(row.get('Categoría', 'N/D'))
         id_elem = str(row.get('ID / Nombre', 'N/D'))
         clasif = str(row.get('Clasificación', 'N/D'))
+        ultima_val = str(row.get('Última Medición', 'N/D'))  # <--- SE AGREGA LA FECHA DE VALIDACIÓN
         vencimiento = str(row.get('Próximo Vencimiento', 'N/D'))
         estatus_raw = str(row.get('Estatus', '')).upper()
         
@@ -145,7 +146,8 @@ def generar_html_reporte_linea(linea, df_linea, auditor, comentarios, db_id):
             <td class="border-r border-gray-300 p-2 print:border-black">{i}</td>
             <td class="border-r border-gray-300 p-2 font-bold text-left print:border-black">{id_elem}</td>
             <td class="border-r border-gray-300 p-2 text-left print:border-black">{categoria} - {clasif}</td>
-            <td class="border-r border-gray-300 p-2 print:border-black">{vencimiento}</td>
+            <td class="border-r border-gray-300 p-2 font-mono text-gray-700 print:border-black">{ultima_val}</td>
+            <td class="border-r border-gray-300 p-2 font-mono print:border-black">{vencimiento}</td>
             <td class="p-2 font-bold {color_txt}">{estatus_limpio}</td>
         </tr>
         """
@@ -188,13 +190,14 @@ def generar_html_reporte_linea(linea, df_linea, auditor, comentarios, db_id):
             </div>
 
             <div>
-                <div class="bg-[#003366] text-white font-bold px-2 py-1 uppercase text-xs print:bg-black">Desglose de Activos en Línea</div>
+                <div class="bg-[#003366] text-white font-bold px-2 py-1 uppercase text-xs print:bg-black">Desglose de Activos Operativos en Línea</div>
                 <table class="w-full text-sm border-collapse border border-gray-300 print:border-black">
                     <tr class="bg-gray-200 border-b border-gray-300 print:bg-transparent print:border-black">
                         <th class="p-2 border-r border-gray-300 print:border-black w-10">No.</th>
                         <th class="p-2 border-r border-gray-300 print:border-black text-left">ID Elemento</th>
                         <th class="p-2 border-r border-gray-300 print:border-black text-left">Tipo de Equipo</th>
-                        <th class="p-2 border-r border-gray-300 print:border-black">Próximo Vencimiento</th>
+                        <th class="p-2 border-r border-gray-300 print:border-black">Última Validación</th>
+                        <th class="p-2 border-r border-gray-300 print:border-black">Próx. Vencimiento</th>
                         <th class="p-2">Estatus Actual</th>
                     </tr>
                     {filas_html}
@@ -3146,6 +3149,10 @@ elif st.session_state.vista_actual == "Schedule" and not st.session_state.modo_l
     # 1. Extraer del Inventario (Mobiliario, Ionizadores, Piso, etc.)
     if df_inv_full is not None and not df_inv_full.empty:
         for _, row in df_inv_full.iterrows():
+            # OMITIR EQUIPOS DADOS DE BAJA
+            if str(row.get('Estatus operativo', '')).strip().upper() == 'NO OPERATIVO':
+                continue
+                
             lista_registros.append({
                 "Línea": str(row.get('Línea', 'N/D')),
                 "Categoría": str(row.get('categoria', 'N/D')),
@@ -3161,8 +3168,11 @@ elif st.session_state.vista_actual == "Schedule" and not st.session_state.modo_l
         # Mantener solo el registro más reciente por cada id_maquinaria
         df_maq_sched = df_maq_sched.sort_values('fecha_medicion', ascending=False).drop_duplicates(subset=['id_maquinaria'])
         for _, row in df_maq_sched.iterrows():
+            # OMITIR MAQUINARIA DADA DE BAJA
+            if str(row.get('status_operativo', '')).strip().upper() == 'NO OPERATIVO' or str(row.get('resultado_estatus', '')).strip().upper() == 'BAJA':
+                continue
+                
             f_med = str(row.get('fecha_medicion', 'N/D'))[:10] if pd.notna(row.get('fecha_medicion')) else 'N/D'
-            # Corrección aquí: jalar de forma segura 'fecha_proxima' o 'fecha_proxima_verif' según tu esquema estructurado
             f_prox = str(row.get('fecha_proxima', 'N/D'))[:10] if pd.notna(row.get('fecha_proxima')) else 'N/D'
             
             lista_registros.append({
@@ -3172,7 +3182,7 @@ elif st.session_state.vista_actual == "Schedule" and not st.session_state.modo_l
                 "Clasificación": str(row.get('clasificacion', 'N/D')),
                 "Última Medición": f_med,
                 "Próximo Vencimiento": f_prox,
-                "Estatus": str(row.get('resultado_estatus', 'PENDIENTE')) # Si viene vacío, por defecto es PENDIENTE
+                "Estatus": str(row.get('resultado_estatus', 'PENDIENTE'))
             })
 
     df_schedule_full = pd.DataFrame(lista_registros)
