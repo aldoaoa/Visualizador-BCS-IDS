@@ -2813,7 +2813,6 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
                     if st.form_submit_button("💾 Registrar Usuario", use_container_width=True):
                         if nuevo_nombre and nuevo_user and nuevo_pwd:
                             with st.spinner("Registrando..."):
-                                with st.spinner("Registrando..."):
                                 try:
                                     # --- NUEVO: HASHEAR LA CONTRASEÑA ANTES DE GUARDAR ---
                                     password_encriptada = generate_password_hash(nuevo_pwd)
