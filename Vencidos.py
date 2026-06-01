@@ -14,6 +14,7 @@ import io
 import pytesseract
 from supabase import create_client, Client
 import time
+from werkzeug.security import generate_password_hash, check_password_hash
 
 if "vista_actual" not in st.session_state:
     st.session_state.vista_actual = "Mapa" # O la vista principal que uses por defecto
@@ -806,16 +807,24 @@ with st.sidebar:
                         # Consulta directa a Supabase para validar usuario
                         resp_user = supabase.table("usuarios_app").select("*").eq("usuario", user_input).execute()
                         
-                        if len(resp_user.data) > 0 and resp_user.data[0]["password"] == pwd_input:
-                            nombre_real = resp_user.data[0]["nombre"]
-                            rol_asignado = resp_user.data[0]["rol"]
+                        # --- NUEVO: VERIFICACIÓN CON HASH ---
+                        if len(resp_user.data) > 0:
+                            hash_guardado = resp_user.data[0]["password"]
                             
-                            # Guardamos nombre y rol en el token
-                            token_str = f"{nombre_real}||{rol_asignado}"
-                            st.query_params["auth_token"] = codificar_sesion(token_str)
-                            st.rerun()
+                            # La función check_password_hash hace la magia de comparar el texto con el hash de forma segura
+                            if check_password_hash(hash_guardado, pwd_input):
+                                nombre_real = resp_user.data[0]["nombre"]
+                                rol_asignado = resp_user.data[0]["rol"]
+                                
+                                # Guardamos nombre y rol en el token
+                                token_str = f"{nombre_real}||{rol_asignado}"
+                                st.query_params["auth_token"] = codificar_sesion(token_str)
+                                st.rerun()
+                            else:
+                                st.error("❌ Credenciales incorrectas")
                         else:
                             st.error("❌ Credenciales incorrectas")
+                            
                     except Exception as e:
                         st.error(f"⚠️ Error al conectar con la base de usuarios: {e}")
     else:
@@ -2804,11 +2813,15 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
                     if st.form_submit_button("💾 Registrar Usuario", use_container_width=True):
                         if nuevo_nombre and nuevo_user and nuevo_pwd:
                             with st.spinner("Registrando..."):
+                                with st.spinner("Registrando..."):
                                 try:
+                                    # --- NUEVO: HASHEAR LA CONTRASEÑA ANTES DE GUARDAR ---
+                                    password_encriptada = generate_password_hash(nuevo_pwd)
+                                    
                                     supabase.table("usuarios_app").insert({
                                         "nombre": nuevo_nombre,
                                         "usuario": nuevo_user,
-                                        "password": nuevo_pwd,
+                                        "password": password_encriptada, # Guardamos el hash, no el texto plano
                                         "rol": nuevo_rol
                                     }).execute()
                                     st.success(f"✅ Usuario '{nuevo_user}' creado exitosamente como {nuevo_rol}.")
