@@ -829,6 +829,41 @@ with st.sidebar:
                         st.error(f"⚠️ Error al conectar con la base de usuarios: {e}")
     else:
         st.success(f"👤 Auditor: {st.session_state.usuario_nombre}")
+
+        # --- MENÚ PARA CAMBIAR CONTRASEÑA ---
+        with st.expander("🔑 Cambiar mi contraseña"):
+            with st.form("form_cambiar_pwd"):
+                pwd_actual = st.text_input("Contraseña actual", type="password")
+                pwd_nueva = st.text_input("Nueva contraseña", type="password")
+                pwd_conf = st.text_input("Confirmar nueva contraseña", type="password")
+                
+                if st.form_submit_button("Actualizar", use_container_width=True):
+                    if not pwd_actual or not pwd_nueva or not pwd_conf:
+                        st.error("⚠️ Completa todos los campos.")
+                    elif pwd_nueva != pwd_conf:
+                        st.error("❌ Las contraseñas nuevas no coinciden.")
+                    else:
+                        with st.spinner("Actualizando..."):
+                            try:
+                                # 1. Buscamos al usuario en la BD por su nombre de sesión
+                                resp_actual = supabase.table("usuarios_app").select("id, password").eq("nombre", st.session_state.usuario_nombre).execute()
+                                
+                                if len(resp_actual.data) > 0:
+                                    hash_guardado = resp_actual.data[0]["password"]
+                                    id_user_db = resp_actual.data[0]["id"]
+                                    
+                                    # 2. Verificamos que la contraseña actual que ingresó sea correcta
+                                    if check_password_hash(hash_guardado, pwd_actual):
+                                        # 3. Generamos el nuevo hash y guardamos
+                                        nuevo_hash = generate_password_hash(pwd_nueva)
+                                        supabase.table("usuarios_app").update({"password": nuevo_hash}).eq("id", id_user_db).execute()
+                                        st.success("✅ ¡Contraseña actualizada!")
+                                    else:
+                                        st.error("❌ La contraseña actual es incorrecta.")
+                                else:
+                                    st.error("❌ Error al ubicar tu usuario en la base de datos.")
+                            except Exception as e:
+                                st.error(f"Error de conexión: {e}")
         
         # --- MENÚ EXCLUSIVO PARA ADMINISTRADORES ---
         if st.session_state.rol_usuario == "Admin":
