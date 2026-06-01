@@ -2872,12 +2872,45 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
                     resp_usrs = supabase.table("usuarios_app").select("id, nombre, usuario, rol, fecha_creacion").order("id").execute()
                     df_usrs = pd.DataFrame(resp_usrs.data)
                     if not df_usrs.empty:
+                        # Guardamos una copia sin alterar nombres de columnas para usarla en el reseteo
+                        df_usrs_raw = df_usrs.copy()
+                        
                         # Darle formato a la fecha para que no se vea el Timestamp kilométrico
                         df_usrs['fecha_creacion'] = pd.to_datetime(df_usrs['fecha_creacion']).dt.strftime('%d-%b-%Y')
                         df_usrs.columns = ["ID DB", "Nombre", "User ID", "Rol", "Creado el"]
                         st.dataframe(df_usrs, use_container_width=True, hide_index=True)
+                        
+                        # --- NUEVO: FUNCIÓN DE RESETEO DE CONTRASEÑA ---
+                        st.divider()
+                        st.markdown("#### 🔄 Restablecer Contraseña")
+                        st.info("Si un usuario olvidó su acceso, selecciona su cuenta para asignarle la contraseña temporal: **`Welcome.123!`**")
+                        
+                        with st.form("form_reset_password"):
+                            # Crear un diccionario para el selectbox {id: "Nombre (Usuario)"}
+                            opciones_reset = dict(zip(df_usrs_raw["id"], df_usrs_raw["nombre"] + " (" + df_usrs_raw["usuario"] + ")"))
+                            
+                            usuario_a_resetear = st.selectbox(
+                                "Selecciona el usuario a restablecer:", 
+                                options=list(opciones_reset.keys()), 
+                                format_func=lambda x: opciones_reset[x]
+                            )
+                            
+                            if st.form_submit_button("⚠️ Restablecer a Default", type="primary", use_container_width=True):
+                                with st.spinner("Aplicando nueva contraseña..."):
+                                    try:
+                                        # Generamos el hash de la contraseña temporal
+                                        hash_temporal = generate_password_hash("Welcome.123!")
+                                        
+                                        # Actualizamos en Supabase usando el ID del usuario seleccionado
+                                        supabase.table("usuarios_app").update({"password": hash_temporal}).eq("id", usuario_a_resetear).execute()
+                                        
+                                        st.success(f"✅ ¡Contraseña restablecida con éxito para **{opciones_reset[usuario_a_resetear]}**!")
+                                        st.warning("Pídele al usuario que inicie sesión y utilice la opción '🔑 Cambiar mi contraseña' del menú lateral lo antes posible.")
+                                    except Exception as e:
+                                        st.error(f"Error al restablecer la contraseña en la base de datos: {e}")
+                        # -----------------------------------------------
                 except Exception as e:
-                    st.error(f"Error cargando usuarios: {e}")             
+                    st.error(f"Error cargando usuarios: {e}")        
 # ==========================================
 # VISTA 7: LÍNEAS DE PRODUCCIÓN Y MAQUINARIA
 # ==========================================
