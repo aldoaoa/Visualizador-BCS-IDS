@@ -24,6 +24,9 @@ if "usuario_nombre" not in st.session_state:
 if "modo_lectura" not in st.session_state:
     st.session_state.modo_lectura = False
 
+if "rol_usuario" not in st.session_state:
+    st.session_state.rol_usuario = None
+
 # Agrega aquí cualquier otra llave que uses (ej. val_form_key)
 if "val_form_key" not in st.session_state:
     st.session_state.val_form_key = 0
@@ -763,15 +766,20 @@ def generar_html_reporte_esd(row, index):
 token_actual = st.query_params.get("auth_token")
 
 if token_actual and token_actual != "consulta_mode":
-    usuario_decodificado = decodificar_sesion(token_actual)
-    if usuario_decodificado:
-        st.session_state.usuario_nombre = usuario_decodificado
+    token_decodificado = decodificar_sesion(token_actual)
+    if token_decodificado:
+        # Separamos el nombre del rol usando un separador especial "||"
+        partes = token_decodificado.split("||")
+        st.session_state.usuario_nombre = partes[0]
+        st.session_state.rol_usuario = partes[1] if len(partes) > 1 else "Auditor"
         st.session_state.modo_lectura = False 
     else:
         st.session_state.usuario_nombre = "Usuario de Consulta"
+        st.session_state.rol_usuario = "Consulta"
         st.session_state.modo_lectura = True
 else:
     st.session_state.usuario_nombre = "Usuario de Consulta"
+    st.session_state.rol_usuario = "Consulta"
     st.session_state.modo_lectura = True
 
 # Al no haber muro, la aplicación principal se ejecuta SIEMPRE
@@ -793,26 +801,33 @@ with st.sidebar:
             user_input = st.text_input("Usuario (ID)")
             pwd_input = st.text_input("Contraseña", type="password")
             if st.form_submit_button("Ingresar", use_container_width=True):
-                try:
-                    usuarios_db = st.secrets["usuarios"]
-                    if user_input in usuarios_db and str(usuarios_db[user_input]["password"]) == str(pwd_input):
-                        nombre_real = usuarios_db[user_input]["nombre"]
-                        st.query_params["auth_token"] = codificar_sesion(nombre_real)
-                        st.rerun()
-                    else:
-                        st.error("❌ Credenciales incorrectas")
-                except KeyError:
-                    st.error("⚠️ Error en configuración.")
+                with st.spinner("Autenticando..."):
+                    try:
+                        # Consulta directa a Supabase para validar usuario
+                        resp_user = supabase.table("usuarios_app").select("*").eq("usuario", user_input).execute()
+                        
+                        if len(resp_user.data) > 0 and resp_user.data[0]["password"] == pwd_input:
+                            nombre_real = resp_user.data[0]["nombre"]
+                            rol_asignado = resp_user.data[0]["rol"]
+                            
+                            # Guardamos nombre y rol en el token
+                            token_str = f"{nombre_real}||{rol_asignado}"
+                            st.query_params["auth_token"] = codificar_sesion(token_str)
+                            st.rerun()
+                        else:
+                            st.error("❌ Credenciales incorrectas")
+                    except Exception as e:
+                        st.error(f"⚠️ Error al conectar con la base de usuarios: {e}")
     else:
         st.success(f"👤 Auditor: {st.session_state.usuario_nombre}")
         
-        # --- BOTÓN DE AJUSTES (SOLO AUDITORES) ---
-        st.divider()
-        if st.button("⚙️ Ajustes (Catálogos)", use_container_width=True, type="primary" if st.session_state.vista_actual == "Ajustes" else "secondary"):
-            st.session_state.vista_actual = "Ajustes"
-            limpiar_url_escaneo()
-            st.rerun()
-        st.divider()
+        # --- MENÚ EXCLUSIVO PARA ADMINISTRADORES ---
+        if st.session_state.rol_usuario == "Admin":
+            st.divider()
+            if st.button("⚙️ Ajustes y Usuarios", use_container_width=True, type="primary" if st.session_state.vista_actual == "Ajustes" else "secondary"):
+                st.session_state.vista_actual = "Ajustes"
+                limpiar_url_escaneo()
+                st.rerun()
 
         if st.button("🚪 Cerrar Sesión", use_container_width=True):
             st.session_state.usuario_nombre = None
@@ -2525,7 +2540,7 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
     st.markdown("### ⚙️ Ajustes del Sistema (Catálogos)")
     st.info("Administra de forma centralizada las Líneas/Ubicaciones y los Equipos de Medición para que estén disponibles en todos los módulos de captura.")
 
-    tab_ubicaciones, tab_equipos, tab_maquinaria, tab_exportar = st.tabs(["📍 Líneas y Ubicaciones", "🛠️ Equipos de Medición", "🏭 Maquinaria (Operaciones)", "💾 Exportar Datos"])
+    tab_ubicaciones, tab_equipos, tab_maquinaria, tab_exportar, tab_usuarios = st.tabs(["📍 Líneas y Ubicaciones", "🛠️ Equipos de Medición", "🏭 Maquinaria (Operaciones)", "💾 Exportar Datos", "🔐 Usuarios"])
 
 # --- PESTAÑA 1: UBICACIONES ---
     with tab_ubicaciones:
@@ -2771,7 +2786,51 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
                     st.warning("No hay registros de Maquinaria.")
             except Exception as e:
                 st.error(f"Error al obtener maquinaria: {e}")
-                
+    # --- PESTAÑA 5: USUARIOS (PANEL DE ADMINISTRACIÓN) ---
+        with tab_usuarios:
+            st.markdown("#### 🔐 Administración de Usuarios")
+            st.info("Crea nuevos accesos para tu equipo de auditores. Todos los usuarios creados aquí tendrán acceso instantáneo al sistema.")
+            
+            c_adm1, c_adm2 = st.columns([1, 1.5])
+            
+            with c_adm1:
+                st.markdown("#### ➕ Crear Nuevo Usuario")
+                with st.form("form_crear_usuario"):
+                    nuevo_nombre = st.text_input("Nombre Real (Ej: Juan Pérez)")
+                    nuevo_user = st.text_input("ID de Usuario de acceso (Ej: jperez)")
+                    nuevo_pwd = st.text_input("Contraseña", type="password")
+                    nuevo_rol = st.selectbox("Rol en el Sistema", ["Auditor", "Admin"])
+                    
+                    if st.form_submit_button("💾 Registrar Usuario", use_container_width=True):
+                        if nuevo_nombre and nuevo_user and nuevo_pwd:
+                            with st.spinner("Registrando..."):
+                                try:
+                                    supabase.table("usuarios_app").insert({
+                                        "nombre": nuevo_nombre,
+                                        "usuario": nuevo_user,
+                                        "password": nuevo_pwd,
+                                        "rol": nuevo_rol
+                                    }).execute()
+                                    st.success(f"✅ Usuario '{nuevo_user}' creado exitosamente como {nuevo_rol}.")
+                                    st.cache_data.clear()
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error("⚠️ Error: El ID de usuario probablemente ya existe.")
+                        else:
+                            st.error("Todos los campos son obligatorios.")
+
+            with c_adm2:
+                st.markdown("#### 👥 Usuarios Activos")
+                try:
+                    resp_usrs = supabase.table("usuarios_app").select("id, nombre, usuario, rol, fecha_creacion").order("id").execute()
+                    df_usrs = pd.DataFrame(resp_usrs.data)
+                    if not df_usrs.empty:
+                        # Darle formato a la fecha para que no se vea el Timestamp kilométrico
+                        df_usrs['fecha_creacion'] = pd.to_datetime(df_usrs['fecha_creacion']).dt.strftime('%d-%b-%Y')
+                        df_usrs.columns = ["ID DB", "Nombre", "User ID", "Rol", "Creado el"]
+                        st.dataframe(df_usrs, use_container_width=True, hide_index=True)
+                except Exception as e:
+                    st.error(f"Error cargando usuarios: {e}")             
 # ==========================================
 # VISTA 7: LÍNEAS DE PRODUCCIÓN Y MAQUINARIA
 # ==========================================
