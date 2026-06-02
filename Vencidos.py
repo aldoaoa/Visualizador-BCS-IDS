@@ -2633,6 +2633,73 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
                     st.info("No hay ubicaciones registradas aún.")
             except Exception as e:
                 st.error(f"Error al cargar ubicaciones: {e}")
+        # --- NUEVA FUNCIÓN: ACTUALIZACIÓN MASIVA DE FRECUENCIAS ---
+        st.divider()
+        st.markdown("#### ⏱️ Modificar Frecuencia de Validación por Línea")
+        st.info("Actualiza masivamente la periodicidad de todos los activos (Mobiliario, Ionizadores y Maquinaria) asignados a una línea específica. El sistema recalculará automáticamente su próxima fecha de vencimiento partiendo de su última medición.")
+
+        with st.form("form_update_frecuencia"):
+            c_frec1, c_frec2 = st.columns(2)
+            # Reutilizamos tu función maestra de catálogo
+            linea_upd = c_frec1.selectbox("Selecciona la Línea a Modificar", options=obtener_catalogo_lineas())
+            nueva_frec = c_frec2.selectbox("Nueva Frecuencia Aplicable", options=["Anual", "Semestral", "Trimestral", "Mensual"])
+
+            # Botón destacado por ser una acción que altera muchos registros
+            if st.form_submit_button("⚠️ Aplicar Cambio a Toda la Línea", type="primary", use_container_width=True):
+                if linea_upd and linea_upd != "Sin Ubicaciones":
+                    with st.spinner(f"Actualizando frecuencias y recalculando fechas para {linea_upd}..."):
+                        activos_inv_actualizados = 0
+                        activos_maq_actualizados = 0
+                        
+                        try:
+                            # 1. ACTUALIZAR INVENTARIO (Mobiliario e Ionizadores)
+                            resp_inv = supabase.table("inventario_esd").select("id, fecha_ultima_verif").eq("linea_ubicacion", linea_upd).execute()
+                            
+                            for item in resp_inv.data:
+                                f_ultima_str = item.get("fecha_ultima_verif")
+                                data_update = {"frecuencia": nueva_frec}
+                                
+                                # Si el equipo tiene una medición previa, recalculamos su próximo vencimiento
+                                if f_ultima_str and str(f_ultima_str).lower() not in ['nan', 'none', 'null', '']:
+                                    try:
+                                        # Parseamos la fecha ignorando la hora si la tiene
+                                        f_ultima_date = datetime.fromisoformat(str(f_ultima_str).split('T')[0]).date()
+                                        nueva_prox = calcular_proxima_fecha(f_ultima_date, nueva_frec)
+                                        data_update["fecha_proxima_verif"] = nueva_prox.isoformat()
+                                    except:
+                                        pass # Si falla el parseo, solo actualiza la frecuencia
+                                        
+                                supabase.table("inventario_esd").update(data_update).eq("id", item["id"]).execute()
+                                activos_inv_actualizados += 1
+
+                            # 2. ACTUALIZAR MAQUINARIA
+                            resp_maq = supabase.table("mediciones_maquinaria").select("id, fecha_medicion").eq("linea_ubicacion", linea_upd).execute()
+                            
+                            for maq in resp_maq.data:
+                                f_ultima_str = maq.get("fecha_medicion")
+                                data_update_maq = {"frecuencia_verificacion": nueva_frec}
+                                
+                                if f_ultima_str and str(f_ultima_str).lower() not in ['nan', 'none', 'null', '']:
+                                    try:
+                                        f_ultima_date = datetime.fromisoformat(str(f_ultima_str).split('T')[0]).date()
+                                        nueva_prox = calcular_proxima_fecha(f_ultima_date, nueva_frec)
+                                        data_update_maq["fecha_proxima"] = nueva_prox.isoformat()
+                                    except:
+                                        pass
+                                        
+                                supabase.table("mediciones_maquinaria").update(data_update_maq).eq("id", maq["id"]).execute()
+                                activos_maq_actualizados += 1
+
+                            st.success(f"✅ ¡Cambio masivo aplicado con éxito a la línea **{linea_upd}**!")
+                            st.info(f"📊 Se recalcularon las fechas de:\n- **{activos_inv_actualizados}** elementos de Mobiliario/Ionizadores.\n- **{activos_maq_actualizados}** equipos de Maquinaria.")
+                            
+                            # Limpiamos el caché general para que el mapa y los overviews se actualicen al instante
+                            st.cache_data.clear()
+                            
+                        except Exception as e:
+                            st.error(f"❌ Ocurrió un error durante la actualización masiva: {e}")
+                else:
+                    st.error("Por favor, selecciona una línea válida.")
 
     # --- PESTAÑA 2: EQUIPOS DE MEDICIÓN ---
     with tab_equipos:
