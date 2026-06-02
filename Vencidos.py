@@ -3493,7 +3493,7 @@ elif st.session_state.vista_actual == "Maquinaria" and not st.session_state.modo
                         else:
                             st.warning(f"Se procesaron los registros, pero hubo {errores} errores en la inserción.")
     # ==========================================
-    # MODO 3: CONDUCTORES AISLADOS (NUEVO)
+    # MODO 3: CONDUCTORES AISLADOS
     # ==========================================
     with tab_conductores:
         st.markdown("#### ⚡ Registro de Conductores Aislados")
@@ -3537,6 +3537,9 @@ elif st.session_state.vista_actual == "Maquinaria" and not st.session_state.modo
                 step=1.0, 
                 format="%.1f"
             )
+            
+            # Nuevo campo de comentarios
+            comentarios_cond = st.text_input("5. Ubicación específica / Comentarios:", placeholder="Ej: En la guía del transportador, carcasa del motor...")
 
             # Botón de guardado
             submit_cond = st.form_submit_button("💾 Guardar Registro de Conductor Aislado", use_container_width=True)
@@ -3544,15 +3547,18 @@ elif st.session_state.vista_actual == "Maquinaria" and not st.session_state.modo
             if submit_cond:
                 if op_cond_sel == "Sin operaciones registradas":
                     st.error("⚠️ Debes seleccionar una operación válida.")
+                elif voltaje_max_cond > 35.0 and not comentarios_cond.strip():
+                    st.error("⚠️ Al superar los 35V, es obligatorio especificar la ubicación exacta en los comentarios para el reporte a Ingeniería.")
                 else:
                     with st.spinner("Guardando registro..."):
                         try:
-                            # Inserción en la nueva tabla
+                            # Inserción en la tabla
                             supabase.table("registro_conductores_aislados").insert({
                                 "linea": linea_cond_sel,
                                 "operacion": op_cond_sel,
                                 "equipo_medicion": equipo_cond_sel,
                                 "voltaje_maximo": float(voltaje_max_cond),
+                                "comentarios": comentarios_cond.strip(),
                                 "auditor": st.session_state.usuario_nombre
                             }).execute()
 
@@ -3564,16 +3570,18 @@ elif st.session_state.vista_actual == "Maquinaria" and not st.session_state.modo
                                 st.markdown("##### 📧 Acción Requerida: Solicitud a Ingeniería")
                                 st.write("Copia el siguiente texto y envíalo al departamento de Ingeniería para solicitar la instalación de un ionizador:")
                                 
-                                # Borrador del correo generado dinámicamente con terminología técnica precisa
+                                ubicacion_texto = f"específicamente en la siguiente ubicación: {comentarios_cond.strip()}" if comentarios_cond.strip() else "en esta estación"
+                                
+                                # Borrador del correo generado dinámicamente
                                 borrador_correo = f"""Asunto: Acción Requerida: Instalación de Ionizador en {op_cond_sel} ({linea_cond_sel}) - Límite ESD Excedido
 
 Estimado equipo de Ingeniería,
 
-Durante la auditoría de control ESD realizada el día de hoy, se detectó un conductor aislado en la operación {op_cond_sel} de la línea {linea_cond_sel} que supera el límite normativo de 35V establecido en el estándar ANSI/ESD S20.20-2021.
+Durante la auditoría de control ESD realizada el día de hoy, se detectó un conductor aislado en la operación {op_cond_sel} de la línea {linea_cond_sel}, {ubicacion_texto}, que supera el límite normativo de 35V establecido en el estándar ANSI/ESD S20.20-2021.
 
-El equipo registró un voltaje máximo de {voltaje_max_cond}V. Esta carga es generada principalmente por la separación de materiales y el efecto triboeléctrico intrínseco al proceso actual. Al tratarse de un conductor aislado, no es posible drenar esta carga a tierra de forma convencional.
+El equipo registró un voltaje máximo de {voltaje_max_cond}V. Esta carga es generada principalmente por la separación de materiales y el efecto triboeléctrico intrínseco al proceso. Al tratarse de un conductor aislado, no es posible drenar esta carga a tierra de forma convencional.
 
-Para neutralizar la carga y proteger los ensambles electrónicos, se solicita su apoyo para evaluar e instalar un ionizador en esta estación a la brevedad posible.
+Para neutralizar la carga y proteger los ensambles electrónicos, se solicita su apoyo para evaluar e instalar un ionizador focalizado en este punto a la brevedad posible.
 
 Quedo a su disposición para revisar la estación en conjunto.
 
@@ -3581,7 +3589,6 @@ Saludos cordiales,
 {st.session_state.usuario_nombre}
 Departamento de Calidad / Control ESD"""
 
-                                # st.code permite al usuario copiar el texto con un solo clic en el ícono de la esquina
                                 st.code(borrador_correo, language="text")
                             else:
                                 st.info("El voltaje se encuentra dentro de la especificación permitida (<= 35V). No se requieren acciones adicionales.")
