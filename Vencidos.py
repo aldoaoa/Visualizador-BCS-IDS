@@ -999,15 +999,12 @@ if st.session_state.vista_actual == "Alta" and not st.session_state.modo_lectura
         tipo_alta = st.radio("Categoría del Equipo a Registrar:", ["Mobiliario", "Ionizador"], horizontal=True)
         df_target_alta = df_mob_local if tipo_alta == "Mobiliario" else df_ion_local
         
-        todas_lineas = set()
-        for df_temp in [df_piso_local, df_mob_local, df_ion_local]:
-            if not df_temp.empty and 'Línea' in df_temp.columns:
-                todas_lineas.update([str(x).strip() for x in df_temp['Línea'].dropna() if str(x).strip() != ''])
-        lineas_disponibles = sorted(list(todas_lineas))
+        # Llamada directa al catálogo maestro de Supabase
+        lineas_disponibles = obtener_catalogo_lineas()
 
         with st.form("form_alta_equipo"):
             col1, col2 = st.columns(2)
-            nueva_linea = col1.selectbox("Línea (Ubicación)", options=lineas_disponibles if lineas_disponibles else ["SMT", "Ensamble"])
+            nueva_linea = col1.selectbox("Línea (Ubicación)", options=lineas_disponibles)
             nuevo_id = col2.text_input("ID de Producto (Ej: " + ("MOB-001" if tipo_alta=="Mobiliario" else "ION-001") + ")")
             
             if tipo_alta == "Mobiliario":
@@ -2009,10 +2006,7 @@ elif st.session_state.vista_actual == "Event Meter" and not st.session_state.mod
     st.markdown("#### 📍 Ubicación y Operación")
     c_loc1, c_loc2 = st.columns(2)
 
-    lineas_existentes = sorted([str(x).strip() for x in df_em_local['Línea'].dropna().unique() if str(x).strip() != '']) if not df_em_local.empty else []
-    if not lineas_existentes:
-        lineas_existentes = ["Sin registros"]
-
+    lineas_existentes = obtener_catalogo_lineas()
     linea_seleccionada = c_loc1.selectbox("Línea", options=lineas_existentes, key="em_linea_seleccionada_captura")
     nueva_op_check = c_loc2.checkbox("➕ Registrar nueva Operación o Línea")
 
@@ -2925,15 +2919,13 @@ elif st.session_state.vista_actual == "Maquinaria" and not st.session_state.modo
         df_med_maq = pd.DataFrame()
 
     # Extraer líneas y clasificaciones únicas basadas exclusivamente en las mediciones registradas
-    if not df_med_maq.empty and 'linea_ubicacion' in df_med_maq.columns:
-        lineas_disp = sorted([str(x).strip() for x in df_med_maq['linea_ubicacion'].dropna().unique() if str(x).strip() != ''])
-        
-        if 'clasificacion' in df_med_maq.columns:
-            clasificaciones_dinamicas = sorted([str(x).strip() for x in df_med_maq['clasificacion'].dropna().unique() if str(x).strip() not in ['None', 'nan', '']])
-        else:
-            clasificaciones_dinamicas = ["Maquinaria"]
+    # Asegurar que las líneas vengan del catálogo maestro
+    lineas_disp = obtener_catalogo_lineas()
+    
+    # Extraer clasificaciones únicas de las mediciones registradas
+    if not df_med_maq.empty and 'clasificacion' in df_med_maq.columns:
+        clasificaciones_dinamicas = sorted([str(x).strip() for x in df_med_maq['clasificacion'].dropna().unique() if str(x).strip() not in ['None', 'nan', '']])
     else:
-        lineas_disp = ["Sin registros previos"]
         clasificaciones_dinamicas = ["Maquinaria"]
 
     if not clasificaciones_dinamicas:
