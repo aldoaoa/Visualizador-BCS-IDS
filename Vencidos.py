@@ -2252,6 +2252,28 @@ elif st.session_state.vista_actual == "Walking Test" and not st.session_state.mo
                 submit_reporte = st.form_submit_button("Generar Reporte Consolidado en PDF/HTML", width="stretch")
                 
                 if submit_reporte:
+                    # 1. Extraer el año (AA) desde la fecha de la prueba
+                    try:
+                        # Normalizar separadores y tomar los últimos dos dígitos del año
+                        fecha_limpia = str(fecha_gen).replace('-', '/')
+                        año_prueba = fecha_limpia.split('/')[-1][-2:]
+                    except:
+                        año_prueba = datetime.today().strftime("%y")
+
+                    # 2. Registrar en la base de datos para obtener el consecutivo (XXX)
+                    try:
+                        resp_log_wt = supabase.table("log_reportes_wt").insert({
+                            "fecha_prueba": fecha_gen,
+                            "auditor": auditor_wt
+                        }).execute()
+                        db_id_wt = resp_log_wt.data[0]['id']
+                    except Exception as e:
+                        db_id_wt = 999
+                        st.warning(f"Error de conexión con la bitácora de folios. Usando 999. Error: {e}")
+
+                    # 3. Construir la nomenclatura exacta
+                    folio_wt = f"BCS-QRO-WLK-{db_id_wt:03d}-{año_prueba}"
+
                     html_ubicaciones = ""
                     for idx, block in enumerate(bloques_ubicaciones, 1):
                         data = block['datos']
@@ -2264,7 +2286,6 @@ elif st.session_state.vista_actual == "Walking Test" and not st.session_state.mo
 
                         img_tag = f'<img src="data:image/png;base64,{data["img_b64"]}" class="max-w-full max-h-full object-contain" alt="Gráfica">' if data['img_b64'] else '<i class="text-gray-400">Sin gráfica disponible</i>'
 
-                        # --- BLOQUES DINÁMICOS DE UBICACIÓN EN TAILWIND ---
                         html_ubicaciones += f"""
                         <div class="border-2 border-[#003366] rounded-md p-5 mb-8 [page-break-inside:avoid] print:border-black">
                             <div class="text-[18px] font-bold text-white bg-[#003366] p-2.5 -mx-5 -mt-5 mb-5 rounded-t-sm print:bg-black">Ubicación {idx}: {block['nombre']}</div>
@@ -2298,12 +2319,11 @@ elif st.session_state.vista_actual == "Walking Test" and not st.session_state.mo
                         
                     fecha_pie_str = datetime.today().strftime("%Y/%m/%d")
 
-                    # --- PLANTILLA MAESTRA CON TAILWIND CSS ---
                     html_completo = f"""<!DOCTYPE html>
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<title>Reporte de Walking Test</title>
+<title>{folio_wt}</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <style>
     @media print {{ body {{ -webkit-print-color-adjust: exact; }} }}
@@ -2315,10 +2335,18 @@ elif st.session_state.vista_actual == "Walking Test" and not st.session_state.mo
 </div>
 
 <div class="max-w-5xl mx-auto bg-white p-8 shadow-lg print:shadow-none print:p-0">
-    <div class="border-b-4 border-[#003366] pb-4 mb-6 text-center print:border-black">
-        <h1 class="text-2xl font-bold text-[#003366] mb-1 print:text-black">Reporte de Walking Test (Prueba de Caminado)</h1>
-        <p class="text-gray-600 text-sm font-medium">Evaluación de Sistema de Piso y Calzado ESD</p>
-        <p class="text-gray-500 text-xs mt-1"><strong>Estándares aplicables:</strong> ANSI/ESD S20.20 y ANSI/ESD STM97.2</p>
+    <div class="border-b-4 border-[#003366] pb-4 mb-6 flex justify-between items-start print:border-black">
+        <div class="w-1/4">
+            <img src="https://github.com/aldoaoa/Visualizador-BCS-IDS/blob/main/BCS%20LOGO.png?raw=true" alt="BCS Logo" class="h-16 object-contain" />
+        </div>
+        <div class="w-2/4 text-center">
+            <h1 class="text-2xl font-bold text-[#003366] mb-1 print:text-black">Reporte de Walking Test</h1>
+            <p class="text-gray-600 text-sm font-medium">Evaluación de Sistema de Piso y Calzado ESD</p>
+            <p class="text-gray-500 text-xs mt-1"><strong>Estándares:</strong> ANSI/ESD S20.20 y ANSI/ESD STM97.2</p>
+        </div>
+        <div class="w-1/4 text-right">
+            <div class="text-red-700 font-bold text-lg">{folio_wt}</div>
+        </div>
     </div>
 
     <h2 class="text-base font-bold text-[#003366] border-b border-gray-300 pb-1 mt-6 mb-3 uppercase tracking-wide print:text-black print:border-black">1. Información General y Condiciones Ambientales</h2>
@@ -2389,10 +2417,10 @@ elif st.session_state.vista_actual == "Walking Test" and not st.session_state.mo
 </html>"""
                     
                     b64_html = base64.b64encode(html_completo.encode('utf-8')).decode('utf-8')
-                    nombre_archivo = f"Walking_Test_{fecha_gen.replace('/', '-')}_{periodo_wt.replace(' ', '')}.html"
+                    nombre_archivo = f"{folio_wt}.html"
                     
-                    st.success("✅ ¡Reporte de Walking Test estandarizado y migrado a Tailwind con éxito!")
-                    href = f'<a href="data:text/html;base64,{b64_html}" download="{nombre_archivo}" target="_blank" style="display: block; text-align: center; padding: 15px; background-color: #003366; color: white; text-decoration: none; border-radius: 8px; font-weight: bold; margin-top: 10px; font-size: 16px;">📥 Descargar Reporte Estandarizado (Tailwind)</a>'
+                    st.success(f"✅ ¡Reporte {folio_wt} estandarizado y generado con éxito!")
+                    href = f'<a href="data:text/html;base64,{b64_html}" download="{nombre_archivo}" target="_blank" style="display: block; text-align: center; padding: 15px; background-color: #003366; color: white; text-decoration: none; border-radius: 8px; font-weight: bold; margin-top: 10px; font-size: 16px;">📥 Descargar Reporte Oficial ({folio_wt})</a>'
                     st.markdown(href, unsafe_allow_html=True)
 
 # ==========================================
