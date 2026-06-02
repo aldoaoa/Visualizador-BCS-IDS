@@ -3410,7 +3410,100 @@ elif st.session_state.vista_actual == "Sensibilidad" and not st.session_state.mo
     st.markdown("### 🔌 Análisis de Sensibilidad de Componentes (HBM / CDM)")
     st.info("Consulta y gestiona los límites de susceptibilidad de los ensambles. Esencial para justificar los límites de control en la EPA.")
 
-    tab_consulta, tab_importar = st.tabs(["📊 Consulta de Reportes", "📥 Importar Histórico"])
+    tab_overview_sen, tab_consulta, tab_importar = st.tabs(["📈 Overview Global", "📊 Consulta de Reportes", "📥 Importar Histórico"])
+
+    # --- PESTAÑA: OVERVIEW GLOBAL ---
+    with tab_overview_sen:
+        st.markdown("#### 🌍 Resumen Global de Sensibilidad en Planta")
+        
+        try:
+            # Extraer ambas tablas
+            resp_cat_ov = supabase.table("catalogo_sensibilidad").select("id, nombre_producto, numero_parte, cliente, nivel_sensibilidad").execute()
+            df_cat_ov = pd.DataFrame(resp_cat_ov.data)
+            
+            resp_comp_ov = supabase.table("componentes_sensibilidad").select("id_producto, esd_hbm, esd_cdm").execute()
+            df_comp_ov = pd.DataFrame(resp_comp_ov.data)
+            
+            if not df_cat_ov.empty and not df_comp_ov.empty:
+                # Convertir a numérico para poder calcular mínimos
+                df_comp_ov['esd_hbm_num'] = pd.to_numeric(df_comp_ov['esd_hbm'].replace('-', pd.NA), errors='coerce')
+                df_comp_ov['esd_cdm_num'] = pd.to_numeric(df_comp_ov['esd_cdm'].replace('-', pd.NA), errors='coerce')
+                
+                # Obtener el mínimo HBM y CDM por cada ID de producto
+                minimos_por_producto = df_comp_ov.groupby('id_producto').agg({
+                    'esd_hbm_num': 'min', 
+                    'esd_cdm_num': 'min'
+                }).reset_index()
+                
+                # Unir el catálogo de productos con sus voltajes mínimos
+                df_consolidado = pd.merge(df_cat_ov, minimos_por_producto, left_on='id', right_on='id_producto', how='inner')
+                
+                if not df_consolidado.empty:
+                    # Cálculos Globales
+                    min_hbm_global = df_consolidado['esd_hbm_num'].min()
+                    min_cdm_global = df_consolidado['esd_cdm_num'].min()
+                    
+                    # Identificar el proyecto más sensible evaluando el mínimo absoluto entre HBM y CDM
+                    df_consolidado['min_absoluto'] = df_consolidado[['esd_hbm_num', 'esd_cdm_num']].min(axis=1)
+                    idx_mas_sensible = df_consolidado['min_absoluto'].idxmin()
+                    proyecto_critico = df_consolidado.loc[idx_mas_sensible]
+                    
+                    # 1. TARJETAS DE MÉTRICAS GLOBALES
+                    st.markdown("##### 🚨 Proyecto Más Crítico (Mayor Riesgo ESD)")
+                    c_crit1, c_crit2, c_crit3 = st.columns(3)
+                    
+                    nombre_critico = f"{proyecto_critico['nombre_producto']} ({proyecto_critico['cliente']})"
+                    voltaje_critico = f"{proyecto_critico['min_absoluto']:g} V" if pd.notna(proyecto_critico['min_absoluto']) else "N/D"
+                    
+                    c_crit1.metric("Proyecto Más Sensible", nombre_critico, delta="Requiere máxima atención", delta_color="inverse")
+                    c_crit2.metric("Mínimo Global HBM", f"{min_hbm_global:g} V" if pd.notna(min_hbm_global) else "N/D")
+                    c_crit3.metric("Mínimo Global CDM", f"{min_cdm_global:g} V" if pd.notna(min_cdm_global) else "N/D")
+                    
+                    st.divider()
+                    
+                    # 2. TABLA DE RESUMEN POR CLIENTE
+                    st.markdown("##### 🏢 Sensibilidad Mínima por Cliente")
+                    
+                    # Agrupar por cliente para encontrar el componente más débil asociado a cada uno
+                    resumen_cliente = df_consolidado.groupby('cliente').agg({
+                        'esd_hbm_num': 'min',
+                        'esd_cdm_num': 'min'
+                    }).reset_index()
+                    
+                    # Limpiar y formatear para visualización
+                    resumen_cliente.columns = ['Cliente', 'Mínimo HBM (V)', 'Mínimo CDM (V)']
+                    resumen_cliente['Mínimo HBM (V)'] = resumen_cliente['Mínimo HBM (V)'].apply(lambda x: f"{x:g}" if pd.notna(x) else "N/D")
+                    resumen_cliente['Mínimo CDM (V)'] = resumen_cliente['Mínimo CDM (V)'].apply(lambda x: f"{x:g}" if pd.notna(x) else "N/D")
+                    
+                    st.dataframe(resumen_cliente, use_container_width=True, hide_index=True)
+                    
+                    # 3. GRÁFICA VISUAL RÁPIDA
+                    st.markdown("##### 📊 Comparativa Visual de Riesgo (Voltaje Mínimo Absoluto por Producto)")
+                    
+                    # Preparamos los datos para la gráfica
+                    df_grafica = df_consolidado.dropna(subset=['min_absoluto']).copy()
+                    if not df_grafica.empty:
+                        df_grafica = df_grafica.sort_values('min_absoluto')
+                        
+                        import plotly.express as px
+                        fig = px.bar(
+                            df_grafica, 
+                            x='nombre_producto', 
+                            y='min_absoluto', 
+                            color='cliente',
+                            labels={'nombre_producto': 'Producto', 'min_absoluto': 'Límite de Soporte (Volts)', 'cliente': 'Cliente'},
+                            text_auto='.0f'
+                        )
+                        fig.update_traces(textposition='outside')
+                        fig.update_layout(yaxis_title="Volts (Menor = Más Crítico)", xaxis_title="")
+                        st.plotly_chart(fig, use_container_width=True)
+
+                else:
+                    st.info("No se pudieron consolidar los datos de catálogo y componentes.")
+            else:
+                st.info("Aún no hay suficientes datos procesados para generar el Overview.")
+        except Exception as e:
+            st.error(f"Error generando el Overview: {e}")
 
     # --- PESTAÑA: CONSULTA Y EXPORTACIÓN ---
     with tab_consulta:
