@@ -3464,18 +3464,24 @@ elif st.session_state.vista_actual == "Sensibilidad" and not st.session_state.mo
                     # 2. TABLA DE RESUMEN POR CLIENTE
                     st.markdown("##### 🏢 Sensibilidad Mínima por Cliente")
                     
-                    # Agrupar por cliente para encontrar el componente más débil asociado a cada uno
-                    resumen_cliente = df_consolidado.groupby('cliente').agg({
-                        'esd_hbm_num': 'min',
-                        'esd_cdm_num': 'min'
-                    }).reset_index()
+                    # Filtrar productos que tengan al menos un valor de voltaje válido
+                    df_validos = df_consolidado.dropna(subset=['min_absoluto'])
                     
-                    # Limpiar y formatear para visualización
-                    resumen_cliente.columns = ['Cliente', 'Mínimo HBM (V)', 'Mínimo CDM (V)']
-                    resumen_cliente['Mínimo HBM (V)'] = resumen_cliente['Mínimo HBM (V)'].apply(lambda x: f"{x:g}" if pd.notna(x) else "N/D")
-                    resumen_cliente['Mínimo CDM (V)'] = resumen_cliente['Mínimo CDM (V)'].apply(lambda x: f"{x:g}" if pd.notna(x) else "N/D")
-                    
-                    st.dataframe(resumen_cliente, use_container_width=True, hide_index=True)
+                    if not df_validos.empty:
+                        # 1. Encontrar el índice (la fila) del registro con el voltaje más bajo para cada cliente
+                        idx_min_por_cliente = df_validos.groupby('cliente')['min_absoluto'].idxmin()
+                        
+                        # 2. Extraer solo esas filas usando los índices localizados y seleccionar las columnas deseadas
+                        resumen_cliente = df_validos.loc[idx_min_por_cliente, ['cliente', 'nombre_producto', 'esd_hbm_num', 'esd_cdm_num']].copy()
+                        
+                        # 3. Limpiar y formatear para la visualización en pantalla
+                        resumen_cliente.columns = ['Cliente', 'Producto Más Crítico', 'Mínimo HBM (V)', 'Mínimo CDM (V)']
+                        resumen_cliente['Mínimo HBM (V)'] = resumen_cliente['Mínimo HBM (V)'].apply(lambda x: f"{x:g}" if pd.notna(x) else "N/D")
+                        resumen_cliente['Mínimo CDM (V)'] = resumen_cliente['Mínimo CDM (V)'].apply(lambda x: f"{x:g}" if pd.notna(x) else "N/D")
+                        
+                        st.dataframe(resumen_cliente, use_container_width=True, hide_index=True)
+                    else:
+                        st.info("No hay datos suficientes para generar el resumen por cliente.")
                     
                     # 3. GRÁFICA VISUAL RÁPIDA
                     st.markdown("##### 📊 Comparativa Visual de Riesgo (Voltaje Mínimo Absoluto por Producto)")
