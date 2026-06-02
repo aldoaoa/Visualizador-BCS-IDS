@@ -945,7 +945,7 @@ if not st.session_state.modo_lectura:
             st.rerun()
             
     with c_nav2:
-        # Nuevo menú desplegable para Auditorías
+        # Menú desplegable para Auditorías
         with st.popover("📋 Auditorías", use_container_width=True):
             if st.button("📱 Escáner", use_container_width=True, type="primary" if st.session_state.vista_actual == "Escáner" else "secondary"):
                 st.session_state.vista_actual = "Escáner"
@@ -957,6 +957,10 @@ if not st.session_state.modo_lectura:
                 st.rerun()
             if st.button("🏭 Maquinaria", use_container_width=True, type="primary" if st.session_state.vista_actual == "Maquinaria" else "secondary"):
                 st.session_state.vista_actual = "Maquinaria"
+                limpiar_url_escaneo()
+                st.rerun()
+            if st.button("🌍 Tierras", use_container_width=True, type="primary" if st.session_state.vista_actual == "Tierras" else "secondary"):
+                st.session_state.vista_actual = "Tierras"
                 limpiar_url_escaneo()
                 st.rerun()
                 
@@ -4104,3 +4108,128 @@ elif st.session_state.vista_actual == "Sensibilidad" and not st.session_state.mo
                             st.error("❌ No se encontró la cabecera 'Part Number' en este archivo. Verifica el formato.")
                     except Exception as e:
                         st.error(f"Error procesando el archivo: {e}")
+# ==========================================
+# VISTA 10: TIERRAS AUXILIARES
+# ==========================================
+elif st.session_state.vista_actual == "Tierras" and not st.session_state.modo_lectura:
+    st.markdown("### 🌍 Control de Tierras Auxiliares")
+    st.info("Registro y monitoreo de tierras auxiliares por línea de producción. El límite de aceptación normativo es < 25 Ohms.")
+
+    tab_registro_t, tab_historial_t = st.tabs(["📝 Nueva Medición", "📂 Historial y Edición"])
+
+    # --- PESTAÑA 1: NUEVA MEDICIÓN ---
+    with tab_registro_t:
+        st.markdown("#### ➕ Registrar Medición de Tierra")
+        
+        try:
+            resp_eq_t = supabase.table("equipos_medicion").select("id_equipo").execute()
+            equipos_t = sorted([str(x['id_equipo']).strip() for x in resp_eq_t.data if x.get('id_equipo')])
+        except:
+            equipos_t = ["Error al cargar equipos"]
+
+        if not equipos_t:
+            equipos_t = ["Sin equipos registrados"]
+
+        # Equipo por defecto
+        eq_default_t = "BCS-QRO-LAB-EMI001"
+        idx_eq_t = equipos_t.index(eq_default_t) if eq_default_t in equipos_t else 0
+
+        with st.form("form_tierras_aux"):
+            col_t1, col_t2 = st.columns(2)
+            linea_t_sel = col_t1.selectbox("1. Línea / Ubicación (Referencia):", options=obtener_catalogo_lineas())
+            equipo_t_sel = col_t2.selectbox("2. Equipo de Medición:", options=equipos_t, index=idx_eq_t)
+
+            col_t3, col_t4 = st.columns(2)
+            ohms_t = col_t3.number_input("3. Medición Registrada (Ohms):", min_value=0.0, max_value=9999.0, step=0.1, format="%.2f")
+            fecha_t = col_t4.date_input("4. Fecha de Verificación", datetime.today().date())
+
+            if st.form_submit_button("💾 Guardar Medición de Tierra", use_container_width=True):
+                estatus_t = "PASA" if ohms_t < 25.0 else "FALLA"
+                
+                with st.spinner("Registrando..."):
+                    try:
+                        supabase.table("tierras_auxiliares").insert({
+                            "linea": linea_t_sel,
+                            "equipo_medicion": equipo_t_sel,
+                            "medicion_ohms": float(ohms_t),
+                            "fecha_medicion": fecha_t.isoformat(),
+                            "estatus": estatus_t,
+                            "auditor": st.session_state.usuario_nombre
+                        }).execute()
+                        
+                        if estatus_t == "PASA":
+                            st.success(f"✅ ¡Medición guardada! La tierra de {linea_t_sel} cumple con la especificación ({ohms_t} Ω).")
+                        else:
+                            st.error(f"🚨 ¡Atención! La tierra de {linea_t_sel} registró {ohms_t} Ω, superando el límite de 25 Ω.")
+                            
+                        st.balloons()
+                        time.sleep(1.5)
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error al guardar: {e}")
+
+    # --- PESTAÑA 2: HISTORIAL INTERACTIVO ---
+    with tab_historial_t:
+        st.markdown("#### 🔄 Historial y Edición de Registros")
+        st.write("Edita directamente los valores de **Medición (Ω)** o las **Fechas** haciendo doble clic sobre las celdas de la tabla. Al finalizar, presiona el botón inferior para guardar los cambios.")
+
+        try:
+            resp_hist_t = supabase.table("tierras_auxiliares").select("*").order("fecha_medicion", desc=True).execute()
+            df_hist_t = pd.DataFrame(resp_hist_t.data)
+            
+            if not df_hist_t.empty:
+                # Preparamos el dataframe para la edición
+                df_edit = df_hist_t[['id', 'fecha_medicion', 'linea', 'medicion_ohms', 'estatus', 'equipo_medicion', 'auditor']].copy()
+                
+                # Convertimos la fecha a objeto date para que el editor abra un calendario nativo
+                df_edit['fecha_medicion'] = pd.to_datetime(df_edit['fecha_medicion']).dt.date
+                
+                # Renderizamos la tabla editable
+                edited_df = st.data_editor(
+                    df_edit,
+                    column_config={
+                        "id": None, # Ocultamos el ID interno de la BD
+                        "fecha_medicion": st.column_config.DateColumn("Fecha", required=True),
+                        "linea": st.column_config.TextColumn("Línea", disabled=True),
+                        "medicion_ohms": st.column_config.NumberColumn("Medición (Ω)", min_value=0.0, format="%.2f", required=True),
+                        "estatus": st.column_config.TextColumn("Estatus (Auto)", disabled=True),
+                        "equipo_medicion": st.column_config.TextColumn("Equipo", disabled=True),
+                        "auditor": st.column_config.TextColumn("Auditor", disabled=True),
+                    },
+                    hide_index=True,
+                    use_container_width=True,
+                    key="editor_tierras"
+                )
+                
+                if st.button("💾 Guardar Cambios Editados", type="primary"):
+                    cambios_realizados = 0
+                    with st.spinner("Actualizando registros en la base de datos..."):
+                        # Iteramos para comparar qué cambió y mandarlo a SQL
+                        for i, row in edited_df.iterrows():
+                            orig_row = df_edit.iloc[i]
+                            
+                            if row['medicion_ohms'] != orig_row['medicion_ohms'] or row['fecha_medicion'] != orig_row['fecha_medicion']:
+                                # Recalculamos el estatus si el auditor ajustó los Ohms
+                                nuevo_estatus = "PASA" if row['medicion_ohms'] < 25.0 else "FALLA"
+                                
+                                try:
+                                    supabase.table("tierras_auxiliares").update({
+                                        "medicion_ohms": float(row['medicion_ohms']),
+                                        "fecha_medicion": row['fecha_medicion'].isoformat(),
+                                        "estatus": nuevo_estatus
+                                    }).eq("id", row['id']).execute()
+                                    cambios_realizados += 1
+                                except Exception as e:
+                                    st.error(f"Error al actualizar la línea {row['linea']}: {e}")
+                                    
+                    if cambios_realizados > 0:
+                        st.success(f"✅ Se actualizaron correctamente {cambios_realizados} registros.")
+                        time.sleep(1)
+                        st.rerun()
+                    else:
+                        st.info("No se detectaron modificaciones en los datos.")
+                        
+            else:
+                st.info("Aún no hay mediciones de tierras auxiliares registradas.")
+        except Exception as e:
+            st.error(f"Error al cargar el historial: {e}")
