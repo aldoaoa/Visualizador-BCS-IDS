@@ -4109,17 +4109,17 @@ elif st.session_state.vista_actual == "Sensibilidad" and not st.session_state.mo
                     except Exception as e:
                         st.error(f"Error procesando el archivo: {e}")
 # ==========================================
-# VISTA 10: TIERRAS AUXILIARES
+# VISTA 10: TIERRAS Y CONEXIONES
 # ==========================================
 elif st.session_state.vista_actual == "Tierras" and not st.session_state.modo_lectura:
-    st.markdown("### 🌍 Control de Tierras Auxiliares")
-    st.info("Registro y monitoreo de tierras auxiliares por línea de producción. El límite de aceptación normativo es < 25 Ohms.")
+    st.markdown("### 🌍 Control de Tierras y Conexiones de Pulsera")
+    st.info("Monitoreo de infraestructura a tierra. Límites normativos: Tierras Auxiliares (< 25 Ω) y Puntos de Conexión de Pulsera (< 2.0 Ω).")
 
     tab_registro_t, tab_historial_t = st.tabs(["📝 Nueva Medición", "📂 Historial y Edición"])
 
     # --- PESTAÑA 1: NUEVA MEDICIÓN ---
     with tab_registro_t:
-        st.markdown("#### ➕ Registrar Medición de Tierra")
+        st.markdown("#### ➕ Registrar Nueva Medición")
         
         try:
             resp_eq_t = supabase.table("equipos_medicion").select("id_equipo").execute()
@@ -4130,25 +4130,34 @@ elif st.session_state.vista_actual == "Tierras" and not st.session_state.modo_le
         if not equipos_t:
             equipos_t = ["Sin equipos registrados"]
 
-        # Equipo por defecto
         eq_default_t = "BCS-QRO-LAB-EMI001"
         idx_eq_t = equipos_t.index(eq_default_t) if eq_default_t in equipos_t else 0
 
         with st.form("form_tierras_aux"):
-            col_t1, col_t2 = st.columns(2)
-            linea_t_sel = col_t1.selectbox("1. Línea / Ubicación (Referencia):", options=obtener_catalogo_lineas())
-            equipo_t_sel = col_t2.selectbox("2. Equipo de Medición:", options=equipos_t, index=idx_eq_t)
+            c_tipo1, c_tipo2 = st.columns(2)
+            tipo_punto_sel = c_tipo1.selectbox("1. Tipo de Punto a Medir:", ["Tierra Auxiliar", "Punto de Conexión de Pulsera"])
+            
+            linea_t_sel = c_tipo2.selectbox("2. Línea / Ubicación:", options=obtener_catalogo_lineas())
+            
+            c_det1, c_det2 = st.columns(2)
+            id_punto_val = c_det1.text_input("3. ID del Punto (Opcional para Tierra Auxiliar):", placeholder="Ej: CP-01, Tierra-General...")
+            equipo_t_sel = c_det2.selectbox("4. Equipo de Medición:", options=equipos_t, index=idx_eq_t)
 
-            col_t3, col_t4 = st.columns(2)
-            ohms_t = col_t3.number_input("3. Medición Registrada (Ohms):", min_value=0.0, max_value=9999.0, step=0.1, format="%.2f")
-            fecha_t = col_t4.date_input("4. Fecha de Verificación", datetime.today().date())
+            c_val1, c_val2 = st.columns(2)
+            ohms_t = c_val1.number_input("5. Medición Registrada (Ohms):", min_value=0.0, max_value=9999.0, step=0.1, format="%.2f")
+            fecha_t = c_val2.date_input("6. Fecha de Verificación", datetime.today().date())
 
-            if st.form_submit_button("💾 Guardar Medición de Tierra", use_container_width=True):
-                estatus_t = "PASA" if ohms_t < 25.0 else "FALLA"
+            if st.form_submit_button("💾 Guardar Medición", use_container_width=True):
+                # Asignación literal del límite establecido
+                limite_aprobacion = 25.0 if tipo_punto_sel == "Tierra Auxiliar" else 2.0
+                estatus_t = "PASA" if ohms_t < limite_aprobacion else "FALLA"
+                id_final = id_punto_val.strip() if id_punto_val.strip() else "N/A"
                 
                 with st.spinner("Registrando..."):
                     try:
                         supabase.table("tierras_auxiliares").insert({
+                            "tipo_punto": tipo_punto_sel,
+                            "id_punto": id_final,
                             "linea": linea_t_sel,
                             "equipo_medicion": equipo_t_sel,
                             "medicion_ohms": float(ohms_t),
@@ -4158,15 +4167,15 @@ elif st.session_state.vista_actual == "Tierras" and not st.session_state.modo_le
                         }).execute()
                         
                         if estatus_t == "PASA":
-                            st.success(f"✅ ¡Medición guardada! La tierra de {linea_t_sel} cumple con la especificación ({ohms_t} Ω).")
+                            st.success(f"✅ ¡Medición guardada! El punto {id_final} en {linea_t_sel} cumple con la especificación de < {limite_aprobacion} Ω ({ohms_t} Ω).")
                         else:
-                            st.error(f"🚨 ¡Atención! La tierra de {linea_t_sel} registró {ohms_t} Ω, superando el límite de 25 Ω.")
+                            st.error(f"🚨 ¡Atención! El punto registró {ohms_t} Ω, superando el límite permitido de {limite_aprobacion} Ω para {tipo_punto_sel}.")
                             
                         st.balloons()
                         time.sleep(1.5)
                         st.rerun()
                     except Exception as e:
-                        st.error(f"Error al guardar: {e}")
+                        st.error(f"Error al guardar en SQL: {e}")
 
     # --- PESTAÑA 2: HISTORIAL INTERACTIVO ---
     with tab_historial_t:
@@ -4178,19 +4187,17 @@ elif st.session_state.vista_actual == "Tierras" and not st.session_state.modo_le
             df_hist_t = pd.DataFrame(resp_hist_t.data)
             
             if not df_hist_t.empty:
-                # Preparamos el dataframe para la edición
-                df_edit = df_hist_t[['id', 'fecha_medicion', 'linea', 'medicion_ohms', 'estatus', 'equipo_medicion', 'auditor']].copy()
-                
-                # Convertimos la fecha a objeto date para que el editor abra un calendario nativo
+                df_edit = df_hist_t[['id', 'fecha_medicion', 'tipo_punto', 'linea', 'id_punto', 'medicion_ohms', 'estatus', 'equipo_medicion', 'auditor']].copy()
                 df_edit['fecha_medicion'] = pd.to_datetime(df_edit['fecha_medicion']).dt.date
                 
-                # Renderizamos la tabla editable
                 edited_df = st.data_editor(
                     df_edit,
                     column_config={
-                        "id": None, # Ocultamos el ID interno de la BD
+                        "id": None, 
                         "fecha_medicion": st.column_config.DateColumn("Fecha", required=True),
+                        "tipo_punto": st.column_config.TextColumn("Tipo", disabled=True),
                         "linea": st.column_config.TextColumn("Línea", disabled=True),
+                        "id_punto": st.column_config.TextColumn("ID Punto", disabled=True),
                         "medicion_ohms": st.column_config.NumberColumn("Medición (Ω)", min_value=0.0, format="%.2f", required=True),
                         "estatus": st.column_config.TextColumn("Estatus (Auto)", disabled=True),
                         "equipo_medicion": st.column_config.TextColumn("Equipo", disabled=True),
@@ -4198,19 +4205,20 @@ elif st.session_state.vista_actual == "Tierras" and not st.session_state.modo_le
                     },
                     hide_index=True,
                     use_container_width=True,
-                    key="editor_tierras"
+                    key="editor_tierras_conexiones"
                 )
                 
                 if st.button("💾 Guardar Cambios Editados", type="primary"):
                     cambios_realizados = 0
                     with st.spinner("Actualizando registros en la base de datos..."):
-                        # Iteramos para comparar qué cambió y mandarlo a SQL
                         for i, row in edited_df.iterrows():
                             orig_row = df_edit.iloc[i]
                             
                             if row['medicion_ohms'] != orig_row['medicion_ohms'] or row['fecha_medicion'] != orig_row['fecha_medicion']:
-                                # Recalculamos el estatus si el auditor ajustó los Ohms
-                                nuevo_estatus = "PASA" if row['medicion_ohms'] < 25.0 else "FALLA"
+                                
+                                # Aplicamos el límite correspondiente según el tipo de punto para recalcular el estatus
+                                lim_calc = 25.0 if row.get('tipo_punto', 'Tierra Auxiliar') == 'Tierra Auxiliar' else 2.0
+                                nuevo_estatus = "PASA" if row['medicion_ohms'] < lim_calc else "FALLA"
                                 
                                 try:
                                     supabase.table("tierras_auxiliares").update({
@@ -4230,6 +4238,6 @@ elif st.session_state.vista_actual == "Tierras" and not st.session_state.modo_le
                         st.info("No se detectaron modificaciones en los datos.")
                         
             else:
-                st.info("Aún no hay mediciones de tierras auxiliares registradas.")
+                st.info("Aún no hay mediciones registradas.")
         except Exception as e:
             st.error(f"Error al cargar el historial: {e}")
