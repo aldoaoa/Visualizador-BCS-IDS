@@ -3536,7 +3536,11 @@ elif st.session_state.vista_actual == "Maquinaria" and not st.session_state.modo
         # Formulario de captura
         with st.form("form_conductores_aislados"):
             c_cond3, c_cond4 = st.columns(2)
-            equipo_cond_sel = c_cond3.selectbox("3. Equipo de Medición Utilizado:", options=equipos_cond)
+            # Buscar el índice del equipo default literal; si no existe, usar 0
+            equipo_default = "BCS-QRO-LAB-BVM001"
+            idx_eq = equipos_cond.index(equipo_default) if equipo_default in equipos_cond else 0
+            
+            equipo_cond_sel = c_cond3.selectbox("3. Equipo de Medición Utilizado:", options=equipos_cond, index=idx_eq)
             
             # Input numérico para el voltaje
             voltaje_max_cond = c_cond4.number_input(
@@ -3606,7 +3610,7 @@ Departamento de Calidad / Control ESD"""
 
                         except Exception as e:
                             st.error(f"Error al guardar el registro en SQL: {e}")
-    # ==========================================
+        # ==========================================
         # VISOR DE HISTORIAL DE CONDUCTORES AISLADOS
         # ==========================================
         st.divider()
