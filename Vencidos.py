@@ -912,7 +912,7 @@ elif id_baja_url:
     st.session_state.vista_actual = "Alta"
 
 if not st.session_state.modo_lectura:
-    c_nav1, c_nav2, c_nav3, c_nav4, c_nav5, c_nav6, c_nav7, c_nav8 = st.columns(9)
+    c_nav1, c_nav2, c_nav3, c_nav4, c_nav5, c_nav6, c_nav7, c_nav8, c_nav9 = st.columns(9)
     with c_nav1:
         if st.button("🗺️ Mapa y Reportes", use_container_width=True, type="primary" if st.session_state.vista_actual == "Mapa" else "secondary"):
             st.session_state.vista_actual = "Mapa"
