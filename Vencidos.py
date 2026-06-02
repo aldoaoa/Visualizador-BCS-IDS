@@ -3490,107 +3490,108 @@ elif st.session_state.vista_actual == "Sensibilidad" and not st.session_state.mo
 
     # --- PESTAÑA: IMPORTACIÓN ---
     with tab_importar:
-        st.markdown("#### 📂 Cargar Archivo de Sensibilidad")
-        st.write("Sube el archivo CSV o Excel. El sistema buscará la tabla automáticamente a partir de la columna `Part Number`.")
+        st.markdown("#### 📂 Cargar Archivos de Sensibilidad")
+        st.write("Sube uno o varios archivos CSV o Excel. El sistema buscará la tabla automáticamente a partir de la cabecera 'Part Number'.")
         
-        archivo_sen = st.file_uploader("Selecciona el archivo", type=["csv", "xlsx"])
+        # Agregamos accept_multiple_files=True
+        archivos_sen = st.file_uploader("Selecciona los archivos", type=["csv", "xlsx"], accept_multiple_files=True)
         
-        if archivo_sen:
-            try:
-                # Leer archivo crudo
-                if archivo_sen.name.endswith('.csv'):
-                    df_raw = pd.read_csv(archivo_sen, header=None)
-                else:
-                    df_raw = pd.read_excel(archivo_sen, header=None)
-                
-                # Intentar localizar el inicio de la tabla buscando la celda "Part Number"
-                fila_inicio = None
-                for i in range(min(20, len(df_raw))): # Buscar en las primeras 20 filas
-                    if df_raw.iloc[i].astype(str).str.contains("Part Number", case=False, na=False).any():
-                        fila_inicio = i
-                        break
-                
-                if fila_inicio is not None:
-                    # 1. Aislar la tabla y forzar TODAS las cabeceras a ser texto para evitar el error del float (NaN)
-                    df_tabla = df_raw.iloc[fila_inicio+1:].copy()
-                    columnas_texto = [str(c) for c in df_raw.iloc[fila_inicio].tolist()]
-                    df_tabla.columns = columnas_texto
-                    
-                    # 2. Encontrar la columna real de "Part Number"
-                    col_pn_real = next((c for c in df_tabla.columns if 'part number' in c.lower()), df_tabla.columns[1])
-                    
-                    # 3. Quitar filas donde el Part Number esté vacío o sea NaN
-                    df_tabla = df_tabla.dropna(subset=[col_pn_real])
-                    df_tabla = df_tabla[df_tabla[col_pn_real].astype(str).str.strip() != '']
-                    df_tabla = df_tabla[df_tabla[col_pn_real].astype(str).str.strip().str.lower() != 'nan']
-                    
-                    st.success(f"✅ Tabla detectada exitosamente ({len(df_tabla)} componentes encontrados).")
-                    
-                    with st.form("form_guardar_sensibilidad"):
-                        st.markdown("##### 📝 Confirma los Datos Generales del Producto")
-                        # Pre-llenado inteligente
-                        sug_pn = df_raw.iloc[4, 4] if len(df_raw) > 4 and len(df_raw.columns) > 4 else ""
-                        sug_cliente = df_raw.iloc[5, 8] if len(df_raw) > 5 and len(df_raw.columns) > 8 else ""
-                        sug_prod = df_raw.iloc[7, 4] if len(df_raw) > 7 and len(df_raw.columns) > 4 else "" 
-                        sug_lvl = df_raw.iloc[7, 8] if len(df_raw) > 7 and len(df_raw.columns) > 8 else ""
-
-                        col_f1, col_f2 = st.columns(2)
-                        num_parte_imp = col_f1.text_input("Número de Parte", value=str(sug_pn).replace('nan','').strip())
-                        nom_prod_imp = col_f2.text_input("Nombre del Producto", value=str(sug_prod).replace('nan','').strip())
+        if archivos_sen:
+            # Iteramos sobre todos los archivos subidos
+            for idx, archivo_sen in enumerate(archivos_sen):
+                with st.expander(f"📄 Procesando: {archivo_sen.name}", expanded=True):
+                    try:
+                        # Leer archivo crudo
+                        if archivo_sen.name.endswith('.csv'):
+                            df_raw = pd.read_csv(archivo_sen, header=None)
+                        else:
+                            df_raw = pd.read_excel(archivo_sen, header=None)
                         
-                        col_f3, col_f4 = st.columns(2)
-                        cliente_imp = col_f3.text_input("Cliente", value=str(sug_cliente).replace('nan','').strip())
-                        nivel_imp = col_f4.text_input("Nivel de Sensibilidad (Ej: C1)", value=str(sug_lvl).replace('nan','').strip())
+                        # Intentar localizar el inicio de la tabla
+                        fila_inicio = None
+                        for i in range(min(20, len(df_raw))):
+                            if df_raw.iloc[i].astype(str).str.contains("Part Number", case=False, na=False).any():
+                                fila_inicio = i
+                                break
+                        
+                        if fila_inicio is not None:
+                            # Aislar la tabla y forzar TODAS las cabeceras a ser texto
+                            df_tabla = df_raw.iloc[fila_inicio+1:].copy()
+                            columnas_texto = [str(c) for c in df_raw.iloc[fila_inicio].tolist()]
+                            df_tabla.columns = columnas_texto
+                            
+                            # Encontrar la columna real de "Part Number"
+                            col_pn_real = next((c for c in df_tabla.columns if 'part number' in c.lower()), df_tabla.columns[1])
+                            
+                            # Quitar filas donde el Part Number esté vacío o sea NaN
+                            df_tabla = df_tabla.dropna(subset=[col_pn_real])
+                            df_tabla = df_tabla[df_tabla[col_pn_real].astype(str).str.strip() != '']
+                            df_tabla = df_tabla[df_tabla[col_pn_real].astype(str).str.strip().str.lower() != 'nan']
+                            
+                            st.success(f"✅ Tabla detectada ({len(df_tabla)} componentes encontrados).")
+                            
+                            # Asignamos un key único al form usando el índice del archivo
+                            with st.form(f"form_guardar_sensibilidad_{idx}"):
+                                st.markdown("##### 📝 Confirma los Datos Generales del Producto")
+                                # Pre-llenado inteligente
+                                sug_pn = df_raw.iloc[4, 4] if len(df_raw) > 4 and len(df_raw.columns) > 4 else ""
+                                sug_cliente = df_raw.iloc[5, 8] if len(df_raw) > 5 and len(df_raw.columns) > 8 else ""
+                                sug_prod = df_raw.iloc[7, 4] if len(df_raw) > 7 and len(df_raw.columns) > 4 else "" 
+                                sug_lvl = df_raw.iloc[7, 8] if len(df_raw) > 7 and len(df_raw.columns) > 8 else ""
 
-                        if st.form_submit_button("💾 Guardar Reporte en Base de Datos", use_container_width=True):
-                            if num_parte_imp and nom_prod_imp and cliente_imp:
-                                with st.spinner("Registrando producto y componentes..."):
-                                    # 1. Insertar el producto en el catálogo
-                                    resp_ins_prod = supabase.table("catalogo_sensibilidad").insert({
-                                        "numero_parte": num_parte_imp.upper(),
-                                        "nombre_producto": nom_prod_imp.upper(),
-                                        "cliente": cliente_imp.upper(),
-                                        "nivel_sensibilidad": nivel_imp
-                                    }).execute()
-                                    
-                                    id_nuevo_prod = resp_ins_prod.data[0]['id']
-                                    
-                                    # 2. Preparar e insertar componentes mapeando a las columnas de texto
-                                    componentes_a_insertar = []
-                                    cols = df_tabla.columns.tolist()
-                                    pn_col = next((c for c in cols if 'part number' in c.lower()), cols[0])
-                                    desc_col = next((c for c in cols if 'description' in c.lower()), cols[1])
-                                    ref_col = next((c for c in cols if 'ref' in c.lower()), cols[3] if len(cols)>3 else None)
-                                    qty_col = next((c for c in cols if 'qty' in c.lower()), cols[4] if len(cols)>4 else None)
-                                    cdm_col = next((c for c in cols if 'cdm' in c.lower()), cols[5] if len(cols)>5 else None)
-                                    hbm_col = next((c for c in cols if 'hbm' in c.lower()), cols[6] if len(cols)>6 else None)
-                                    com_col = next((c for c in cols if 'comentario' in c.lower()), cols[7] if len(cols)>7 else None)
+                                col_f1, col_f2 = st.columns(2)
+                                num_parte_imp = col_f1.text_input("Número de Parte", value=str(sug_pn).replace('nan','').strip())
+                                nom_prod_imp = col_f2.text_input("Nombre del Producto", value=str(sug_prod).replace('nan','').strip())
+                                
+                                col_f3, col_f4 = st.columns(2)
+                                cliente_imp = col_f3.text_input("Cliente", value=str(sug_cliente).replace('nan','').strip())
+                                nivel_imp = col_f4.text_input("Nivel de Sensibilidad", value=str(sug_lvl).replace('nan','').strip())
 
-                                    for _, fila in df_tabla.iterrows():
-                                        # Limpiar NaN de las celdas de valores
-                                        val_cdm = str(fila[cdm_col]) if cdm_col and pd.notna(fila[cdm_col]) else "-"
-                                        val_hbm = str(fila[hbm_col]) if hbm_col and pd.notna(fila[hbm_col]) else "-"
-                                        
-                                        componentes_a_insertar.append({
-                                            "id_producto": id_nuevo_prod,
-                                            "part_number": str(fila[pn_col]) if pd.notna(fila[pn_col]) else "N/D",
-                                            "descripcion": str(fila[desc_col]) if pd.notna(fila[desc_col]) else "N/D",
-                                            "ref_designator": str(fila[ref_col]) if ref_col and pd.notna(fila[ref_col]) else "",
-                                            "qty": int(fila[qty_col]) if qty_col and pd.notna(fila[qty_col]) and str(fila[qty_col]).isnumeric() else 1,
-                                            "esd_cdm": val_cdm,
-                                            "esd_hbm": val_hbm,
-                                            "comentarios": str(fila[com_col]) if com_col and pd.notna(fila[com_col]) else ""
-                                        })
-                                    
-                                    # Insertar en lote
-                                    supabase.table("componentes_sensibilidad").insert(componentes_a_insertar).execute()
-                                    
-                                    st.success(f"✅ ¡Producto {nom_prod_imp} y sus {len(componentes_a_insertar)} componentes guardados con éxito!")
-                                    time.sleep(1.5)
-                                    st.rerun()
-                            else:
-                                st.error("Por favor completa Número de Parte, Nombre y Cliente.")
-                else:
-                    st.error("❌ No se encontró la cabecera 'Part Number' en el archivo. Verifica el formato.")
-            except Exception as e:
-                st.error(f"Error procesando el archivo: {e}")
+                                if st.form_submit_button("💾 Guardar Reporte en Base de Datos", use_container_width=True):
+                                    if num_parte_imp and nom_prod_imp and cliente_imp:
+                                        with st.spinner("Registrando producto y componentes..."):
+                                            # 1. Insertar el producto en el catálogo
+                                            resp_ins_prod = supabase.table("catalogo_sensibilidad").insert({
+                                                "numero_parte": num_parte_imp.upper(),
+                                                "nombre_producto": nom_prod_imp.upper(),
+                                                "cliente": cliente_imp.upper(),
+                                                "nivel_sensibilidad": nivel_imp
+                                            }).execute()
+                                            
+                                            id_nuevo_prod = resp_ins_prod.data[0]['id']
+                                            
+                                            # 2. Preparar e insertar componentes mapeando a las columnas de texto
+                                            componentes_a_insertar = []
+                                            cols = df_tabla.columns.tolist()
+                                            pn_col = next((c for c in cols if 'part number' in c.lower()), cols[0])
+                                            desc_col = next((c for c in cols if 'description' in c.lower()), cols[1])
+                                            ref_col = next((c for c in cols if 'ref' in c.lower()), cols[3] if len(cols)>3 else None)
+                                            qty_col = next((c for c in cols if 'qty' in c.lower()), cols[4] if len(cols)>4 else None)
+                                            cdm_col = next((c for c in cols if 'cdm' in c.lower()), cols[5] if len(cols)>5 else None)
+                                            hbm_col = next((c for c in cols if 'hbm' in c.lower()), cols[6] if len(cols)>6 else None)
+                                            com_col = next((c for c in cols if 'comentario' in c.lower()), cols[7] if len(cols)>7 else None)
+
+                                            for _, fila in df_tabla.iterrows():
+                                                val_cdm = str(fila[cdm_col]) if cdm_col and pd.notna(fila[cdm_col]) else "-"
+                                                val_hbm = str(fila[hbm_col]) if hbm_col and pd.notna(fila[hbm_col]) else "-"
+                                                
+                                                componentes_a_insertar.append({
+                                                    "id_producto": id_nuevo_prod,
+                                                    "part_number": str(fila[pn_col]) if pd.notna(fila[pn_col]) else "N/D",
+                                                    "descripcion": str(fila[desc_col]) if pd.notna(fila[desc_col]) else "N/D",
+                                                    "ref_designator": str(fila[ref_col]) if ref_col and pd.notna(fila[ref_col]) else "",
+                                                    "qty": int(fila[qty_col]) if qty_col and pd.notna(fila[qty_col]) and str(fila[qty_col]).isnumeric() else 1,
+                                                    "esd_cdm": val_cdm,
+                                                    "esd_hbm": val_hbm,
+                                                    "comentarios": str(fila[com_col]) if com_col and pd.notna(fila[com_col]) else ""
+                                                })
+                                            
+                                            supabase.table("componentes_sensibilidad").insert(componentes_a_insertar).execute()
+                                            
+                                            st.success(f"✅ ¡Producto {nom_prod_imp} guardado con éxito! (Puedes continuar con los demás o limpiar los archivos).")
+                                    else:
+                                        st.error("Por favor completa Número de Parte, Nombre y Cliente.")
+                        else:
+                            st.error("❌ No se encontró la cabecera 'Part Number' en este archivo. Verifica el formato.")
+                    except Exception as e:
+                        st.error(f"Error procesando el archivo: {e}")
