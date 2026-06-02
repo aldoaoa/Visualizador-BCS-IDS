@@ -615,6 +615,29 @@ def subir_evidencia_storage(img_file, id_elemento):
             return ""
     return ""
 
+def subir_reporte_storage(pdf_file, id_elemento):
+    """Sube un documento PDF a Supabase Storage y retorna la URL pública."""
+    if pdf_file is not None:
+        try:
+            file_bytes = pdf_file.read()
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            # Reemplazamos espacios por guiones bajos por seguridad en la URL
+            id_limpio = str(id_elemento).replace(" ", "_")
+            file_name = f"{id_limpio}_{timestamp}.pdf"
+            
+            res = supabase.storage.from_("reportes_calificacion").upload(
+                file=file_bytes,
+                path=file_name,
+                file_options={"content-type": "application/pdf"}
+            )
+            
+            url = supabase.storage.from_("reportes_calificacion").get_public_url(file_name)
+            return url
+        except Exception as e:
+            st.error(f"Error subiendo archivo PDF a la nube: {e}")
+            return ""
+    return ""
+
 def safe_str(val, default="N/D"):
     val_str = str(val).strip()
     if pd.isna(val) or val_str.lower() in ['nan', 'none', 'null', '']:
@@ -2379,7 +2402,7 @@ elif st.session_state.vista_actual == "Validación" and not st.session_state.mod
         df_equipos = pd.DataFrame()
         lista_equipos = ["Error de conexión"]
 
-    tab_registro, tab_historial = st.tabs(["📝 Registrar Validación", "🖼️ Visor de Registros"])
+    tab_registro, tab_historial, tab_calificacion = st.tabs(["📝 Registrar Validación", "🖼️ Visor de Registros", "📑 Reportes de Calificación"])
 
     with tab_registro:
         if "val_success_msg" in st.session_state and st.session_state.val_success_msg:
@@ -2575,7 +2598,94 @@ elif st.session_state.vista_actual == "Validación" and not st.session_state.mod
                         )
         except Exception as e:
             st.error(f"Error cargando historial: {e}")
+    # --- PESTAÑA: REPORTES DE CALIFICACIÓN ---
+    with tab_calificacion:
+        st.markdown("#### 📑 Gestión de Reportes de Calificación")
+        st.info("Almacena los certificados y reportes de laboratorio proporcionados por el fabricante para dar cumplimiento a los requisitos de Calificación de Producto.")
+        
+        # 1. Obtener IDs ya registrados en el inventario para facilitar el autocompletado
+        try:
+            resp_inv_ids = supabase.table("inventario_esd").select("id_producto").execute()
+            # Filtramos valores nulos y quitamos duplicados
+            ids_existentes = sorted(list(set([str(x['id_producto']).strip().upper() for x in resp_inv_ids.data if x.get('id_producto')])))
+        except:
+            ids_existentes = []
 
+        with st.form("form_reportes_calificacion"):
+            st.markdown("##### 📝 Cargar Nuevo Reporte")
+            c_cal1, c_cal2 = st.columns(2)
+            
+            elemento_cal = c_cal1.selectbox("Tipo de Elemento S20.20:", options=list(INFO_ELEMENTOS_ESD.keys()))
+            
+            # Lógica híbrida: permite elegir un ID existente o habilitar un input de texto para uno nuevo
+            opcion_id = c_cal2.selectbox("Seleccionar ID del Elemento:", options=["➕ Ingresar Nuevo ID"] + ids_existentes)
+            
+            # Si elige "Ingresar Nuevo ID", este campo se habilita
+            nuevo_id_cal = st.text_input("Ingresa el ID del Elemento:", placeholder="Ej: BATA-ANT-01", disabled=(opcion_id != "➕ Ingresar Nuevo ID"))
+            
+            # Determinamos el ID final a guardar
+            id_final_cal = nuevo_id_cal if opcion_id == "➕ Ingresar Nuevo ID" else opcion_id
+            
+            archivo_pdf = st.file_uploader("Adjuntar Reporte / Certificado (PDF)", type=["pdf"])
+            notas_cal = st.text_area("Comentarios / Observaciones (Opcional)")
+
+            if st.form_submit_button("💾 Guardar Reporte en Nube", use_container_width=True):
+                id_final_limpio = id_final_cal.strip().upper()
+                
+                if not id_final_limpio:
+                    st.error("⚠️ Debes proporcionar o seleccionar un ID de elemento válido.")
+                elif not archivo_pdf:
+                    st.error("⚠️ Es obligatorio adjuntar el archivo PDF del reporte.")
+                else:
+                    with st.spinner("Subiendo PDF y procesando registro..."):
+                        url_pdf = subir_reporte_storage(archivo_pdf, id_final_limpio)
+                        
+                        if url_pdf:
+                            try:
+                                supabase.table("reportes_calificacion").insert({
+                                    "elemento_s20_20": elemento_cal,
+                                    "id_elemento": id_final_limpio,
+                                    "archivo_url": url_pdf,
+                                    "auditor": st.session_state.usuario_nombre,
+                                    "notas": notas_cal
+                                }).execute()
+                                
+                                st.success(f"✅ ¡Reporte de calificación para el elemento {id_final_limpio} guardado correctamente!")
+                                st.balloons()
+                                time.sleep(1.5)
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Error al registrar en SQL: {e}")
+                        else:
+                            st.error("No se pudo subir el archivo a Supabase Storage.")
+
+        # 2. VISOR DE REPORTES DE CALIFICACIÓN HISTÓRICOS
+        st.divider()
+        st.markdown("#### 📂 Historial de Calificaciones")
+        try:
+            resp_rep = supabase.table("reportes_calificacion").select("*").order("fecha_registro", desc=True).execute()
+            df_rep = pd.DataFrame(resp_rep.data)
+            
+            if not df_rep.empty:
+                # Formatear fechas
+                df_rep['fecha_registro'] = pd.to_datetime(df_rep['fecha_registro']).dt.strftime('%d-%b-%Y')
+                
+                # Función para inyectar un hipervínculo visualmente limpio en el DataFrame
+                def hacer_enlace(url):
+                    return f'<a target="_blank" href="{url}" style="color: #003366; font-weight: bold; text-decoration: underline;">📥 Ver Reporte</a>'
+                    
+                df_mostrar = df_rep[['fecha_registro', 'elemento_s20_20', 'id_elemento', 'auditor', 'notas', 'archivo_url']].copy()
+                df_mostrar.columns = ['Fecha', 'Elemento S20.20', 'ID Elemento', 'Subido por', 'Notas', 'Documento']
+                
+                # Convertimos la URL cruda en un botón HTML
+                df_mostrar['Documento'] = df_mostrar['Documento'].apply(hacer_enlace)
+                
+                # Usamos to_html para que Streamlit renderice los links correctamente dentro de una tabla
+                st.write(df_mostrar.to_html(escape=False, index=False, classes='w-full text-sm border-collapse border border-gray-300 text-center'), unsafe_allow_html=True)
+            else:
+                st.info("Aún no hay reportes de calificación registrados.")
+        except Exception as e:
+            st.warning(f"No se pudo cargar el historial. Asegúrate de haber creado la tabla SQL. Error: {e}")
 # ==========================================
 # VISTA 6: AJUSTES (CATÁLOGOS MAESTROS)
 # ==========================================
