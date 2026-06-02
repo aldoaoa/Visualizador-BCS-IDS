@@ -3606,7 +3606,56 @@ Departamento de Calidad / Control ESD"""
 
                         except Exception as e:
                             st.error(f"Error al guardar el registro en SQL: {e}")
+    # ==========================================
+        # VISOR DE HISTORIAL DE CONDUCTORES AISLADOS
+        # ==========================================
+        st.divider()
+        col_hc1, col_hc2 = st.columns([0.8, 0.2])
+        col_hc1.markdown("#### 📂 Historial de Conductores Aislados")
+        if col_hc2.button("🔄 Actualizar", key="btn_refresh_cond"):
+            st.cache_data.clear()
+            st.rerun()
 
+        # Filtro de Línea para el historial
+        lineas_historial = ["Todas las líneas"] + lineas_disp
+        linea_filtro = st.selectbox("🔍 Filtrar historial por Línea:", options=lineas_historial, key="filtro_linea_historial_cond")
+
+        try:
+            # Consultamos la tabla completa ordenada por los más recientes
+            resp_hist_cond = supabase.table("registro_conductores_aislados").select("*").order("fecha_registro", desc=True).execute()
+            df_hist_cond = pd.DataFrame(resp_hist_cond.data)
+            
+            if not df_hist_cond.empty:
+                # 1. Aplicamos el filtro si el usuario seleccionó una línea específica
+                if linea_filtro != "Todas las líneas":
+                    df_hist_cond = df_hist_cond[df_hist_cond['linea'] == linea_filtro]
+                
+                if not df_hist_cond.empty:
+                    # 2. Función para evaluar el estatus normativo
+                    def estatus_conductor(v):
+                        try:
+                            val = float(v)
+                            return "🟢 Aprobado" if val <= 35.0 else "🔴 Fuera de límite / Ionizado"
+                        except:
+                            return "N/D"
+                            
+                    # 3. Formateamos las columnas para la tabla
+                    df_hist_cond['Estatus'] = df_hist_cond['voltaje_maximo'].apply(estatus_conductor)
+                    df_hist_cond['Fecha'] = pd.to_datetime(df_hist_cond['fecha_registro']).dt.strftime('%d-%b-%Y %H:%M')
+                    df_hist_cond['Voltaje Máx'] = df_hist_cond['voltaje_maximo'].astype(str) + " V"
+                    
+                    # Extraer solo las columnas relevantes (incluyendo los comentarios para saber la ubicación exacta)
+                    df_mostrar_cond = df_hist_cond[['Fecha', 'linea', 'operacion', 'Voltaje Máx', 'Estatus', 'equipo_medicion', 'comentarios', 'auditor']].copy()
+                    df_mostrar_cond.columns = ['Fecha', 'Línea', 'Operación', 'Voltaje Máximo', 'Estatus', 'Equipo', 'Ubicación / Notas', 'Auditor']
+                    
+                    st.dataframe(df_mostrar_cond.fillna("N/D"), use_container_width=True, hide_index=True)
+                else:
+                    st.info(f"No hay registros de conductores aislados guardados para la línea {linea_filtro}.")
+            else:
+                st.info("Aún no hay registros de conductores aislados en el sistema.")
+                
+        except Exception as e:
+            st.error(f"Error al cargar el historial de conductores aislados: {e}")
 # ==========================================
 # VISTA 8: PROGRAMACIÓN (CRONOGRAMA DE VENCIMIENTOS)
 # ==========================================
