@@ -3537,7 +3537,7 @@ elif st.session_state.vista_actual == "Maquinaria" and not st.session_state.modo
         with st.form("form_conductores_aislados"):
             c_cond3, c_cond4 = st.columns(2)
             # Buscar el índice del equipo default literal; si no existe, usar 0
-            equipo_default = "BCS-QRO-LAB-BVM001"
+            equipo_default = "BCS-QRO-LAB-VOL001"
             idx_eq = equipos_cond.index(equipo_default) if equipo_default in equipos_cond else 0
             
             equipo_cond_sel = c_cond3.selectbox("3. Equipo de Medición Utilizado:", options=equipos_cond, index=idx_eq)
