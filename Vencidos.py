@@ -2603,28 +2603,77 @@ elif st.session_state.vista_actual == "Validación" and not st.session_state.mod
         st.markdown("#### 📑 Gestión de Reportes de Calificación")
         st.info("Almacena los certificados y reportes de laboratorio proporcionados por el fabricante para dar cumplimiento a los requisitos de Calificación de Producto.")
         
-        # 1. Obtener IDs ya registrados en la tabla de validación para facilitar el autocompletado
+        # ==========================================
+        # 1. VISOR DE HISTORIAL
+        # ==========================================
+        st.markdown("#### 📂 Historial de Calificaciones")
         try:
-            # Apuntamos a la tabla validacion_esd y a su columna id_elemento
+            # Traemos todos los registros sin orden previo en SQL para manejarlo con Pandas
+            resp_rep = supabase.table("reportes_calificacion").select("*").execute()
+            df_rep = pd.DataFrame(resp_rep.data)
+            
+            if not df_rep.empty:
+                # --- CONTROLES DE FILTRO Y ORDENAMIENTO ---
+                c_filtro1, c_filtro2 = st.columns(2)
+                
+                # Extraemos los elementos únicos que realmente existen en el historial
+                elementos_unicos = sorted(df_rep['elemento_s20_20'].dropna().unique())
+                
+                filtro_elem = c_filtro1.selectbox("🔍 Filtrar por Elemento S20.20:", options=["Todos"] + elementos_unicos)
+                orden_elem = c_filtro2.radio("↕️ Ordenar por Elemento S20.20:", options=["Ascendente (A-Z)", "Descendente (Z-A)"], horizontal=True)
+                
+                # 1. Aplicar el Filtro
+                if filtro_elem != "Todos":
+                    df_rep = df_rep[df_rep['elemento_s20_20'] == filtro_elem]
+                
+                # 2. Aplicar el Ordenamiento (Criterio primario: Elemento, Criterio secundario: Fecha de registro)
+                orden_ascendente = True if orden_elem == "Ascendente (A-Z)" else False
+                df_rep = df_rep.sort_values(by=['elemento_s20_20', 'fecha_registro'], ascending=[orden_ascendente, False])
+                
+                # --- RENDERIZADO DE LA TABLA ---
+                # Formatear fechas
+                df_rep['fecha_registro'] = pd.to_datetime(df_rep['fecha_registro']).dt.strftime('%d-%b-%Y')
+                
+                # Función para inyectar un hipervínculo visualmente limpio en el DataFrame
+                def hacer_enlace(url):
+                    return f'<a target="_blank" href="{url}" style="color: #003366; font-weight: bold; text-decoration: underline;">📥 Ver Reporte</a>'
+                    
+                df_mostrar = df_rep[['fecha_registro', 'elemento_s20_20', 'id_elemento', 'auditor', 'notas', 'archivo_url']].copy()
+                df_mostrar.columns = ['Fecha', 'Elemento S20.20', 'ID Elemento', 'Subido por', 'Notas', 'Documento']
+                
+                # Convertimos la URL cruda en un botón HTML
+                df_mostrar['Documento'] = df_mostrar['Documento'].apply(hacer_enlace)
+                
+                # Usamos to_html para que Streamlit renderice los links correctamente dentro de una tabla
+                st.write(df_mostrar.to_html(escape=False, index=False, classes='w-full text-sm border-collapse border border-gray-300 text-center mb-6'), unsafe_allow_html=True)
+            else:
+                st.info("Aún no hay reportes de calificación registrados.")
+        except Exception as e:
+            st.warning(f"No se pudo cargar el historial. Asegúrate de haber creado la tabla SQL. Error: {e}")
+
+        st.divider()
+
+        # ==========================================
+        # 2. FORMULARIO DE CAPTURA
+        # ==========================================
+        st.markdown("##### 📝 Cargar Nuevo Reporte")
+        
+        # Obtener IDs ya registrados en la tabla de validación para facilitar el autocompletado
+        try:
             resp_val_ids = supabase.table("validacion_esd").select("id_elemento").execute()
-            # Filtramos valores nulos y quitamos duplicados
             ids_existentes = sorted(list(set([str(x['id_elemento']).strip().upper() for x in resp_val_ids.data if x.get('id_elemento')])))
         except:
             ids_existentes = []
 
         with st.form("form_reportes_calificacion"):
-            st.markdown("##### 📝 Cargar Nuevo Reporte")
             c_cal1, c_cal2 = st.columns(2)
             
             elemento_cal = c_cal1.selectbox("Tipo de Elemento S20.20:", options=list(INFO_ELEMENTOS_ESD.keys()))
             
-            # Lógica híbrida: permite elegir un ID existente o habilitar un input de texto para uno nuevo
             opcion_id = c_cal2.selectbox("Seleccionar ID del Elemento:", options=["➕ Ingresar Nuevo ID"] + ids_existentes)
             
-            # Si elige "Ingresar Nuevo ID", este campo se habilita
             nuevo_id_cal = st.text_input("Ingresa el ID del Elemento:", placeholder="Ej: BATA-ANT-01", disabled=(opcion_id != "➕ Ingresar Nuevo ID"))
             
-            # Determinamos el ID final a guardar
             id_final_cal = nuevo_id_cal if opcion_id == "➕ Ingresar Nuevo ID" else opcion_id
             
             archivo_pdf = st.file_uploader("Adjuntar Reporte / Certificado (PDF)", type=["pdf"])
