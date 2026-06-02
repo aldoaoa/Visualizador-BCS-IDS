@@ -3514,16 +3514,25 @@ elif st.session_state.vista_actual == "Sensibilidad" and not st.session_state.mo
                     # Configurar el dataframe real de componentes
                     df_tabla = df_raw.iloc[fila_inicio+1:].copy()
                     df_tabla.columns = df_raw.iloc[fila_inicio]
-                    df_tabla = df_tabla.dropna(subset=[df_tabla.columns[0]]) # Quitar filas vacías
+                    
+                    # 1. Encontrar la columna real de "Part Number" para no guiarnos por columnas vacías
+                    col_pn_real = next((c for c in df_tabla.columns if 'part number' in str(c).lower()), df_tabla.columns[1])
+                    
+                    # 2. Quitar filas donde el Part Number esté vacío o sea NaN
+                    df_tabla = df_tabla.dropna(subset=[col_pn_real])
+                    df_tabla = df_tabla[df_tabla[col_pn_real].astype(str).str.strip() != '']
+                    df_tabla = df_tabla[df_tabla[col_pn_real].astype(str).str.strip().str.lower() != 'nan']
                     
                     st.success(f"✅ Tabla detectada exitosamente ({len(df_tabla)} componentes encontrados).")
                     
                     with st.form("form_guardar_sensibilidad"):
                         st.markdown("##### 📝 Confirma los Datos Generales del Producto")
-                        # Pre-llenado inteligente si el archivo tiene el formato específico
+                        # Pre-llenado inteligente con las coordenadas corregidas
                         sug_pn = df_raw.iloc[4, 4] if len(df_raw) > 4 and len(df_raw.columns) > 4 else ""
                         sug_cliente = df_raw.iloc[5, 8] if len(df_raw) > 5 and len(df_raw.columns) > 8 else ""
-                        sug_prod = df_raw.iloc[7, 3] if len(df_raw) > 7 and len(df_raw.columns) > 3 else ""
+                        
+                        # Corrección: El nombre del producto está en la columna 4 (índice 4)
+                        sug_prod = df_raw.iloc[7, 4] if len(df_raw) > 7 and len(df_raw.columns) > 4 else "" 
                         sug_lvl = df_raw.iloc[7, 8] if len(df_raw) > 7 and len(df_raw.columns) > 8 else ""
 
                         col_f1, col_f2 = st.columns(2)
