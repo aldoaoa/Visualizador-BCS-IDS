@@ -935,8 +935,8 @@ elif id_baja_url:
     st.session_state.vista_actual = "Alta"
 
 if not st.session_state.modo_lectura:
-    # Ajustamos a 8 columnas (fusionando Pruebas y agregando Sensibilidad al final)
-    c_nav1, c_nav2, c_nav3, c_nav4, c_nav5, c_nav6, c_nav7, c_nav8 = st.columns(8)
+    # Ajustamos a 6 columnas tras agrupar Auditorías y Pruebas
+    c_nav1, c_nav2, c_nav3, c_nav4, c_nav5, c_nav6 = st.columns(6)
     
     with c_nav1:
         if st.button("🗺️ Mapa y Reportes", use_container_width=True, type="primary" if st.session_state.vista_actual == "Mapa" else "secondary"):
@@ -945,19 +945,23 @@ if not st.session_state.modo_lectura:
             st.rerun()
             
     with c_nav2:
-        if st.button("📱 Escáner", use_container_width=True, type="primary" if st.session_state.vista_actual == "Escáner" else "secondary"):
-            st.session_state.vista_actual = "Escáner"
-            limpiar_url_escaneo()
-            st.rerun()
-            
+        # Nuevo menú desplegable para Auditorías
+        with st.popover("📋 Auditorías", use_container_width=True):
+            if st.button("📱 Escáner", use_container_width=True, type="primary" if st.session_state.vista_actual == "Escáner" else "secondary"):
+                st.session_state.vista_actual = "Escáner"
+                limpiar_url_escaneo()
+                st.rerun()
+            if st.button("🆕 Alta/Baja", use_container_width=True, type="primary" if st.session_state.vista_actual == "Alta" else "secondary"):
+                st.session_state.vista_actual = "Alta"
+                limpiar_url_escaneo()
+                st.rerun()
+            if st.button("🏭 Maquinaria", use_container_width=True, type="primary" if st.session_state.vista_actual == "Maquinaria" else "secondary"):
+                st.session_state.vista_actual = "Maquinaria"
+                limpiar_url_escaneo()
+                st.rerun()
+                
     with c_nav3:
-        if st.button("🆕 Alta/Baja", use_container_width=True, type="primary" if st.session_state.vista_actual == "Alta" else "secondary"):
-            st.session_state.vista_actual = "Alta"
-            limpiar_url_escaneo()
-            st.rerun()
-            
-    with c_nav4:
-        # Menú desplegable para las Pruebas
+        # Menú desplegable para Pruebas
         with st.popover("🧪 Pruebas", use_container_width=True):
             if st.button("⚡ Event Meter", use_container_width=True, type="primary" if st.session_state.vista_actual == "Event Meter" else "secondary"):
                 st.session_state.vista_actual = "Event Meter"
@@ -968,25 +972,19 @@ if not st.session_state.modo_lectura:
                 limpiar_url_escaneo()
                 st.rerun()
                 
-    with c_nav5:
+    with c_nav4:
         if st.button("✅ Validación", use_container_width=True, type="primary" if st.session_state.vista_actual == "Validación" else "secondary"):
             st.session_state.vista_actual = "Validación"
             limpiar_url_escaneo()
             st.rerun()
             
-    with c_nav6:
-        if st.button("🏭 Maquinaria", use_container_width=True, type="primary" if st.session_state.vista_actual == "Maquinaria" else "secondary"):
-            st.session_state.vista_actual = "Maquinaria"
-            limpiar_url_escaneo()
-            st.rerun()        
-            
-    with c_nav7:
+    with c_nav5:
         if st.button("📅 Programación", use_container_width=True, type="primary" if st.session_state.vista_actual == "Schedule" else "secondary"):
             st.session_state.vista_actual = "Schedule"
             limpiar_url_escaneo()
             st.rerun()  
             
-    with c_nav8:
+    with c_nav6:
         if st.button("🔌 Sensibilidad", use_container_width=True, type="primary" if st.session_state.vista_actual == "Sensibilidad" else "secondary"):
             st.session_state.vista_actual = "Sensibilidad"
             limpiar_url_escaneo()
