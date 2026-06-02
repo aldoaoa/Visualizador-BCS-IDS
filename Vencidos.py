@@ -3511,14 +3511,15 @@ elif st.session_state.vista_actual == "Sensibilidad" and not st.session_state.mo
                         break
                 
                 if fila_inicio is not None:
-                    # Configurar el dataframe real de componentes
+                    # 1. Aislar la tabla y forzar TODAS las cabeceras a ser texto para evitar el error del float (NaN)
                     df_tabla = df_raw.iloc[fila_inicio+1:].copy()
-                    df_tabla.columns = df_raw.iloc[fila_inicio]
+                    columnas_texto = [str(c) for c in df_raw.iloc[fila_inicio].tolist()]
+                    df_tabla.columns = columnas_texto
                     
-                    # 1. Encontrar la columna real de "Part Number" para no guiarnos por columnas vacías
-                    col_pn_real = next((c for c in df_tabla.columns if 'part number' in str(c).lower()), df_tabla.columns[1])
+                    # 2. Encontrar la columna real de "Part Number"
+                    col_pn_real = next((c for c in df_tabla.columns if 'part number' in c.lower()), df_tabla.columns[1])
                     
-                    # 2. Quitar filas donde el Part Number esté vacío o sea NaN
+                    # 3. Quitar filas donde el Part Number esté vacío o sea NaN
                     df_tabla = df_tabla.dropna(subset=[col_pn_real])
                     df_tabla = df_tabla[df_tabla[col_pn_real].astype(str).str.strip() != '']
                     df_tabla = df_tabla[df_tabla[col_pn_real].astype(str).str.strip().str.lower() != 'nan']
@@ -3527,11 +3528,9 @@ elif st.session_state.vista_actual == "Sensibilidad" and not st.session_state.mo
                     
                     with st.form("form_guardar_sensibilidad"):
                         st.markdown("##### 📝 Confirma los Datos Generales del Producto")
-                        # Pre-llenado inteligente con las coordenadas corregidas
+                        # Pre-llenado inteligente
                         sug_pn = df_raw.iloc[4, 4] if len(df_raw) > 4 and len(df_raw.columns) > 4 else ""
                         sug_cliente = df_raw.iloc[5, 8] if len(df_raw) > 5 and len(df_raw.columns) > 8 else ""
-                        
-                        # Corrección: El nombre del producto está en la columna 4 (índice 4)
                         sug_prod = df_raw.iloc[7, 4] if len(df_raw) > 7 and len(df_raw.columns) > 4 else "" 
                         sug_lvl = df_raw.iloc[7, 8] if len(df_raw) > 7 and len(df_raw.columns) > 8 else ""
 
@@ -3556,20 +3555,19 @@ elif st.session_state.vista_actual == "Sensibilidad" and not st.session_state.mo
                                     
                                     id_nuevo_prod = resp_ins_prod.data[0]['id']
                                     
-                                    # 2. Preparar e insertar componentes
+                                    # 2. Preparar e insertar componentes mapeando a las columnas de texto
                                     componentes_a_insertar = []
-                                    for _, fila in df_tabla.iterrows():
-                                        # Adaptarse a posibles variaciones de nombres de columnas
-                                        cols = df_tabla.columns.astype(str)
-                                        pn_col = next((c for c in cols if 'part number' in c.lower()), cols[0])
-                                        desc_col = next((c for c in cols if 'description' in c.lower()), cols[1])
-                                        ref_col = next((c for c in cols if 'ref' in c.lower()), cols[3] if len(cols)>3 else None)
-                                        qty_col = next((c for c in cols if 'qty' in c.lower()), cols[4] if len(cols)>4 else None)
-                                        cdm_col = next((c for c in cols if 'cdm' in c.lower()), cols[5] if len(cols)>5 else None)
-                                        hbm_col = next((c for c in cols if 'hbm' in c.lower()), cols[6] if len(cols)>6 else None)
-                                        com_col = next((c for c in cols if 'comentario' in c.lower()), cols[7] if len(cols)>7 else None)
+                                    cols = df_tabla.columns.tolist()
+                                    pn_col = next((c for c in cols if 'part number' in c.lower()), cols[0])
+                                    desc_col = next((c for c in cols if 'description' in c.lower()), cols[1])
+                                    ref_col = next((c for c in cols if 'ref' in c.lower()), cols[3] if len(cols)>3 else None)
+                                    qty_col = next((c for c in cols if 'qty' in c.lower()), cols[4] if len(cols)>4 else None)
+                                    cdm_col = next((c for c in cols if 'cdm' in c.lower()), cols[5] if len(cols)>5 else None)
+                                    hbm_col = next((c for c in cols if 'hbm' in c.lower()), cols[6] if len(cols)>6 else None)
+                                    com_col = next((c for c in cols if 'comentario' in c.lower()), cols[7] if len(cols)>7 else None)
 
-                                        # Limpiar NaN
+                                    for _, fila in df_tabla.iterrows():
+                                        # Limpiar NaN de las celdas de valores
                                         val_cdm = str(fila[cdm_col]) if cdm_col and pd.notna(fila[cdm_col]) else "-"
                                         val_hbm = str(fila[hbm_col]) if hbm_col and pd.notna(fila[hbm_col]) else "-"
                                         
