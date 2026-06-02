@@ -2653,7 +2653,8 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
                         
                         try:
                             # 1. ACTUALIZAR INVENTARIO (Mobiliario e Ionizadores)
-                            resp_inv = supabase.table("inventario_esd").select("id, fecha_ultima_verif").eq("linea_ubicacion", linea_upd).execute()
+                            # CORRECCIÓN: Usamos id_producto en lugar de id
+                            resp_inv = supabase.table("inventario_esd").select("id_producto, fecha_ultima_verif").eq("linea_ubicacion", linea_upd).execute()
                             
                             for item in resp_inv.data:
                                 f_ultima_str = item.get("fecha_ultima_verif")
@@ -2669,11 +2670,12 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
                                     except:
                                         pass # Si falla el parseo, solo actualiza la frecuencia
                                         
-                                supabase.table("inventario_esd").update(data_update).eq("id", item["id"]).execute()
+                                supabase.table("inventario_esd").update(data_update).eq("id_producto", item["id_producto"]).execute()
                                 activos_inv_actualizados += 1
 
                             # 2. ACTUALIZAR MAQUINARIA
-                            resp_maq = supabase.table("mediciones_maquinaria").select("id, fecha_medicion").eq("linea_ubicacion", linea_upd).execute()
+                            # CORRECCIÓN: Usamos id_maquinaria en lugar de id
+                            resp_maq = supabase.table("mediciones_maquinaria").select("id_maquinaria, fecha_medicion").eq("linea_ubicacion", linea_upd).execute()
                             
                             for maq in resp_maq.data:
                                 f_ultima_str = maq.get("fecha_medicion")
@@ -2687,7 +2689,7 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
                                     except:
                                         pass
                                         
-                                supabase.table("mediciones_maquinaria").update(data_update_maq).eq("id", maq["id"]).execute()
+                                supabase.table("mediciones_maquinaria").update(data_update_maq).eq("id_maquinaria", maq["id_maquinaria"]).execute()
                                 activos_maq_actualizados += 1
 
                             st.success(f"✅ ¡Cambio masivo aplicado con éxito a la línea **{linea_upd}**!")
