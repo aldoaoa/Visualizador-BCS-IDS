@@ -3226,7 +3226,7 @@ elif st.session_state.vista_actual == "Maquinaria" and not st.session_state.modo
     # SECCIÓN B: ACCIÓN DE ACTUALIZAR VALIDACIÓN / NUEVA MEDICIÓN
     st.markdown("#### ➕ Registrar / Actualizar Validación de la Línea")
     
-    tab_individual, tab_lote = st.tabs(["📝 Captura Individual", "🚀 Auditoría Rápida por Línea (Lote)"])
+    tab_individual, tab_lote, tab_conductores = st.tabs(["📝 Captura Individual", "🚀 Auditoría Rápida por Línea (Lote)", "⚡ Conductores Aislados"])
     
     # Obtenemos las máquinas de la línea seleccionada (para ambas pestañas)
     maquinas_en_linea = []
@@ -3492,6 +3492,104 @@ elif st.session_state.vista_actual == "Maquinaria" and not st.session_state.modo
                             st.rerun()
                         else:
                             st.warning(f"Se procesaron los registros, pero hubo {errores} errores en la inserción.")
+    # ==========================================
+    # MODO 3: CONDUCTORES AISLADOS (NUEVO)
+    # ==========================================
+    with tab_conductores:
+        st.markdown("#### ⚡ Registro de Conductores Aislados")
+        st.info("De acuerdo con ANSI/ESD S20.20-2021, los conductores aislados no pueden exceder los 35V. Si se supera el límite, el sistema generará una solicitud para instalar ionización.")
+
+        # Obtener lista de equipos de medición desde la BD
+        try:
+            resp_eq_cond = supabase.table("equipos_medicion").select("id_equipo").execute()
+            equipos_cond = sorted([str(x['id_equipo']).strip() for x in resp_eq_cond.data if x.get('id_equipo')])
+        except:
+            equipos_cond = ["Error al cargar equipos"]
+
+        if not equipos_cond:
+            equipos_cond = ["Sin equipos registrados"]
+
+        # Filtros dinámicos
+        c_cond1, c_cond2 = st.columns(2)
+        linea_cond_sel = c_cond1.selectbox("1. Línea / Ubicación:", options=lineas_disp, key="linea_cond")
+        
+        # Actualizar operaciones según la línea elegida
+        ops_cond_disp = []
+        if not df_med_maq.empty and linea_cond_sel != "Sin registros previos":
+            ops_filtradas = df_med_maq[df_med_maq['linea_ubicacion'] == linea_cond_sel]
+            ops_cond_disp = sorted([str(x).strip() for x in ops_filtradas['id_maquinaria'].dropna().unique() if str(x).strip() != ''])
+            
+        if not ops_cond_disp:
+            ops_cond_disp = ["Sin operaciones registradas"]
+
+        op_cond_sel = c_cond2.selectbox("2. Operación / Estación:", options=ops_cond_disp, key="op_cond")
+
+        # Formulario de captura
+        with st.form("form_conductores_aislados"):
+            c_cond3, c_cond4 = st.columns(2)
+            equipo_cond_sel = c_cond3.selectbox("3. Equipo de Medición Utilizado:", options=equipos_cond)
+            
+            # Input numérico para el voltaje
+            voltaje_max_cond = c_cond4.number_input(
+                "4. Voltaje Máximo Registrado (V):", 
+                min_value=0.0, 
+                max_value=99999.0, 
+                step=1.0, 
+                format="%.1f"
+            )
+
+            # Botón de guardado
+            submit_cond = st.form_submit_button("💾 Guardar Registro de Conductor Aislado", use_container_width=True)
+
+            if submit_cond:
+                if op_cond_sel == "Sin operaciones registradas":
+                    st.error("⚠️ Debes seleccionar una operación válida.")
+                else:
+                    with st.spinner("Guardando registro..."):
+                        try:
+                            # Inserción en la nueva tabla
+                            supabase.table("registro_conductores_aislados").insert({
+                                "linea": linea_cond_sel,
+                                "operacion": op_cond_sel,
+                                "equipo_medicion": equipo_cond_sel,
+                                "voltaje_maximo": float(voltaje_max_cond),
+                                "auditor": st.session_state.usuario_nombre
+                            }).execute()
+
+                            st.success(f"✅ Registro guardado para la operación {op_cond_sel}.")
+                            
+                            # Lógica de Validación S20.20 (> 35V)
+                            if voltaje_max_cond > 35.0:
+                                st.error(f"🚨 ¡ATENCIÓN! Se registraron {voltaje_max_cond}V, superando el límite permitido de 35V para conductores aislados.")
+                                st.markdown("##### 📧 Acción Requerida: Solicitud a Ingeniería")
+                                st.write("Copia el siguiente texto y envíalo al departamento de Ingeniería para solicitar la instalación de un ionizador:")
+                                
+                                # Borrador del correo generado dinámicamente con terminología técnica precisa
+                                borrador_correo = f"""Asunto: Acción Requerida: Instalación de Ionizador en {op_cond_sel} ({linea_cond_sel}) - Límite ESD Excedido
+
+Estimado equipo de Ingeniería,
+
+Durante la auditoría de control ESD realizada el día de hoy, se detectó un conductor aislado en la operación {op_cond_sel} de la línea {linea_cond_sel} que supera el límite normativo de 35V establecido en el estándar ANSI/ESD S20.20-2021.
+
+El equipo registró un voltaje máximo de {voltaje_max_cond}V. Esta carga es generada principalmente por la separación de materiales y el efecto triboeléctrico intrínseco al proceso actual. Al tratarse de un conductor aislado, no es posible drenar esta carga a tierra de forma convencional.
+
+Para neutralizar la carga y proteger los ensambles electrónicos, se solicita su apoyo para evaluar e instalar un ionizador en esta estación a la brevedad posible.
+
+Quedo a su disposición para revisar la estación en conjunto.
+
+Saludos cordiales,
+{st.session_state.usuario_nombre}
+Departamento de Calidad / Control ESD"""
+
+                                # st.code permite al usuario copiar el texto con un solo clic en el ícono de la esquina
+                                st.code(borrador_correo, language="text")
+                            else:
+                                st.info("El voltaje se encuentra dentro de la especificación permitida (<= 35V). No se requieren acciones adicionales.")
+                                time.sleep(2)
+                                st.rerun()
+
+                        except Exception as e:
+                            st.error(f"Error al guardar el registro en SQL: {e}")
 
 # ==========================================
 # VISTA 8: PROGRAMACIÓN (CRONOGRAMA DE VENCIMIENTOS)
