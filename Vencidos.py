@@ -3170,8 +3170,13 @@ elif st.session_state.vista_actual == "Maquinaria" and not st.session_state.modo
     linea_sel = st.selectbox("1. Selecciona Línea / Ubicación para revisar historial", options=lineas_disp)
 
     # Filtrar el histórico de la línea seleccionada
+    # Filtrar el histórico de la línea seleccionada
     if not df_med_maq.empty and linea_sel != "Sin registros previos":
-        df_historico_linea = df_med_maq[df_med_maq['linea_ubicacion'] == linea_sel].copy()
+        # Estandarizamos ambas variables a mayúsculas y sin espacios para un cruce exacto
+        linea_sel_limpia = str(linea_sel).strip().upper()
+        df_med_maq['linea_tmp'] = df_med_maq['linea_ubicacion'].astype(str).str.strip().str.upper()
+        
+        df_historico_linea = df_med_maq[df_med_maq['linea_tmp'] == linea_sel_limpia].copy()
         
         if not df_historico_linea.empty:
             st.markdown(f"**Historial de operaciones en la línea {linea_sel}:**")
@@ -3229,9 +3234,13 @@ elif st.session_state.vista_actual == "Maquinaria" and not st.session_state.modo
     tab_individual, tab_lote, tab_conductores = st.tabs(["📝 Captura Individual", "🚀 Auditoría Rápida por Línea (Lote)", "⚡ Conductores Aislados"])
     
     # Obtenemos las máquinas de la línea seleccionada (para ambas pestañas)
+    # Obtenemos las máquinas de la línea seleccionada (para ambas pestañas)
     maquinas_en_linea = []
     if not df_med_maq.empty and linea_sel != "Sin registros previos" and 'id_maquinaria' in df_med_maq.columns:
-        df_filtrado = df_med_maq[df_med_maq['linea_ubicacion'] == linea_sel]
+        linea_sel_limpia = str(linea_sel).strip().upper()
+        df_med_maq['linea_tmp'] = df_med_maq['linea_ubicacion'].astype(str).str.strip().str.upper()
+        
+        df_filtrado = df_med_maq[df_med_maq['linea_tmp'] == linea_sel_limpia]
         maquinas_en_linea = sorted([str(x).strip() for x in df_filtrado['id_maquinaria'].dropna().unique() if str(x).strip() != ''])
 
     with tab_individual:
