@@ -2603,11 +2603,12 @@ elif st.session_state.vista_actual == "Validación" and not st.session_state.mod
         st.markdown("#### 📑 Gestión de Reportes de Calificación")
         st.info("Almacena los certificados y reportes de laboratorio proporcionados por el fabricante para dar cumplimiento a los requisitos de Calificación de Producto.")
         
-        # 1. Obtener IDs ya registrados en el inventario para facilitar el autocompletado
+        # 1. Obtener IDs ya registrados en la tabla de validación para facilitar el autocompletado
         try:
-            resp_inv_ids = supabase.table("inventario_esd").select("id_producto").execute()
+            # Apuntamos a la tabla validacion_esd y a su columna id_elemento
+            resp_val_ids = supabase.table("validacion_esd").select("id_elemento").execute()
             # Filtramos valores nulos y quitamos duplicados
-            ids_existentes = sorted(list(set([str(x['id_producto']).strip().upper() for x in resp_inv_ids.data if x.get('id_producto')])))
+            ids_existentes = sorted(list(set([str(x['id_elemento']).strip().upper() for x in resp_val_ids.data if x.get('id_elemento')])))
         except:
             ids_existentes = []
 
