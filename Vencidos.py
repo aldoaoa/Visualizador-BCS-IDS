@@ -3525,7 +3525,11 @@ elif st.session_state.vista_actual == "Maquinaria" and not st.session_state.modo
         # Actualizar operaciones según la línea elegida
         ops_cond_disp = []
         if not df_med_maq.empty and linea_cond_sel != "Sin registros previos":
-            ops_filtradas = df_med_maq[df_med_maq['linea_ubicacion'] == linea_cond_sel]
+            # Estandarizamos para el cruce exacto
+            linea_cond_sel_limpia = str(linea_cond_sel).strip().upper()
+            df_med_maq['linea_tmp'] = df_med_maq['linea_ubicacion'].astype(str).str.strip().str.upper()
+            
+            ops_filtradas = df_med_maq[df_med_maq['linea_tmp'] == linea_cond_sel_limpia]
             ops_cond_disp = sorted([str(x).strip() for x in ops_filtradas['id_maquinaria'].dropna().unique() if str(x).strip() != ''])
             
         if not ops_cond_disp:
@@ -3632,7 +3636,9 @@ Departamento de Calidad / Control ESD"""
             if not df_hist_cond.empty:
                 # 1. Aplicamos el filtro si el usuario seleccionó una línea específica
                 if linea_filtro != "Todas las líneas":
-                    df_hist_cond = df_hist_cond[df_hist_cond['linea'] == linea_filtro]
+                    linea_filtro_limpia = str(linea_filtro).strip().upper()
+                    df_hist_cond['linea_tmp'] = df_hist_cond['linea'].astype(str).str.strip().str.upper()
+                    df_hist_cond = df_hist_cond[df_hist_cond['linea_tmp'] == linea_filtro_limpia]
                 
                 if not df_hist_cond.empty:
                     # 2. Función para evaluar el estatus normativo
