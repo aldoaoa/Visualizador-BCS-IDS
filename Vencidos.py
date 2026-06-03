@@ -1282,10 +1282,15 @@ if st.session_state.vista_actual == "Alta" and not st.session_state.modo_lectura
                             if st.form_submit_button("🗑️ Dar de Baja en Inventario", use_container_width=True):
                                 with st.spinner("Actualizando SQL..."):
                                     try:
+                                        # 1. Extraemos el ID exacto y original directamente desde el DataFrame
+                                        id_exacto_db = str(info_eq['Id de producto'])
+                                        
+                                        # 2. Hacemos el update usando el texto literal de la base de datos
                                         supabase.table("inventario_esd").update({
                                             "estatus_operativo": "NO OPERATIVO",
                                             "estatus_verificacion": "BAJA"
-                                        }).eq("id_producto", id_limpio_baja).execute()
+                                        }).eq("id_producto", id_exacto_db).execute()
+                                        
                                         st.success("✅ ¡Desactivado de Inventario!")
                                         st.cache_data.clear()
                                         limpiar_url_escaneo()
