@@ -4137,17 +4137,17 @@ elif st.session_state.vista_actual == "Sensibilidad" and not st.session_state.mo
                     except Exception as e:
                         st.error(f"Error procesando el archivo: {e}")
 # ==========================================
-# VISTA 10: TIERRAS Y CONEXIONES
+# VISTA 10: TIERRAS, CONEXIONES Y PISO EPA
 # ==========================================
 elif st.session_state.vista_actual == "Tierras" and not st.session_state.modo_lectura:
-    st.markdown("### 🌍 Control de Tierras y Conexiones de Pulsera")
-    st.info("Monitoreo de infraestructura a tierra. Límites normativos: Tierras Auxiliares (< 25 Ω) y Puntos de Conexión de Pulsera (< 2.0 Ω).")
+    st.markdown("### 🌍 Control de Infraestructura a Tierra (EPA)")
+    st.info("Monitoreo de Tierras Auxiliares (< 25 Ω), Conexiones de Pulsera (< 2.0 Ω) y Validación de Piso ESD (< 1.0x10^9 Ω).")
 
-    tab_registro_t, tab_historial_t = st.tabs(["📝 Nueva Medición", "📂 Historial y Edición"])
+    tab_registro_t, tab_historial_t, tab_piso = st.tabs(["📝 Tierras y Conexiones", "📂 Historial", "🗺️ Validación de Piso (EPA)"])
 
-    # --- PESTAÑA 1: NUEVA MEDICIÓN ---
+    # --- PESTAÑA 1: NUEVA MEDICIÓN (TIERRAS Y CONEXIONES) ---
     with tab_registro_t:
-        st.markdown("#### ➕ Registrar Nueva Medición")
+        st.markdown("#### ➕ Registrar Nueva Medición (Puntos Fijos)")
         
         try:
             resp_eq_t = supabase.table("equipos_medicion").select("id_equipo").execute()
@@ -4164,7 +4164,6 @@ elif st.session_state.vista_actual == "Tierras" and not st.session_state.modo_le
         with st.form("form_tierras_aux"):
             c_tipo1, c_tipo2 = st.columns(2)
             tipo_punto_sel = c_tipo1.selectbox("1. Tipo de Punto a Medir:", ["Tierra Auxiliar", "Punto de Conexión de Pulsera"])
-            
             linea_t_sel = c_tipo2.selectbox("2. Línea / Ubicación:", options=obtener_catalogo_lineas())
             
             c_det1, c_det2 = st.columns(2)
@@ -4176,7 +4175,6 @@ elif st.session_state.vista_actual == "Tierras" and not st.session_state.modo_le
             fecha_t = c_val2.date_input("6. Fecha de Verificación", datetime.today().date())
 
             if st.form_submit_button("💾 Guardar Medición", use_container_width=True):
-                # Asignación literal del límite establecido
                 limite_aprobacion = 25.0 if tipo_punto_sel == "Tierra Auxiliar" else 2.0
                 estatus_t = "PASA" if ohms_t < limite_aprobacion else "FALLA"
                 id_final = id_punto_val.strip() if id_punto_val.strip() else "N/A"
@@ -4195,9 +4193,9 @@ elif st.session_state.vista_actual == "Tierras" and not st.session_state.modo_le
                         }).execute()
                         
                         if estatus_t == "PASA":
-                            st.success(f"✅ ¡Medición guardada! El punto {id_final} en {linea_t_sel} cumple con la especificación de < {limite_aprobacion} Ω ({ohms_t} Ω).")
+                            st.success(f"✅ ¡Medición guardada! El punto {id_final} en {linea_t_sel} cumple con la especificación de < {limite_aprobacion} Ω.")
                         else:
-                            st.error(f"🚨 ¡Atención! El punto registró {ohms_t} Ω, superando el límite permitido de {limite_aprobacion} Ω para {tipo_punto_sel}.")
+                            st.error(f"🚨 ¡Atención! El punto registró {ohms_t} Ω, superando el límite permitido de {limite_aprobacion} Ω.")
                             
                         st.balloons()
                         time.sleep(1.5)
@@ -4208,8 +4206,7 @@ elif st.session_state.vista_actual == "Tierras" and not st.session_state.modo_le
     # --- PESTAÑA 2: HISTORIAL INTERACTIVO ---
     with tab_historial_t:
         st.markdown("#### 🔄 Historial y Edición de Registros")
-        st.write("Edita directamente los valores de **Medición (Ω)** o las **Fechas** haciendo doble clic sobre las celdas de la tabla. Al finalizar, presiona el botón inferior para guardar los cambios.")
-
+        
         try:
             resp_hist_t = supabase.table("tierras_auxiliares").select("*").order("fecha_medicion", desc=True).execute()
             df_hist_t = pd.DataFrame(resp_hist_t.data)
@@ -4243,8 +4240,6 @@ elif st.session_state.vista_actual == "Tierras" and not st.session_state.modo_le
                             orig_row = df_edit.iloc[i]
                             
                             if row['medicion_ohms'] != orig_row['medicion_ohms'] or row['fecha_medicion'] != orig_row['fecha_medicion']:
-                                
-                                # Aplicamos el límite correspondiente según el tipo de punto para recalcular el estatus
                                 lim_calc = 25.0 if row.get('tipo_punto', 'Tierra Auxiliar') == 'Tierra Auxiliar' else 2.0
                                 nuevo_estatus = "PASA" if row['medicion_ohms'] < lim_calc else "FALLA"
                                 
@@ -4262,10 +4257,101 @@ elif st.session_state.vista_actual == "Tierras" and not st.session_state.modo_le
                         st.success(f"✅ Se actualizaron correctamente {cambios_realizados} registros.")
                         time.sleep(1)
                         st.rerun()
-                    else:
-                        st.info("No se detectaron modificaciones en los datos.")
-                        
             else:
                 st.info("Aún no hay mediciones registradas.")
         except Exception as e:
             st.error(f"Error al cargar el historial: {e}")
+
+    # --- PESTAÑA 3: VALIDACIÓN DE PISO (NUEVO) ---
+    with tab_piso:
+        st.markdown("#### 🗺️ Validación Semestral de Piso ESD")
+        st.info("Medición de Resistencia a Tierra (RTG). Límite de aprobación: < 1.0x10^9 Ω.")
+        
+        # Diccionario con las URLs de los diagramas de los 6 cuartos (Reemplaza con tus URLs reales en Github/Supabase)
+        diagramas_cuartos = {
+            "Cuarto 1": "https://raw.githubusercontent.com/aldoaoa/Visualizador-BCS-IDS/refs/heads/testing/1.png?text=Diagrama+Cuarto+1",
+            "Cuarto 2": "https://raw.githubusercontent.com/aldoaoa/Visualizador-BCS-IDS/refs/heads/testing/2.png?text=Diagrama+Cuarto+2",
+            "Cuarto 3": "https://raw.githubusercontent.com/aldoaoa/Visualizador-BCS-IDS/refs/heads/testing/3.png?text=Diagrama+Cuarto+3",
+            "Cuarto 4": "https://raw.githubusercontent.com/aldoaoa/Visualizador-BCS-IDS/refs/heads/testing/4.png?text=Diagrama+Cuarto+4",
+            "Cuarto 5": "https://raw.githubusercontent.com/aldoaoa/Visualizador-BCS-IDS/refs/heads/testing/5.png?text=Diagrama+Cuarto+5",
+            "Cuarto 6": "https://raw.githubusercontent.com/aldoaoa/Visualizador-BCS-IDS/refs/heads/testing/6.png?text=Diagrama+Cuarto+6"
+        }
+
+        # Obtenemos equipos
+        try:
+            resp_eq_piso = supabase.table("equipos_medicion").select("id_equipo").execute()
+            equipos_piso = sorted([str(x['id_equipo']).strip() for x in resp_eq_piso.data if x.get('id_equipo')])
+        except:
+            equipos_piso = ["Error al cargar equipos"]
+
+        if not equipos_piso:
+            equipos_piso = ["Sin equipos registrados"]
+
+        cuarto_sel = st.selectbox("1. Selecciona el Cuarto a Validar:", options=list(diagramas_cuartos.keys()))
+        
+        # Mostrar el diagrama del cuarto seleccionado
+        st.markdown(f"**Diagrama de Puntos: {cuarto_sel}**")
+        st.image(diagramas_cuartos[cuarto_sel], use_container_width=True)
+        st.divider()
+
+        with st.form("form_validacion_piso"):
+            c_met1, c_met2, c_met3 = st.columns(3)
+            equipo_piso_sel = c_met1.selectbox("Equipo de Medición:", options=equipos_piso)
+            temp_piso = c_met2.text_input("Temperatura (°C):", value="23.5")
+            hum_piso = c_met3.text_input("Humedad (% RH):", value="45")
+            
+            st.markdown("##### 📍 Captura de Puntos (Ohms)")
+            st.caption("Si la medición está en formato científico, introdúcela como base y exponente (Ej: 5.2e7 -> 52000000). Deja en 0 los puntos que no apliquen.")
+            
+            # Generamos 15 inputs en un grid de 3 filas x 5 columnas
+            puntos_rtg = {}
+            for fila in range(3):
+                cols = st.columns(5)
+                for col_idx in range(5):
+                    punto_num = (fila * 5) + col_idx + 1
+                    with cols[col_idx]:
+                        # Utilizamos notación científica por default para facilitar la lectura de los ceros
+                        val = st.number_input(f"Punto {punto_num}", min_value=0.0, format="%.2e", step=1e6, key=f"punto_{cuarto_sel}_{punto_num}")
+                        puntos_rtg[punto_num] = val
+
+            if st.form_submit_button("💾 Guardar Validación del Cuarto", use_container_width=True):
+                puntos_a_guardar = {k: v for k, v in puntos_rtg.items() if v > 0}
+                
+                if not puntos_a_guardar:
+                    st.error("⚠️ Debes registrar al menos un punto mayor a 0 para guardar.")
+                else:
+                    with st.spinner(f"Guardando {len(puntos_a_guardar)} puntos del {cuarto_sel}..."):
+                        fallas = 0
+                        registros_db = []
+                        fecha_registro = datetime.now().isoformat()
+                        
+                        for p_num, p_val in puntos_a_guardar.items():
+                            estatus_punto = "PASA" if p_val < 1.0e9 else "FALLA"
+                            if estatus_punto == "FALLA":
+                                fallas += 1
+                                
+                            registros_db.append({
+                                "cuarto": cuarto_sel,
+                                "punto": p_num,
+                                "medicion_ohms": p_val,
+                                "temperatura": temp_piso,
+                                "humedad": hum_piso,
+                                "equipo_medicion": equipo_piso_sel,
+                                "estatus": estatus_punto,
+                                "auditor": st.session_state.usuario_nombre,
+                                "fecha_medicion": fecha_registro
+                            })
+                            
+                        try:
+                            supabase.table("validacion_piso").insert(registros_db).execute()
+                            
+                            if fallas == 0:
+                                st.success(f"✅ ¡Cuarto validado con éxito! Se registraron {len(puntos_a_guardar)} puntos dentro de especificación (< 1.0x10^9 Ω).")
+                            else:
+                                st.error(f"🚨 ¡Atención! Se registraron {fallas} puntos fuera de especificación. Requiere acción de limpieza o mantenimiento.")
+                                
+                            st.balloons()
+                            time.sleep(2)
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Error al guardar los puntos en SQL: {e}")
