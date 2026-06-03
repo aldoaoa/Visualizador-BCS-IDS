@@ -1054,9 +1054,14 @@ if st.session_state.vista_actual == "Alta" and not st.session_state.modo_lectura
                 with col2:
                     st.caption("Valor inicial (Ohms)")
                     c_b, c_x, c_e = st.columns([2, 1, 2])
-                    base_alta = c_b.number_input("Número", value=0.0, format="%.2f")
-                    exp_alta = c_e.number_input("Exponente", value=0, step=1, format="%d")
+                    base_alta = c_b.number_input("Número", value=None, format="%.2f", placeholder="0.0")
+                    exp_alta = c_e.number_input("Exponente", value=None, step=1, format="%d", placeholder="0")
                     valor_alta = base_alta * (10 ** exp_alta) if base_alta != 0 else 0.0
+                    # Cálculo seguro evitando errores de NoneType
+                    if base_alta is not None and exp_alta is not None:
+                        valor_alta = base_alta * (10 ** exp_alta)
+                    else:
+                        valor_alta = None
                 
                 fabricante_opc = col1.selectbox("Fabricante", options=["BCS", "Otro", "N/A"])
                 fabricante_final = col1.text_input("Especifique Fabricante") if fabricante_opc == "Otro" else fabricante_opc
@@ -1069,12 +1074,12 @@ if st.session_state.vista_actual == "Alta" and not st.session_state.modo_lectura
                 
             else:
                 nuevo_tipo = col1.selectbox("Clasificación", options=["Ventilador", "Barra", "Pistola"])
-                valor_alta = col2.number_input("Descarga (Seg)", value=0.0, format="%.2f")
+                valor_alta = col2.number_input("Descarga (Seg)", value=None, format="%.2f", placeholder="0.0")
                 
                 fabricante_opc = col1.selectbox("Fabricante", options=["SMC", "Panasonic", "Keyence", "SIMCO", "Otro"])
                 fabricante_final = col1.text_input("Especifique Fabricante") if fabricante_opc == "Otro" else fabricante_opc
                 
-                balance_alta = col2.number_input("Balance (V)", value=0.0, format="%.2f")
+                balance_alta = col2.number_input("Balance (V)", value=None, format="%.2f", placeholder="0.0")
                 frecuencia_alta = "Trimestral"
                 nuevo_minimo = 0.00
                 limite_alta = "10.00"
@@ -1085,6 +1090,10 @@ if st.session_state.vista_actual == "Alta" and not st.session_state.modo_lectura
         if submit_alta:
             if not nuevo_id or not fabricante_final:
                 st.error("Por favor complete los campos obligatorios (ID y Fabricante).")
+            elif tipo_alta == "Mobiliario" and valor_alta is None:
+                st.error("⚠️ Ingresa los valores de Base y Exponente.")
+            elif tipo_alta == "Ionizador" and (valor_alta is None or balance_alta is None):
+                st.error("⚠️ Ingresa los valores de Descarga y Balance.")
             else:
                 id_limpio_alta = str(nuevo_id).strip().upper()
                 
@@ -2073,8 +2082,8 @@ elif st.session_state.vista_actual == "Event Meter" and not st.session_state.mod
 
         st.markdown("#### ⚡ Resultados de Detección")
         col_d1, col_d2 = st.columns(2)
-        deteccion_eventos = col_d1.number_input("Cantidad de Eventos Detectados", min_value=0, step=1, value=0)
-        voltaje_max = col_d2.number_input("Voltaje máximo de descarga (V)", min_value=0.0, max_value=999.0, step=0.1, value=0.0)
+        deteccion_eventos = col_d1.number_input("Cantidad de Eventos Detectados", min_value=0, step=1, value=None, placeholder="Ej: 5")
+        voltaje_max = col_d2.number_input("Voltaje máximo de descarga (V)", min_value=0.0, max_value=999.0, step=0.1, value=None, placeholder="0.0")
 
         notas_em = st.text_area("Notas / Observaciones")
 
@@ -2089,7 +2098,12 @@ elif st.session_state.vista_actual == "Event Meter" and not st.session_state.mod
         if submit_em:
             if not id_operacion_final or id_operacion_final == "(Sin operaciones previas)":
                 st.error("⚠️ Debes proporcionar un ID de Operación válido.")
+            elif deteccion_eventos is None or voltaje_max is None:
+                st.error("⚠️ Debes capturar la cantidad de eventos y el voltaje máximo.")
             else:
+                # Limite maximo y estatus se evalúan ahora de forma segura
+                estatus_verificacion = "APROBADO" if voltaje_max <= 100.0 else "RECHAZADO"
+                # Continúa con el guardado...
                 with st.spinner("Guardando en la tabla EVENT_METER de SQL..."):
                     try:
                         supabase.table("event_meter").insert({
@@ -2496,7 +2510,7 @@ elif st.session_state.vista_actual == "Validación" and not st.session_state.mod
             # RE-INCORPORAMOS LAS 5 MEDICIONES ORIGINALES
             st.markdown("##### Resultados")
             cv1, cv2, cv3, cv4, cv5 = st.columns(5)
-            medicion_1 = cv1.number_input("Medición 1 (Oblig.)", value=0.0, format="%g")
+            medicion_1 = cv1.number_input("Medición 1 (Oblig.)", value=None, format="%g", placeholder="0.0")
             med_2 = cv2.number_input("Medición 2 (Opc.)", value=None, format="%g", placeholder="0.0")
             med_3 = cv3.number_input("Medición 3 (Opc.)", value=None, format="%g", placeholder="0.0")
             med_4 = cv4.number_input("Medición 4 (Opc.)", value=None, format="%g", placeholder="0.0")
@@ -2513,6 +2527,8 @@ elif st.session_state.vista_actual == "Validación" and not st.session_state.mod
             if st.form_submit_button("💾 Evaluar y Guardar Trazabilidad Completa", use_container_width=True):
                 if not id_elemento or not ubicacion or not imagen_final:
                     st.error("⚠️ ID, Ubicación y Foto son obligatorios.")
+                elif medicion_1 is None:
+                    st.error("⚠️ La Medición 1 es obligatoria para la validación.")
                 else:
                     with st.spinner("Procesando..."):
                         resultado_calc = "CUMPLE (APROBADO)" if medicion_1 < referencia else "NO CUMPLE (RECHAZADO)"
@@ -3274,7 +3290,6 @@ elif st.session_state.vista_actual == "Maquinaria" and not st.session_state.modo
     tab_individual, tab_lote, tab_conductores = st.tabs(["📝 Captura Individual", "🚀 Auditoría Rápida por Línea (Lote)", "⚡ Conductores Aislados"])
     
     # Obtenemos las máquinas de la línea seleccionada (para ambas pestañas)
-    # Obtenemos las máquinas de la línea seleccionada (para ambas pestañas)
     maquinas_en_linea = []
     if not df_med_maq.empty and linea_sel != "Sin registros previos" and 'id_maquinaria' in df_med_maq.columns:
         linea_sel_limpia = str(linea_sel).strip().upper()
@@ -3332,11 +3347,12 @@ elif st.session_state.vista_actual == "Maquinaria" and not st.session_state.modo
             
                 # Inicializar de forma segura el valor en el session_state si no existe
                 if "resistencia_maq_val" not in st.session_state:
-                    st.session_state.resistencia_maq_val = 0.0
+                    st.session_state.resistencia_maq_val = None
 
                 # SOLUCIÓN AL ERR0R: Validamos el formato usando el session_state existente para evitar ciclos
-                formato_dinamico = "%.2f" if st.session_state.resistencia_maq_val < 10.0 else "%.2e"
-                step_dinamico = 0.01 if st.session_state.resistencia_maq_val < 10.0 else 1.0
+                val_tmp = st.session_state.resistencia_maq_val
+                formato_dinamico = "%.2f" if (val_tmp is None or val_tmp < 10.0) else "%.2e"
+                step_dinamico = 0.01 if (val_tmp is None or val_tmp < 10.0) else 1.0
 
                 resistencia = col_r1.number_input(
                     "Valor de Resistencia (Ohms)", 
@@ -3344,9 +3360,9 @@ elif st.session_state.vista_actual == "Maquinaria" and not st.session_state.modo
                     max_value=1e12, 
                     value=st.session_state.resistencia_maq_val,
                     step=step_dinamico,
-                    format=formato_dinamico
+                    format=formato_dinamico,
+                    placeholder="0.0"
                 )
-                # Sincronizar el valor modificado para el siguiente refresco de la app
                 st.session_state.resistencia_maq_val = resistencia
 
                 col_r2.text_input("Límite Máximo Permitido (Referencia Fija)", value=f"{limite_fijo:.2e}", disabled=True)
@@ -3471,13 +3487,13 @@ elif st.session_state.vista_actual == "Maquinaria" and not st.session_state.modo
                         res_val = col_r.number_input(
                             "2. Res. Tierra (Ω)", 
                             min_value=0.0, step=0.1, format="%.2e", 
-                            key=f"res_{maq}"
+                            key=f"res_{maq}", value=None, placeholder="0.0"
                         )
                         
                         campo_val = col_c.number_input(
                             "3. Campo Est. (V)", 
                             min_value=0.0, step=1.0, format="%.1f", 
-                            key=f"camp_{maq}"
+                            key=f"camp_{maq}", value=None, placeholder="0"
                         )
                         
                         notas_val = st.text_input(f"Observaciones para {maq} (opcional)", key=f"not_{maq}")
@@ -3600,6 +3616,8 @@ elif st.session_state.vista_actual == "Maquinaria" and not st.session_state.modo
                 max_value=99999.0, 
                 step=1.0, 
                 format="%.1f"
+                value=None,
+                placeholder="0.0"
             )
             
             # Nuevo campo de comentarios
@@ -3611,6 +3629,8 @@ elif st.session_state.vista_actual == "Maquinaria" and not st.session_state.modo
             if submit_cond:
                 if op_cond_sel == "Sin operaciones registradas":
                     st.error("⚠️ Debes seleccionar una operación válida.")
+                elif voltaje_max_cond is None:
+                    st.error("⚠️ Debes capturar el voltaje máximo registrado.")    
                 elif voltaje_max_cond > 35.0 and not comentarios_cond.strip():
                     st.error("⚠️ Al superar los 35V, es obligatorio especificar la ubicación exacta en los comentarios para el reporte a Ingeniería.")
                 else:
@@ -4178,7 +4198,7 @@ elif st.session_state.vista_actual == "Tierras" and not st.session_state.modo_le
             equipo_t_sel = c_det2.selectbox("4. Equipo de Medición:", options=equipos_t, index=idx_eq_t)
 
             c_val1, c_val2 = st.columns(2)
-            ohms_t = c_val1.number_input("5. Medición Registrada (Ohms):", min_value=0.0, max_value=9999.0, step=0.1, format="%.2f")
+            ohms_t = c_val1.number_input("5. Medición Registrada (Ohms):", min_value=0.0, max_value=9999.0, step=0.1, format="%.2f", value=None, placeholder="0.0")
             fecha_t = c_val2.date_input("6. Fecha de Verificación", datetime.today().date())
 
             if st.form_submit_button("💾 Guardar Medición", use_container_width=True):
@@ -4318,7 +4338,7 @@ elif st.session_state.vista_actual == "Tierras" and not st.session_state.modo_le
                     punto_num = (fila * 5) + col_idx + 1
                     with cols[col_idx]:
                         # Utilizamos notación científica por default para facilitar la lectura de los ceros
-                        val = st.number_input(f"Punto {punto_num}", min_value=0.0, format="%.2e", step=1e6, key=f"punto_{cuarto_sel}_{punto_num}")
+                        val = st.number_input(f"Punto {punto_num}", min_value=0.0, format="%.2e", step=1e6, key=f"punto_{cuarto_sel}_{punto_num}", value=None, placeholder="0.0")
                         puntos_rtg[punto_num] = val
 
             if st.form_submit_button("💾 Guardar Validación del Cuarto", use_container_width=True):
