@@ -3266,8 +3266,14 @@ elif st.session_state.vista_actual == "Maquinaria" and not st.session_state.modo
             df_mostrar["Frecuencia"] = df_historico_linea.get("frecuencia_verificacion", "Anual")
             
             # Formatear la fecha para que sea legible de forma segura
+            # Formatear la fecha para que sea legible de forma segura
             if "fecha_medicion" in df_historico_linea.columns:
-                df_mostrar["Fecha Medición"] = pd.to_datetime(df_historico_linea["fecha_medicion"]).dt.strftime('%d-%b-%Y %H:%M')
+                # Agregamos format='ISO8601' y errors='coerce' para que Pandas no colapse con variaciones de milisegundos
+                df_mostrar["Fecha Medición"] = pd.to_datetime(
+                    df_historico_linea["fecha_medicion"], 
+                    format='ISO8601', 
+                    errors='coerce'
+                ).dt.strftime('%d-%b-%Y %H:%M').fillna("N/D")
             else:
                 df_mostrar["Fecha Medición"] = "N/D"
                 
@@ -3334,9 +3340,11 @@ elif st.session_state.vista_actual == "Maquinaria" and not st.session_state.modo
                 clasificacion_maq = c_eq1.selectbox("Clasificación", options=clasificaciones_dinamicas, index=idx_clasif)
                 marca_maq = c_eq2.text_input("Marca / Fabricante", value=marca_defecto)
                 status_maq = c_eq3.selectbox("Estatus Operativo Actual", ["OPERATIVO", "NO OPERATIVO", "MANTENIMIENTO"])
+                
+                # --- NUEVA LÓGICA DE LÍMITE DINÁMICO ---
+                limite_fijo = 1e9 if str(clasificacion_maq).strip().upper() == "MOBILIARIO" else 1.0
             
                 c_amb1, c_amb2, c_amb3 = st.columns(3)
-                # Cambiamos a number_input para asegurar que solo se ingresen números
                 temperatura_maq = c_amb1.number_input("Temperatura (°C)", value=23.5, step=0.1)
                 humedad_maq = c_amb2.number_input("Humedad Relativa (%)", value=45, step=1)
                 frecuencia_maq = c_amb3.selectbox("Frecuencia de Verificación", ["Anual", "Semestral", "Trimestral", "Mensual"], index=0)
@@ -3345,11 +3353,9 @@ elif st.session_state.vista_actual == "Maquinaria" and not st.session_state.modo
                 st.markdown("##### ⚡ 1. Resistencia a Tierra")
                 col_r1, col_r2 = st.columns(2)
             
-                # Inicializar de forma segura el valor en el session_state si no existe
                 if "resistencia_maq_val" not in st.session_state:
                     st.session_state.resistencia_maq_val = None
 
-                # SOLUCIÓN AL ERR0R: Validamos el formato usando el session_state existente para evitar ciclos
                 val_tmp = st.session_state.resistencia_maq_val
                 formato_dinamico = "%.2f" if (val_tmp is None or val_tmp < 10.0) else "%.2e"
                 step_dinamico = 0.01 if (val_tmp is None or val_tmp < 10.0) else 1.0
@@ -3364,8 +3370,10 @@ elif st.session_state.vista_actual == "Maquinaria" and not st.session_state.modo
                     placeholder="0.0"
                 )
                 st.session_state.resistencia_maq_val = resistencia
-
-                col_r2.text_input("Límite Máximo Permitido (Referencia Fija)", value=f"{limite_fijo:.2e}", disabled=True)
+                
+                # Formato visual adaptable: Muestra 1.00 para maquinaria y 1.00e+09 para mobiliario
+                limite_str = f"{limite_fijo:.2e} Ω" if limite_fijo > 10 else f"{limite_fijo:.2f} Ω"
+                col_r2.text_input("Límite Máximo Permitido (Referencia Fija)", value=limite_str, disabled=True)
             
                 # Evaluación visual segura (evita el TypeError cuando resistencia es None)
                 if resistencia is None:
@@ -3515,43 +3523,49 @@ elif st.session_state.vista_actual == "Maquinaria" and not st.session_state.modo
                 submit_lote = st.form_submit_button("💾 Procesar y Guardar Línea Completa", use_container_width=True)
                 
                 if submit_lote:
-                    with st.spinner("Registrando auditoría masiva en SQL..."):
-                        errores = 0
-                        fecha_hoy = datetime.today().isoformat()
-                        proxima_fecha = (datetime.today().date() + relativedelta(years=1)).isoformat() # Asumiendo frecuencia anual
-                        limite_fijo = 1.0e9 # Límite estándar, se puede conectar a tu diccionario
-                        
-                        for maq_id, datos in resultados_lote.items():
-                            res = float(datos["resistencia"])
+                    # Validar si faltó alguna máquina por llenar
+                    faltantes = [m for m, d in resultados_lote.items() if d["resistencia"] is None or d["campo"] is None]
+                    
+                    if faltantes:
+                        st.error(f"⚠️ Faltan valores numéricos en las siguientes operaciones: {', '.join(faltantes)}")
+                    else:
+                        with st.spinner("Registrando auditoría masiva en SQL..."):
+                            errores = 0
+                            fecha_hoy = datetime.today().isoformat()
+                            proxima_fecha = (datetime.today().date() + relativedelta(years=1)).isoformat()
                             
-                            # Calcular estatus
-                            if res == 0.0:
-                                estatus_calculado = "PENDIENTE"
-                            elif res <= limite_fijo and datos["tomacorriente"] != "FALLA":
-                                estatus_calculado = "VIGENTE"
-                            else:
-                                estatus_calculado = "FALLA"
+                            for maq_id, datos in resultados_lote.items():
+                                res = float(datos["resistencia"])
+                                
+                                # --- ASIGNACIÓN DE LÍMITE DINÁMICO EN LOTE ---
+                                limite_fijo = 1e9 if str(datos["clasificacion"]).strip().upper() == "MOBILIARIO" else 1.0
+                                
+                                # Calcular estatus basado en su propio límite normativo
+                                if res <= limite_fijo and datos["tomacorriente"] != "FALLA":
+                                    estatus_calculado = "VIGENTE"
+                                else:
+                                    estatus_calculado = "FALLA"
 
-                            data_insert = {
-                                "linea_ubicacion": linea_sel,
-                                "id_maquinaria": maq_id.strip().upper(),
-                                "clasificacion": datos["clasificacion"],
-                                "marca": "N/D",
-                                "status_operativo": "OPERATIVO",
-                                "temperatura": float(temp_lote), 
-                                "humedad": int(hum_lote),
-                                "frecuencia_verificacion": "Anual",
-                                "fecha_proxima": proxima_fecha,
-                                "resistencia_tierra": res if res > 0 else None,
-                                "resistencia_max": limite_fijo, 
-                                "tomacorriente_aplica": datos["tomacorriente"] != "N/A",
-                                "tomacorriente_estatus": datos["tomacorriente"] if datos["tomacorriente"] != "N/A" else None,
-                                "campo_estatico_voltaje": float(datos["campo"]),
-                                "observaciones": datos["notas"],
-                                "fecha_medicion": fecha_hoy,
-                                "auditor": st.session_state.usuario_nombre,
-                                "resultado_estatus": estatus_calculado
-                            }
+                                data_insert = {
+                                    "linea_ubicacion": linea_sel,
+                                    "id_maquinaria": maq_id.strip().upper(),
+                                    "clasificacion": datos["clasificacion"],
+                                    "marca": "N/D",
+                                    "status_operativo": "OPERATIVO",
+                                    "temperatura": float(temp_lote), 
+                                    "humedad": int(hum_lote),
+                                    "frecuencia_verificacion": "Anual",
+                                    "fecha_proxima": proxima_fecha,
+                                    "resistencia_tierra": res if res > 0 else None,
+                                    "resistencia_max": limite_fijo, 
+                                    "tomacorriente_aplica": datos["tomacorriente"] != "N/A",
+                                    "tomacorriente_estatus": datos["tomacorriente"] if datos["tomacorriente"] != "N/A" else None,
+                                    "campo_estatico_voltaje": float(datos["campo"]),
+                                    "observaciones": datos["notas"],
+                                    "fecha_medicion": fecha_hoy,
+                                    "auditor": st.session_state.usuario_nombre,
+                                    "resultado_estatus": estatus_calculado
+                                }
                             
                             try:
                                 supabase.table("mediciones_maquinaria").insert(data_insert).execute()
