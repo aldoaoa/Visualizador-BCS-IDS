@@ -539,6 +539,7 @@ def cargar_datos_cloud():
             df_mob = df_inv[df_inv['categoria'] == 'Mobiliario']
             df_ion = df_inv[df_inv['categoria'] == 'Ionizador']
             df_piso = df_inv[df_inv['categoria'] == 'Piso']
+            df_mon = df_inv[df_inv['categoria'] == 'Monitor Continuo']
         else:
             df_mob, df_ion, df_piso = pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
@@ -559,7 +560,7 @@ def cargar_datos_cloud():
         else:
             df_em = pd.DataFrame(columns=['Línea', 'Id de Operación'])
 
-        return df_inv, df_piso, df_mob, df_ion, df_em
+        return df_inv, df_piso, df_mob, df_ion, df_mon, df_em
         
     except Exception as e:
         st.error(f"Error conectando a la base de datos: {e}")
@@ -912,7 +913,11 @@ def calcular_proxima_fecha(fecha_actual, frecuencia):
 
 st.title("Sistema de Gestión ESD BCS-AIS Querétaro")
 
-df_inv_full, df_piso_local, df_mob_local, df_ion_local, df_em_local = cargar_datos_cloud()
+df_inv_full, df_piso_local, df_mob_local, df_ion_local, df_mon_local, df_em_local = cargar_datos_cloud()
+
+# Y para evitar errores si está vacío:
+if df_mon_local is None:
+    df_mon_local = pd.DataFrame()
 
 if df_inv_full is None:
     st.error("Falla al conectar con el servidor SQL.")
@@ -1036,17 +1041,26 @@ if st.session_state.vista_actual == "Alta" and not st.session_state.modo_lectura
     
     # --- SUB-VISTA 1: ALTA ---
     if accion_seleccionada == "🆕 Registrar Nuevo":
-        tipo_alta = st.radio("Categoría del Equipo a Registrar:", ["Mobiliario", "Ionizador"], horizontal=True)
-        df_target_alta = df_mob_local if tipo_alta == "Mobiliario" else df_ion_local
+        tipo_alta = st.radio("Categoría del Equipo a Registrar:", ["Mobiliario", "Ionizador", "Monitor Continuo"], horizontal=True)
         
-        # Llamada directa al catálogo maestro de Supabase
+        if tipo_alta == "Mobiliario":
+            df_target_alta = df_mob_local
+        elif tipo_alta == "Ionizador":
+            df_target_alta = df_ion_local
+        else:
+            df_target_alta = df_mon_local
+        
         lineas_disponibles = obtener_catalogo_lineas()
 
         with st.form("form_alta_equipo"):
             col1, col2 = st.columns(2)
             nueva_linea = col1.selectbox("Línea (Ubicación)", options=lineas_disponibles)
-            nuevo_id = col2.text_input("ID de Producto (Ej: " + ("MOB-001" if tipo_alta=="Mobiliario" else "ION-001") + ")")
             
+            # Prefijo dinámico para ayudar al usuario
+            prefijo = "MOB-001" if tipo_alta == "Mobiliario" else ("ION-001" if tipo_alta == "Ionizador" else "MON-001")
+            nuevo_id = col2.text_input(f"ID de Producto (Ej: {prefijo})")
+            
+            # --- CAMPOS PARA MOBILIARIO ---
             if tipo_alta == "Mobiliario":
                 tipos_disponibles = sorted([str(x).strip() for x in df_target_alta.get('Clasificación', pd.Series()).unique() if pd.notna(x) and str(x).strip() != ''])
                 nuevo_tipo = col1.selectbox("Tipo / Clasificación", options=tipos_disponibles if tipos_disponibles else ["Mesa", "Silla"])
@@ -1056,8 +1070,6 @@ if st.session_state.vista_actual == "Alta" and not st.session_state.modo_lectura
                     c_b, c_x, c_e = st.columns([2, 1, 2])
                     base_alta = c_b.number_input("Número", value=None, format="%.2f", placeholder="0.0")
                     exp_alta = c_e.number_input("Exponente", value=None, step=1, format="%d", placeholder="0")
-                    valor_alta = base_alta * (10 ** exp_alta) if base_alta != 0 else 0.0
-                    # Cálculo seguro evitando errores de NoneType
                     if base_alta is not None and exp_alta is not None:
                         valor_alta = base_alta * (10 ** exp_alta)
                     else:
@@ -1072,7 +1084,8 @@ if st.session_state.vista_actual == "Alta" and not st.session_state.modo_lectura
                 limite_alta = col4.text_input("Límite Maximo", value="1.00E+09")
                 balance_alta = 0.0
                 
-            else:
+            # --- CAMPOS PARA IONIZADORES ---
+            elif tipo_alta == "Ionizador":
                 nuevo_tipo = col1.selectbox("Clasificación", options=["Ventilador", "Barra", "Pistola"])
                 valor_alta = col2.number_input("Descarga (Seg)", value=None, format="%.2f", placeholder="0.0")
                 
@@ -1084,6 +1097,30 @@ if st.session_state.vista_actual == "Alta" and not st.session_state.modo_lectura
                 nuevo_minimo = 0.00
                 limite_alta = "10.00"
 
+            # --- CAMPOS PARA MONITORES CONTINUOS ---
+            elif tipo_alta == "Monitor Continuo":
+                nuevo_tipo = col1.selectbox("Clasificación", options=["Monitor Sencillo", "Monitor Dual", "Monitor de Superficie"])
+                
+                with col2:
+                    st.caption("Resistencia inicial (Ohms)")
+                    c_b, c_x, c_e = st.columns([2, 1, 2])
+                    base_alta = c_b.number_input("Número", value=None, format="%.2f", placeholder="0.0", key="base_mon")
+                    exp_alta = c_e.number_input("Exponente", value=None, step=1, format="%d", placeholder="0", key="exp_mon")
+                    if base_alta is not None and exp_alta is not None:
+                        valor_alta = base_alta * (10 ** exp_alta)
+                    else:
+                        valor_alta = None
+                        
+                fabricante_opc = col1.selectbox("Fabricante", options=["SCS", "Desco", "Transforming Technologies", "Botron", "Otro"])
+                fabricante_final = col1.text_input("Especifique Fabricante") if fabricante_opc == "Otro" else fabricante_opc
+                
+                frecuencia_alta = col2.selectbox("Frecuencia", options=["Trimestral", "Semestral", "Anual"], index=0)
+                
+                col3, col4 = st.columns(2)
+                nuevo_minimo = col3.number_input("Mínimo", value=0.00, format="%.2e", key="min_mon")
+                # Limite típico de monitor según tu diccionario (2.0) o (10 Megohms = 1.00E+07)
+                limite_alta = col4.text_input("Límite Máximo", value="1.00E+07", key="lim_mon")
+                balance_alta = 0.0
             comentarios = st.text_area("Comentarios")
             submit_alta = st.form_submit_button("Registrar en sistema", use_container_width=True)
             
@@ -1094,21 +1131,30 @@ if st.session_state.vista_actual == "Alta" and not st.session_state.modo_lectura
                 st.error("⚠️ Ingresa los valores de Base y Exponente.")
             elif tipo_alta == "Ionizador" and (valor_alta is None or balance_alta is None):
                 st.error("⚠️ Ingresa los valores de Descarga y Balance.")
+            elif tipo_alta == "Monitor Continuo" and valor_alta is None:
+                st.error("⚠️ Ingresa el valor de resistencia medido (Número y Exponente).")
             else:
                 id_limpio_alta = str(nuevo_id).strip().upper()
                 
-                # --- NUEVA VERIFICACIÓN GLOBAL DE DUPLICADOS ---
                 check_inv = supabase.table("inventario_esd").select("id_producto").eq("id_producto", id_limpio_alta).execute()
                 check_maq = supabase.table("mediciones_maquinaria").select("id_maquinaria").eq("id_maquinaria", id_limpio_alta).execute()
                 
                 if len(check_inv.data) > 0 or len(check_maq.data) > 0:
-                    st.error(f"❌ El ID '{nuevo_id}' ya se encuentra registrado en el sistema (Mobiliario, Ionizador o Maquinaria). Usa un ID diferente.")
+                    st.error(f"❌ El ID '{nuevo_id}' ya se encuentra registrado en el sistema. Usa un ID diferente.")
                 else:
                     with st.spinner("Guardando en SQL..."):
                         fecha_hoy = datetime.today().date()
                         dias_map = {"Anual": 360, "Semestral": 180, "Trimestral": 90, "Mensual": 30}
                         proxima = fecha_hoy + timedelta(days=dias_map.get(frecuencia_alta, 360))
                         
+                        # Determinar el método de prueba correcto
+                        if tipo_alta == "Ionizador":
+                            metodo_final = "CPM"
+                        elif tipo_alta == "Monitor Continuo":
+                            metodo_final = "Anexo A.1"
+                        else:
+                            metodo_final = "RTG"
+
                         data_insert = {
                             "id_producto": id_limpio_alta,
                             "categoria": tipo_alta,
@@ -1119,7 +1165,7 @@ if st.session_state.vista_actual == "Alta" and not st.session_state.modo_lectura
                             "limite_maximo": float(limite_alta) if "E" not in str(limite_alta).upper() else float(limite_alta), 
                             "unidad_medida": "Segundos" if tipo_alta == "Ionizador" else "Ohms",
                             "valor_actual": float(valor_alta) if valor_alta > 0 else None,
-                            "metodo_prueba": "CPM" if tipo_alta == "Ionizador" else "RTG",
+                            "metodo_prueba": metodo_final,
                             "fecha_ultima_verif": fecha_hoy.isoformat() if valor_alta > 0 else None,
                             "fecha_proxima_verif": proxima.isoformat() if valor_alta > 0 else None,
                             "frecuencia": frecuencia_alta,
@@ -1128,6 +1174,7 @@ if st.session_state.vista_actual == "Alta" and not st.session_state.modo_lectura
                             "comentarios": comentarios,
                             "auditor_responsable": st.session_state.usuario_nombre
                         }
+                        
                         if tipo_alta == "Ionizador":
                             data_insert["balance_ionizador"] = float(balance_alta)
                         
