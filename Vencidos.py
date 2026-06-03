@@ -1340,13 +1340,17 @@ elif st.session_state.vista_actual == "Mapa" and not st.session_state.modo_lectu
     tab_mapa, tab_overview = st.tabs(["📍 Mapa Físico", "📊 Overview (S20.20)"])
 
     with tab_mapa:
-        tipo_mapa = st.radio("Ver en mapa:", ["Mobiliario", "Ionizadores", "Maquinaria"], horizontal=True)
+        # Agregamos "Pisos" a las opciones del radio button
+        tipo_mapa = st.radio("Ver en mapa:", ["Mobiliario", "Ionizadores", "Maquinaria", "Pisos"], horizontal=True)
         
         if tipo_mapa == "Mobiliario":
             df_total = df_mob_local.copy()
         elif tipo_mapa == "Ionizadores":
             df_total = df_ion_local.copy()
+        elif tipo_mapa == "Pisos":
+            df_total = df_piso_local.copy() # <-- Usamos el DataFrame de pisos que ya descargas al inicio
         else:
+            # Lógica existente de Maquinaria...
             # --- NUEVA LÓGICA: EXTRAER MAQUINARIA ---
             try:
                 # Traemos datos ordenados por fecha para que el más reciente quede arriba
@@ -3840,7 +3844,38 @@ elif st.session_state.vista_actual == "Schedule" and not st.session_state.modo_l
                 "Próximo Vencimiento": f_prox,
                 "Estatus": str(row.get('resultado_estatus', 'PENDIENTE'))
             })
+    # 3. Extraer Tierras y Conexiones para el Reporte Maestro
+    try:
+        resp_tierras = supabase.table("tierras_auxiliares").select("*").execute()
+        df_tierras = pd.DataFrame(resp_tierras.data)
+        
+        if not df_tierras.empty:
+            # Nos quedamos solo con la medición más reciente de cada punto
+            df_tierras = df_tierras.sort_values('fecha_medicion', ascending=False).drop_duplicates(subset=['id_punto'])
+            
+            for _, row in df_tierras.iterrows():
+                # Filtramos puntos dados de baja si tuvieras esa opción, o los agregamos directo
+                f_med = str(row.get('fecha_medicion', 'N/D'))[:10]
+                
+                # Para tierras, podemos forzar un cálculo semestral proyectado para el reporte
+                try:
+                    f_med_date = datetime.strptime(f_med, "%Y-%m-%d").date()
+                    f_prox = (f_med_date + relativedelta(months=6)).strftime("%Y-%m-%d")
+                except:
+                    f_prox = "N/D"
 
+                lista_registros.append({
+                    "Línea": str(row.get('linea', 'N/D')),
+                    "Categoría": "Infraestructura (EPA)",
+                    "ID / Nombre": str(row.get('id_punto', 'N/D')),
+                    "Clasificación": str(row.get('tipo_punto', 'N/D')),
+                    "Última Medición": f_med,
+                    "Próximo Vencimiento": f_prox,
+                    "Estatus": str(row.get('estatus', 'PENDIENTE'))
+                })
+    except Exception as e:
+        pass # Si falla, simplemente no interrumpe el resto del reporte
+        
     # CÓDIGO CORREGIDO
     df_schedule_full = pd.DataFrame(lista_registros)
 
