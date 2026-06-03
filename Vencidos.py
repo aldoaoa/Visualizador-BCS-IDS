@@ -3841,11 +3841,17 @@ elif st.session_state.vista_actual == "Schedule" and not st.session_state.modo_l
                 "Estatus": str(row.get('resultado_estatus', 'PENDIENTE'))
             })
 
+    # CÓDIGO CORREGIDO
     df_schedule_full = pd.DataFrame(lista_registros)
 
     if not df_schedule_full.empty:
-        # Obtener líneas únicas
-        lineas_disponibles = sorted([x for x in df_schedule_full['Línea'].unique() if x not in ['N/D', 'nan', 'None']])
+        # --- HOMOLOGACIÓN MASIVA DE TEXTO ---
+        # Convertimos todo a texto, quitamos espacios a los lados y forzamos mayúsculas
+        df_schedule_full['Línea'] = df_schedule_full['Línea'].astype(str).str.strip().str.upper()
+        
+        # Obtener líneas únicas (asegurando que validamos las versiones en mayúscula de los nulos)
+        lineas_disponibles = sorted([x for x in df_schedule_full['Línea'].unique() if x not in ['N/D', 'NAN', 'NONE', '']])
+        # ------------------------------------
         
         c_filtro1, c_filtro2 = st.columns(2)
         linea_sel = c_filtro1.selectbox("📍 Selecciona la Línea / Ubicación:", ["Todas las Líneas"] + lineas_disponibles)
