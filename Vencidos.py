@@ -3556,58 +3556,65 @@ elif st.session_state.vista_actual == "Maquinaria" and not st.session_state.modo
                     if faltantes:
                         st.error(f"⚠️ Faltan valores numéricos en las siguientes operaciones: {', '.join(faltantes)}")
                     else:
-                        with st.spinner("Registrando auditoría masiva en SQL..."):
-                            errores = 0
-                            fecha_hoy = datetime.today().isoformat()
-                            proxima_fecha = (datetime.today().date() + relativedelta(years=1)).isoformat()
-                            
-                            for maq_id, datos in resultados_lote.items():
-                                res = float(datos["resistencia"])
+                            with st.spinner("Registrando auditoría masiva en SQL..."):
+                                errores = 0
+                                fecha_hoy = datetime.today().isoformat()
+                                proxima_fecha = (datetime.today().date() + relativedelta(years=1)).isoformat()
                                 
-                                # --- ASIGNACIÓN DE LÍMITE DINÁMICO EN LOTE ---
-                                limite_fijo = 1e9 if str(datos["clasificacion"]).strip().upper() == "MOBILIARIO" else 1.0
+                                # 1. CREAMOS UNA LISTA PARA ALMACENAR TODOS LOS REGISTROS
+                                lista_datos_insertar = []
                                 
-                                # Calcular estatus basado en su propio límite normativo
-                                if res <= limite_fijo and datos["tomacorriente"] != "FALLA":
-                                    estatus_calculado = "VIGENTE"
-                                else:
-                                    estatus_calculado = "FALLA"
+                                for maq_id, datos in resultados_lote.items():
+                                    res = float(datos["resistencia"])
+                                    
+                                    # --- ASIGNACIÓN DE LÍMITE DINÁMICO EN LOTE ---
+                                    limite_fijo = 1e9 if str(datos["clasificacion"]).strip().upper() == "MOBILIARIO" else 1.0
+                                    
+                                    # Calcular estatus basado en su propio límite normativo
+                                    if res <= limite_fijo and datos["tomacorriente"] != "FALLA":
+                                        estatus_calculado = "VIGENTE"
+                                    else:
+                                        estatus_calculado = "FALLA"
 
-                                data_insert = {
-                                    "linea_ubicacion": linea_sel,
-                                    "id_maquinaria": maq_id.strip().upper(),
-                                    "clasificacion": datos["clasificacion"],
-                                    "marca": "N/D",
-                                    "status_operativo": "OPERATIVO",
-                                    "temperatura": float(temp_lote), 
-                                    "humedad": int(hum_lote),
-                                    "frecuencia_verificacion": "Anual",
-                                    "fecha_proxima": proxima_fecha,
-                                    "resistencia_tierra": res if res > 0 else None,
-                                    "resistencia_max": limite_fijo, 
-                                    "tomacorriente_aplica": datos["tomacorriente"] != "N/A",
-                                    "tomacorriente_estatus": datos["tomacorriente"] if datos["tomacorriente"] != "N/A" else None,
-                                    "campo_estatico_voltaje": float(datos["campo"]),
-                                    "observaciones": datos["notas"],
-                                    "fecha_medicion": fecha_hoy,
-                                    "auditor": st.session_state.usuario_nombre,
-                                    "resultado_estatus": estatus_calculado
-                                }
-                            
-                            try:
-                                supabase.table("mediciones_maquinaria").insert(data_insert).execute()
-                            except Exception as e:
-                                errores += 1
-                                st.write(f"Error oculto en {maq_id}: {e}") # Útil para debug
+                                    data_insert = {
+                                        "linea_ubicacion": linea_sel,
+                                        "id_maquinaria": maq_id.strip().upper(),
+                                        "clasificacion": datos["clasificacion"],
+                                        "marca": "N/D",
+                                        "status_operativo": "OPERATIVO",
+                                        "temperatura": float(temp_lote), 
+                                        "humedad": int(hum_lote),
+                                        "frecuencia_verificacion": "Anual",
+                                        "fecha_proxima": proxima_fecha,
+                                        "resistencia_tierra": res if res > 0 else None,
+                                        "resistencia_max": limite_fijo, 
+                                        "tomacorriente_aplica": datos["tomacorriente"] != "N/A",
+                                        "tomacorriente_estatus": datos["tomacorriente"] if datos["tomacorriente"] != "N/A" else None,
+                                        "campo_estatico_voltaje": float(datos["campo"]),
+                                        "observaciones": datos["notas"],
+                                        "fecha_medicion": fecha_hoy,
+                                        "auditor": st.session_state.usuario_nombre,
+                                        "resultado_estatus": estatus_calculado
+                                    }
+                                    
+                                    # 2. AGREGAMOS CADA DICCIONARIO A LA LISTA DENTRO DEL CICLO
+                                    lista_datos_insertar.append(data_insert)
+                                
+                                # 3. EJECUTAMOS EL INSERT FUERA DEL CICLO (UNA SOLA PETICIÓN MASIVA)
+                                try:
+                                    supabase.table("mediciones_maquinaria").insert(lista_datos_insertar).execute()
+                                except Exception as e:
+                                    errores += 1
+                                    st.error(f"Error de base de datos al guardar el lote: {e}")
                         
-                        if errores == 0:
-                            st.success(f"✅ ¡Auditoría masiva completada para {len(resultados_lote)} estaciones en {linea_sel}!")
-                            st.balloons()
-                            time.sleep(1.5)
-                            st.cache_data.clear()
-                            st.rerun()
-                        else:
-                            st.warning(f"Se procesaron los registros, pero hubo {errores} errores en la inserción.")
+                            if errores == 0:
+                                st.success(f"✅ ¡Auditoría masiva completada para {len(resultados_lote)} estaciones en {linea_sel}!")
+                                st.balloons()
+                                time.sleep(1.5)
+                                st.cache_data.clear()
+                                st.rerun()
+                            else:
+                                st.warning("Ocurrió un error en la inserción masiva. Revisa los detalles.")
     # ==========================================
     # MODO 3: CONDUCTORES AISLADOS
     # ==========================================
