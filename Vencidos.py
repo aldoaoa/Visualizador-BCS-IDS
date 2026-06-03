@@ -3321,8 +3321,9 @@ elif st.session_state.vista_actual == "Maquinaria" and not st.session_state.modo
                 status_maq = c_eq3.selectbox("Estatus Operativo Actual", ["OPERATIVO", "NO OPERATIVO", "MANTENIMIENTO"])
             
                 c_amb1, c_amb2, c_amb3 = st.columns(3)
-                temperatura_maq = c_amb1.text_input("Temperatura", value="23.5 °C")
-                humedad_maq = c_amb2.text_input("Humedad Relativa", value="45 %")
+                # Cambiamos a number_input para asegurar que solo se ingresen números
+                temperatura_maq = c_amb1.number_input("Temperatura (°C)", value=23.5, step=0.1)
+                humedad_maq = c_amb2.number_input("Humedad Relativa (%)", value=45, step=1)
                 frecuencia_maq = c_amb3.selectbox("Frecuencia de Verificación", ["Anual", "Semestral", "Trimestral", "Mensual"], index=0)
 
                 st.markdown("---")
@@ -3441,6 +3442,12 @@ elif st.session_state.vista_actual == "Maquinaria" and not st.session_state.modo
             st.warning("Selecciona una línea con máquinas registradas previamente para usar el modo en lote.")
         else:
             with st.form("form_lote_movil"):
+                st.markdown("##### 🌡️ Condiciones Ambientales Globales de la Línea")
+                c_amb_lote1, c_amb_lote2 = st.columns(2)
+                temp_lote = c_amb_lote1.number_input("Temperatura (°C)", value=23.5, step=0.1)
+                hum_lote = c_amb_lote2.number_input("Humedad Relativa (%)", value=45, step=1)
+                st.divider()
+                
                 # Diccionario para almacenar los inputs temporales de cada máquina
                 resultados_lote = {}
                 
@@ -3512,8 +3519,8 @@ elif st.session_state.vista_actual == "Maquinaria" and not st.session_state.modo
                                 "clasificacion": datos["clasificacion"],
                                 "marca": "N/D",
                                 "status_operativo": "OPERATIVO",
-                                "temperatura": "23.5 °C", 
-                                "humedad": "45 %",
+                                "temperatura": float(temp_lote), 
+                                "humedad": int(hum_lote),
                                 "frecuencia_verificacion": "Anual",
                                 "fecha_proxima": proxima_fecha,
                                 "resistencia_tierra": res if res > 0 else None,
