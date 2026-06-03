@@ -3367,12 +3367,15 @@ elif st.session_state.vista_actual == "Maquinaria" and not st.session_state.modo
 
                 col_r2.text_input("Límite Máximo Permitido (Referencia Fija)", value=f"{limite_fijo:.2e}", disabled=True)
             
-                # Validación automática visual e interna PASA / FALLA
-                resultado_auto = "PASA" if resistencia <= limite_fijo else "FALLA"
-                if resultado_auto == "FALLA":
-                    st.error(f"❌ RESULTADO EVALUACIÓN: FALLA (Resistencia {resistencia:.2e} excede el límite de {limite_fijo:.2e})")
+                # Evaluación visual segura (evita el TypeError cuando resistencia es None)
+                if resistencia is None:
+                    st.info("⏳ Esperando captura de resistencia...")
                 else:
-                    st.success(f"✅ RESULTADO EVALUACIÓN: PASA")
+                    resultado_auto = "PASA" if resistencia <= limite_fijo else "FALLA"
+                    if resultado_auto == "FALLA":
+                        st.error(f"❌ RESULTADO EVALUACIÓN: FALLA (Resistencia {resistencia:.2e} excede el límite de {limite_fijo:.2e})")
+                    else:
+                        st.success("✅ RESULTADO EVALUACIÓN: PASA")
 
                 st.markdown("##### 🔌 2. Tomacorriente (Opcional)")
                 col_t1, col_t2 = st.columns(2)
