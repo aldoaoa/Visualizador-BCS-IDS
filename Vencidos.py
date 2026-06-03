@@ -4323,7 +4323,12 @@ elif st.session_state.vista_actual == "Tierras" and not st.session_state.modo_le
     st.markdown("### 🌍 Control de Infraestructura a Tierra (EPA)")
     st.info("Monitoreo de Tierras Auxiliares (< 25 Ω), Conexiones de Pulsera (< 2.0 Ω) y Validación de Piso ESD (< 1.0x10^9 Ω).")
 
-    tab_registro_t, tab_historial_t, tab_piso = st.tabs(["📝 Tierras y Conexiones", "📂 Historial", "🗺️ Validación de Piso (EPA)"])
+    tab_registro_t, tab_historial_t, tab_piso, tab_checadores = st.tabs([
+        "📝 Tierras y Conexiones", 
+        "📂 Historial", 
+        "🗺️ Validación de Piso (EPA)", 
+        "🛂 Checadores de Ingreso"
+    ])
 
     # --- PESTAÑA 1: NUEVA MEDICIÓN (TIERRAS Y CONEXIONES) ---
     with tab_registro_t:
@@ -4535,3 +4540,78 @@ elif st.session_state.vista_actual == "Tierras" and not st.session_state.modo_le
                             st.rerun()
                         except Exception as e:
                             st.error(f"Error al guardar los puntos en SQL: {e}")
+    # --- PESTAÑA 4: CHECADORES INTEGRADOS (NUEVO) ---
+    with tab_checadores:
+        st.markdown("#### 🛂 Verificación Mensual de Checadores Integrados")
+        st.info("La variación máxima que podemos obtener es el 5% sobre el rango total de medición (1e9 ohms). El valor de referencia es el del megóhmetro.")
+
+        # Opciones fijas para los 4 checadores que mencionas
+        checadores_disponibles = ["CHECADOR-01", "CHECADOR-02", "CHECADOR-03", "CHECADOR-04"]
+
+        with st.form("form_verif_checadores"):
+            c_ch1, c_ch2, c_ch3 = st.columns(3)
+            id_checador = c_ch1.selectbox("1. Equipo a verificar:", checadores_disponibles)
+            equipo_ref = c_ch2.selectbox("2. Megóhmetro (Referencia):", equipos_t) # Usamos la lista de equipos cargada arriba
+            fecha_verif = c_ch3.date_input("3. Fecha de Verificación", datetime.today().date())
+
+            st.markdown("##### 👣 Pie Izquierdo")
+            col_izq1, col_izq2 = st.columns(2)
+            ref_izq = col_izq1.number_input("Megóhmetro (Referencia) - Izq (Ohms)", min_value=0.0, format="%.2e", step=1e6, key="ref_izq", value=None, placeholder="Ej: 1.00e+08")
+            lec_izq = col_izq2.number_input("Lectura Checador - Izq (Ohms)", min_value=0.0, format="%.2e", step=1e6, key="lec_izq", value=None, placeholder="Ej: 1.05e+08")
+
+            st.markdown("##### 👣 Pie Derecho")
+            col_der1, col_der2 = st.columns(2)
+            ref_der = col_der1.number_input("Megóhmetro (Referencia) - Der (Ohms)", min_value=0.0, format="%.2e", step=1e6, key="ref_der", value=None, placeholder="Ej: 1.00e+08")
+            lec_der = col_der2.number_input("Lectura Checador - Der (Ohms)", min_value=0.0, format="%.2e", step=1e6, key="lec_der", value=None, placeholder="Ej: 9.80e+07")
+            
+            obs_checador = st.text_input("Observaciones / Notas:")
+
+            if st.form_submit_button("💾 Comparar y Guardar Verificación", use_container_width=True):
+                if ref_izq is None or lec_izq is None or ref_der is None or lec_der is None:
+                    st.error("⚠️ Debes ingresar todas las lecturas (Megóhmetro y Checador) para ambos pies.")
+                else:
+                    # 1. Cálculo de Desviación Absoluta
+                    desv_izq = abs(lec_izq - ref_izq)
+                    desv_der = abs(lec_der - ref_der)
+                    
+                    # 2. Límite de 5% sobre 1e9 Ohms (50,000,000 Ohms)
+                    limite_desv = 1e9 * 0.05 
+                    
+                    # 3. Evaluación de Estatus
+                    if desv_izq <= limite_desv and desv_der <= limite_desv:
+                        estatus_ch = "PASA"
+                    else:
+                        estatus_ch = "FALLA"
+                        
+                    # 4. Feedback Visual Inmediato
+                    st.markdown("##### 📊 Resultados de la Desviación")
+                    c_res1, c_res2 = st.columns(2)
+                    c_res1.metric("Desviación P. Izquierdo", f"{desv_izq:.2e} Ω", delta="Dentro del límite" if desv_izq <= limite_desv else "Excede el límite", delta_color="normal" if desv_izq <= limite_desv else "inverse")
+                    c_res2.metric("Desviación P. Derecho", f"{desv_der:.2e} Ω", delta="Dentro del límite" if desv_der <= limite_desv else "Excede el límite", delta_color="normal" if desv_der <= limite_desv else "inverse")
+
+                    with st.spinner("Guardando en la base de datos..."):
+                        try:
+                            # Inserción a la nueva tabla en Supabase
+                            supabase.table("verificacion_checadores").insert({
+                                "id_checador": id_checador,
+                                "megohmetro_utilizado": equipo_ref,
+                                "fecha_verificacion": fecha_verif.isoformat(),
+                                "ref_izq": float(ref_izq),
+                                "lec_izq": float(lec_izq),
+                                "desviacion_izq": float(desv_izq),
+                                "ref_der": float(ref_der),
+                                "lec_der": float(lec_der),
+                                "desviacion_der": float(desv_der),
+                                "estatus": estatus_ch,
+                                "auditor": st.session_state.usuario_nombre,
+                                "observaciones": obs_checador
+                            }).execute()
+                            
+                            if estatus_ch == "PASA":
+                                st.success(f"✅ Verificación exitosa. Las variaciones no superan el 5% sobre el rango total (5.00e+07 Ω).")
+                                st.balloons()
+                            else:
+                                st.error("🚨 ¡Falla de Calibración! El checador muestra desviaciones superiores al límite permitido contra el megóhmetro.")
+                                
+                        except Exception as e:
+                            st.error(f"Error al guardar el registro en SQL. ¿Ya creaste la tabla 'verificacion_checadores'? Detalle: {e}")
