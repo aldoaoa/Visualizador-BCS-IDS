@@ -3235,56 +3235,78 @@ elif st.session_state.vista_actual == "Maquinaria" and not st.session_state.modo
         df_historico_linea = df_med_maq[df_med_maq['linea_tmp'] == linea_sel_limpia].copy()
         
         if not df_historico_linea.empty:
-            st.markdown(f"**Historial de operaciones en la línea {linea_sel}:**")
+            # ==========================================
+            # NUEVA LÓGICA: FILTRO POR AÑO Y DUPLICADOS
+            # ==========================================
+            # 1. Convertimos la fecha a formato datetime real temporalmente para extraer años y ordenar
+            df_historico_linea['fecha_dt'] = pd.to_datetime(df_historico_linea['fecha_medicion'], format='ISO8601', errors='coerce')
             
-            df_mostrar = pd.DataFrame()
-            df_mostrar["Operación / ID"] = df_historico_linea.get("id_maquinaria", pd.Series(dtype=str))
-            df_mostrar["Clasificación"] = df_historico_linea.get("clasificacion", pd.Series(dtype=str))
+            # 2. Extraemos los años únicos que existen en el historial de esta línea
+            anios_disp = sorted(df_historico_linea['fecha_dt'].dt.year.dropna().astype(int).unique().tolist(), reverse=True)
+            opciones_anio = ["Última Validación (Por defecto)"] + [str(a) for a in anios_disp]
             
-            # Aplicar formato condicional a la resistencia (2 decimales si es < 10, exponencial si es mayor)
-            def formatear_resistencia(val):
-                try:
-                    v = float(val)
-                    return f"{v:.2f} Ω" if v < 10 else f"{v:.2E} Ω"
-                except:
-                    return "N/D"
+            # 3. Mostramos el selector arriba de la tabla
+            filtro_anio = st.selectbox("📅 Filtrar historial por año:", options=opciones_anio)
             
-            if "resistencia_tierra" in df_historico_linea.columns:
-                df_mostrar["Resistencia Tierra"] = df_historico_linea["resistencia_tierra"].apply(formatear_resistencia)
-            else:
-                df_mostrar["Resistencia Tierra"] = "N/D"
-
-            df_mostrar["Estatus Red"] = df_historico_linea.get("tomacorriente_estatus", "N/A")
+            # 4. Aplicamos el filtro si eligieron un año en específico
+            if filtro_anio != "Última Validación (Por defecto)":
+                df_historico_linea = df_historico_linea[df_historico_linea['fecha_dt'].dt.year == int(filtro_anio)]
             
-            if "campo_estatico_voltaje" in df_historico_linea.columns:
-                df_mostrar["Campo Estático"] = df_historico_linea["campo_estatico_voltaje"].astype(str) + " V"
-            else:
-                df_mostrar["Campo Estático"] = "0.0 V"
-            
-            # Ajustado para leer la nueva estructura homologada de estatus dinámicos
-            df_mostrar["Estatus Final"] = df_historico_linea.get("resultado_estatus", "PENDIENTE")
-            df_mostrar["Frecuencia"] = df_historico_linea.get("frecuencia_verificacion", "Anual")
-            
-            # Formatear la fecha para que sea legible de forma segura
-            # Formatear la fecha para que sea legible de forma segura
-            if "fecha_medicion" in df_historico_linea.columns:
-                # Agregamos format='ISO8601' y errors='coerce' para que Pandas no colapse con variaciones de milisegundos
-                df_mostrar["Fecha Medición"] = pd.to_datetime(
-                    df_historico_linea["fecha_medicion"], 
-                    format='ISO8601', 
-                    errors='coerce'
-                ).dt.strftime('%d-%b-%Y %H:%M').fillna("N/D")
-            else:
-                df_mostrar["Fecha Medición"] = "N/D"
+            # 5. MAGIA DE PANDAS: Ordenamos de más nuevo a más viejo y eliminamos máquinas duplicadas
+            if not df_historico_linea.empty:
+                df_historico_linea = df_historico_linea.sort_values('fecha_dt', ascending=False).drop_duplicates(subset=['id_maquinaria'], keep='first')
+            # ==========================================
+            if not df_historico_linea.empty:
+                st.markdown(f"**Historial de operaciones en la línea {linea_sel}:**")
                 
-            df_mostrar["Auditor"] = df_historico_linea.get("auditor", "N/D")
-
-            # Limpieza final de NaN
-            df_mostrar = df_mostrar.fillna("N/D")
-
-            st.dataframe(df_mostrar, use_container_width=True, hide_index=True)
-        else:
-            st.info(f"No se encontraron mediciones previas grabadas en la línea {linea_sel}.")
+                df_mostrar = pd.DataFrame()
+                df_mostrar["Operación / ID"] = df_historico_linea.get("id_maquinaria", pd.Series(dtype=str))
+                df_mostrar["Clasificación"] = df_historico_linea.get("clasificacion", pd.Series(dtype=str))
+                
+                # Aplicar formato condicional a la resistencia (2 decimales si es < 10, exponencial si es mayor)
+                def formatear_resistencia(val):
+                    try:
+                        v = float(val)
+                        return f"{v:.2f} Ω" if v < 10 else f"{v:.2E} Ω"
+                    except:
+                        return "N/D"
+                
+                if "resistencia_tierra" in df_historico_linea.columns:
+                    df_mostrar["Resistencia Tierra"] = df_historico_linea["resistencia_tierra"].apply(formatear_resistencia)
+                else:
+                    df_mostrar["Resistencia Tierra"] = "N/D"
+        
+                df_mostrar["Estatus Red"] = df_historico_linea.get("tomacorriente_estatus", "N/A")
+                
+                if "campo_estatico_voltaje" in df_historico_linea.columns:
+                    df_mostrar["Campo Estático"] = df_historico_linea["campo_estatico_voltaje"].astype(str) + " V"
+                else:
+                    df_mostrar["Campo Estático"] = "0.0 V"
+                
+                # Ajustado para leer la nueva estructura homologada de estatus dinámicos
+                df_mostrar["Estatus Final"] = df_historico_linea.get("resultado_estatus", "PENDIENTE")
+                df_mostrar["Frecuencia"] = df_historico_linea.get("frecuencia_verificacion", "Anual")
+                
+                # Formatear la fecha para que sea legible de forma segura
+                # Formatear la fecha para que sea legible de forma segura
+                if "fecha_medicion" in df_historico_linea.columns:
+                    # Agregamos format='ISO8601' y errors='coerce' para que Pandas no colapse con variaciones de milisegundos
+                    df_mostrar["Fecha Medición"] = pd.to_datetime(
+                        df_historico_linea["fecha_medicion"], 
+                        format='ISO8601', 
+                        errors='coerce'
+                    ).dt.strftime('%d-%b-%Y %H:%M').fillna("N/D")
+                else:
+                    df_mostrar["Fecha Medición"] = "N/D"
+                    
+                df_mostrar["Auditor"] = df_historico_linea.get("auditor", "N/D")
+        
+                # Limpieza final de NaN
+                df_mostrar = df_mostrar.fillna("N/D")
+        
+                st.dataframe(df_mostrar, use_container_width=True, hide_index=True)
+            else:
+                st.info(f"No se encontraron mediciones previas grabadas en la línea {linea_sel}.")
     else:
         st.info("No hay registros históricos disponibles en este momento.")
 
