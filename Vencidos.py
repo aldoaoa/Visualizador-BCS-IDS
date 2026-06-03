@@ -3615,7 +3615,7 @@ elif st.session_state.vista_actual == "Maquinaria" and not st.session_state.modo
                 min_value=0.0, 
                 max_value=99999.0, 
                 step=1.0, 
-                format="%.1f"
+                format="%.1f",
                 value=None,
                 placeholder="0.0"
             )
