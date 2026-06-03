@@ -1637,9 +1637,13 @@ elif st.session_state.vista_actual == "Escáner":
                 limpiar_url_escaneo()
                 st.rerun()
 
+        # CÓDIGO CORREGIDO
         id_limpio = str(id_escaneado_url).strip().upper()
+        
+        # 1. Extraemos las listas de IDs limpios de las tres categorías de inventario
         mob_ids_limpios = df_mob_local.get('Id de producto', pd.Series()).astype(str).str.strip().str.upper()
         ion_ids_limpios = df_ion_local.get('Id de producto', pd.Series()).astype(str).str.strip().str.upper()
+        mon_ids_limpios = df_mon_local.get('Id de producto', pd.Series()).astype(str).str.strip().str.upper()
 
         # --- NUEVO: Búsqueda en tabla de Maquinaria ---
         try:
@@ -1651,17 +1655,27 @@ elif st.session_state.vista_actual == "Escáner":
             es_maq = False
         # ----------------------------------------------
 
+        # 2. Banderas de coincidencia
         es_mob = id_limpio in mob_ids_limpios.values
         es_ion = id_limpio in ion_ids_limpios.values
+        es_mon = id_limpio in mon_ids_limpios.values
 
-        if es_mob or es_ion or es_maq:
+        # 3. Validamos si existe en cualquiera de las 4 tablas
+        if es_mob or es_ion or es_mon or es_maq:
             
             # ==========================================
-            # LÓGICA DE VISUALIZACIÓN: MOBILIARIO / IONIZADORES
+            # LÓGICA DE VISUALIZACIÓN: INVENTARIO GENERAL
             # ==========================================
-            if es_mob or es_ion:
-                df_actual = df_mob_local if es_mob else df_ion_local
-                serie_busqueda = mob_ids_limpios if es_mob else ion_ids_limpios
+            if es_mob or es_ion or es_mon:
+                if es_mob:
+                    df_actual = df_mob_local
+                    serie_busqueda = mob_ids_limpios
+                elif es_ion:
+                    df_actual = df_ion_local
+                    serie_busqueda = ion_ids_limpios
+                else:
+                    df_actual = df_mon_local
+                    serie_busqueda = mon_ids_limpios
                 idx = serie_busqueda[serie_busqueda == id_limpio].index[0]
                 equipo = df_actual.loc[idx]
                 
