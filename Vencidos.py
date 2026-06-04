@@ -1958,6 +1958,11 @@ elif st.session_state.vista_actual == "Event Meter" and not st.session_state.mod
                 equipo_em = col_g3.text_input("Equipo de Medición Utilizado", value="SCS EM EYE")
                 serial_em = col_g4.text_input("No. de Serie del Equipo", value="2451005")
                 
+                # --- NUEVOS CAMPOS AMBIENTALES PARA EL REPORTE ---
+                col_g5, col_g6 = st.columns(2)
+                temp_rep = col_g5.text_input("Temperatura de la Línea", value="23.5 °C")
+                hum_rep = col_g6.text_input("Humedad de la Línea", value="45 %")
+                
                 submit_reporte_em = st.form_submit_button("Generar Reporte Consolidado por Línea", use_container_width=True)
                 
                 if submit_reporte_em:
@@ -2068,6 +2073,7 @@ elif st.session_state.vista_actual == "Event Meter" and not st.session_state.mod
         <div class="space-y-2">
             <div class="flex justify-between border-b pb-1"><span class="font-bold">Periodo de Evaluación:</span><span>{periodo_em}</span></div>
             <div class="flex justify-between border-b pb-1"><span class="font-bold">Equipo de Medición (SN):</span><span>{equipo_em} ({serial_em})</span></div>
+            <div class="flex justify-between border-b pb-1"><span class="font-bold">Temperatura / Humedad:</span><span>{temp_rep} / {hum_rep}</span></div>
         </div>
     </div>
     
@@ -2169,6 +2175,13 @@ elif st.session_state.vista_actual == "Event Meter" and not st.session_state.mod
         if tipo_contacto == "Otro":
             tipo_contacto = col1.text_input("Especifique Tipo de Contacto")
 
+        # (Este código va justo debajo de donde pides el 'tipo_contacto')
+        
+        st.markdown("#### 🌡️ Condiciones Ambientales")
+        col_amb1, col_amb2 = st.columns(2)
+        temperatura_em = col_amb1.number_input("Temperatura (°C)", value=23.5, step=0.1)
+        humedad_em = col_amb2.number_input("Humedad Relativa (%)", value=45, step=1)
+
         st.markdown("#### ⚡ Resultados de Detección")
         col_d1, col_d2 = st.columns(2)
         deteccion_eventos = col_d1.number_input("Cantidad de Eventos Detectados", min_value=0, step=1, value=None, placeholder="Ej: 5")
@@ -2176,8 +2189,7 @@ elif st.session_state.vista_actual == "Event Meter" and not st.session_state.mod
 
         notas_em = st.text_area("Notas / Observaciones")
 
-        limite_maximo_v = 100.0  
-        estatus_verificacion = "APROBADO" if voltaje_max <= limite_maximo_v else "RECHAZADO"
+        # Eliminamos la evaluación temprana de estatus que causaba el crash
         fecha_hoy = datetime.today().date()
         frecuencia_em = "Semestral" 
         proxima_fecha = calcular_proxima_fecha(fecha_hoy, frecuencia_em)
@@ -2190,9 +2202,9 @@ elif st.session_state.vista_actual == "Event Meter" and not st.session_state.mod
             elif deteccion_eventos is None or voltaje_max is None:
                 st.error("⚠️ Debes capturar la cantidad de eventos y el voltaje máximo.")
             else:
-                # Limite maximo y estatus se evalúan ahora de forma segura
+                # AQUÍ es donde evaluamos, porque ya sabemos que voltaje_max es un número
                 estatus_verificacion = "APROBADO" if voltaje_max <= 100.0 else "RECHAZADO"
-                # Continúa con el guardado...
+                
                 with st.spinner("Guardando en la tabla EVENT_METER de SQL..."):
                     try:
                         supabase.table("event_meter").insert({
@@ -2201,6 +2213,8 @@ elif st.session_state.vista_actual == "Event Meter" and not st.session_state.mod
                             "tipo_contacto": tipo_contacto,
                             "cantidad_eventos": int(deteccion_eventos),
                             "voltaje_maximo": float(voltaje_max),
+                            "temperatura": float(temperatura_em), # <- NUEVO CAMPO
+                            "humedad": int(humedad_em),           # <- NUEVO CAMPO
                             "estatus_verificacion": estatus_verificacion,
                             "notas": notas_em,
                             "auditor": st.session_state.usuario_nombre,
@@ -2210,6 +2224,7 @@ elif st.session_state.vista_actual == "Event Meter" and not st.session_state.mod
                         st.success(f"✅ ¡Estudio de {id_operacion_final} registrado exitosamente! Estatus: {estatus_verificacion}")
                         st.cache_data.clear()
                         st.balloons()
+                        time.sleep(1)
                         st.rerun()
                     except Exception as e:
                         st.error(f"Error SQL al guardar en Event Meter: {e}")
