@@ -481,14 +481,14 @@ def generar_html_reporte_completo(row, index):
             <div class="border-t-[3px] border-b-[3px] border-black mt-16 py-1 text-[11px] font-sans [page-break-inside:avoid]">
                 <div class="flex justify-between items-end">
                     <div class="text-left leading-tight">
-                        <div>E_310_4_113_QRO_SP_Rev. A</div>
+                        <div>B_010_4_018_QRO_SP_Rev. A</div>
                         <div>Formato de Validación de producto.</div>
                     </div>
                     <div class="text-center leading-tight">
-                        <div>Fecha: {fecha_pie_str}</div>
+                        <div>Fecha: Fecha: 08/ago/2025 </div>
                     </div>
                     <div class="text-right leading-tight">
-                        <div>Ref.E_310_3_001_QRO_SP</div>
+                        <div>Ref.B_010_3_002_QRO_SP</div>
                     </div>
                 </div>
             </div>
@@ -2104,14 +2104,14 @@ elif st.session_state.vista_actual == "Event Meter" and not st.session_state.mod
     <div class="border-t-[3px] border-b-[3px] border-black mt-16 py-1 text-[11px] font-sans">
         <div class="flex justify-between items-end">
             <div class="text-left leading-tight">
-                <div>E_310_4_111_QRO_SP_Rev.A</div>
-                <div>Registro de estudio de eventos ESD.</div>
+                <div>B_010_4_013_QRO_SP_Rev. A</div>
+                <div>Registro de eventos ESD</div>
             </div>
             <div class="text-center leading-tight">
-                <div>Fecha:{fecha_pie_str}</div>
+                <div>Fecha: 14/ago/2025</div>
             </div>
             <div class="text-right leading-tight">
-                <div>Ref.E_310_3_001_QRO_SP</div>
+                <div>Ref. B_010_3_002_QRO_SP</div>
             </div>
         </div>
     </div>
@@ -2518,14 +2518,14 @@ elif st.session_state.vista_actual == "Walking Test" and not st.session_state.mo
     <div class="border-t-[3px] border-b-[3px] border-black mt-16 py-1 text-[11px] font-sans [page-break-inside:avoid]">
         <div class="flex justify-between items-end">
             <div class="text-left leading-tight">
-                <div>E_310_4_116_QRO_EN_Rev. A</div>
+                <div> B_010_4_020_QRO_EN_Rev. A</div>
                 <div>Formato de Walking Test.</div>
             </div>
             <div class="text-center leading-tight">
-                <div>Fecha: {fecha_pie_str}</div>
+                <div>Fecha: Fecha: 15/Ago/2025</div>
             </div>
             <div class="text-right leading-tight">
-                <div>Ref.E_310_3_001_QRO_SP</div>
+                <div>Ref.B_010_3_002_QRO_SP</div>
             </div>
         </div>
     </div>
