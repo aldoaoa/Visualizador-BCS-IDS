@@ -1966,49 +1966,66 @@ elif st.session_state.vista_actual == "Event Meter" and not st.session_state.mod
                     if df_filtrado.empty:
                         st.error("No se encontraron registros en la base de datos para la línea seleccionada.")
                     else:
-                        html_rows = ""
-                        for i, row in enumerate(df_filtrado.to_dict('records'), 1):
-                            op = str(row.get('Id de Operación', 'N/A'))
-                            tipo_c = str(row.get('Tipo de contacto', 'N/D'))
+                        with st.spinner("Generando folio único y construyendo reporte..."):
+                            # --- 1. LÓGICA DE NOMENCLATURA ---
+                            año_actual = datetime.today().strftime("%y")
                             
-                            # --- EXTRACCIÓN SEGURA DE NÚMEROS ---
-                            raw_eventos = row.get('Detección (Cantidad)', 0)
-                            eventos = int(float(raw_eventos)) if pd.notna(raw_eventos) and str(raw_eventos).strip() != '' else 0
+                            try:
+                                # Registramos la descarga en la bitácora para obtener el consecutivo (XXX)
+                                resp_log_em = supabase.table("log_reportes_em").insert({
+                                    "linea_ubicacion": linea_rep_sel,
+                                    "auditor": auditor_em
+                                }).execute()
+                                db_id_em = resp_log_em.data[0]['id']
+                            except Exception as e:
+                                db_id_em = 999
+                                st.warning(f"Aviso: Usando folio 999 por error de conexión con la bitácora: {e}")
                             
-                            raw_vmax = row.get('Voltaje máximo', 0.0)
-                            vmax = float(raw_vmax) if pd.notna(raw_vmax) and str(raw_vmax).strip() != '' else 0.0
-                            # ------------------------------------
+                            # Construimos el Folio Final
+                            folio_em = f"BCS-QRO-ESDEV-{db_id_em:03d}-{año_actual}"
+                            # ---------------------------------
+
+                            html_rows = ""
+                            for i, row in enumerate(df_filtrado.to_dict('records'), 1):
+                                op = str(row.get('Id de Operación', 'N/A'))
+                                tipo_c = str(row.get('Tipo de contacto', 'N/D'))
+                                
+                                raw_eventos = row.get('Detección (Cantidad)', 0)
+                                eventos = int(float(raw_eventos)) if pd.notna(raw_eventos) and str(raw_eventos).strip() != '' else 0
+                                
+                                raw_vmax = row.get('Voltaje máximo', 0.0)
+                                vmax = float(raw_vmax) if pd.notna(raw_vmax) and str(raw_vmax).strip() != '' else 0.0
+                                
+                                estatus = str(row.get('Estatus de verificación', '')).upper()
+                                notas = str(row.get('Notas', ''))
+                                if notas.lower() in ['nan', 'none', 'null']: 
+                                    notas = ""
+                                
+                                color_estatus = "text-green-600" if "APROBADO" in estatus else "text-red-600"
+                                pass_fail = "PASA" if "APROBADO" in estatus else "FALLA"
+                                
+                                html_rows += f"""
+                                <tr class="text-center border-b border-gray-300">
+                                    <td class="border border-gray-800 p-2 font-bold text-gray-600">{i}</td>
+                                    <td class="border border-gray-800 p-2 text-left">{op}</td>
+                                    <td class="border border-gray-800 p-2">{tipo_c}</td>
+                                    <td class="border border-gray-800 p-2 font-mono">{eventos}</td>
+                                    <td class="border border-gray-800 p-2 font-mono font-bold">{vmax}V</td>
+                                    <td class="border border-gray-800 p-2 font-bold {color_estatus}">{pass_fail}</td>
+                                    <td class="border border-gray-800 p-2 text-left text-xs">{notas}</td>
+                                </tr>
+                                """
                             
-                            estatus = str(row.get('Estatus de verificación', '')).upper()
-                            notas = str(row.get('Notas', ''))
-                            if notas.lower() in ['nan', 'none', 'null']: 
-                                notas = ""
+                            fecha_hoy_str = datetime.today().strftime("%Y-%m-%d")
+                            fecha_pie_str = datetime.today().strftime("%Y/%m/%d")
                             
-                            color_estatus = "text-green-600" if "APROBADO" in estatus else "text-red-600"
-                            pass_fail = "PASA" if "APROBADO" in estatus else "FALLA"
-                            
-                            html_rows += f"""
-                            <tr class="text-center border-b border-gray-300">
-                                <td class="border border-gray-800 p-2 font-bold text-gray-600">{i}</td>
-                                <td class="border border-gray-800 p-2 text-left">{op}</td>
-                                <td class="border border-gray-800 p-2">{tipo_c}</td>
-                                <td class="border border-gray-800 p-2 font-mono">{eventos}</td>
-                                <td class="border border-gray-800 p-2 font-mono font-bold">{vmax}V</td>
-                                <td class="border border-gray-800 p-2 font-bold {color_estatus}">{pass_fail}</td>
-                                <td class="border border-gray-800 p-2 text-left text-xs">{notas}</td>
-                            </tr>
-                            """
-                        
-                        fecha_hoy_str = datetime.today().strftime("%Y-%m-%d")
-                        fecha_pie_str = datetime.today().strftime("%Y/%m/%d")
-                        
-                        # --- PLANTILLA HTML OFICIAL SIN OPERADOR DE PRUEBA ---
-                        html_template = f"""<!DOCTYPE html>
+                            # --- 2. INYECCIÓN DEL FOLIO EN LA PLANTILLA HTML ---
+                            html_template = f"""<!DOCTYPE html>
 <html lang="es">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Reporte Event Meter - {linea_rep_sel}</title>
+<title>Reporte {folio_em} - {linea_rep_sel}</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <style>
     @media print {{
@@ -2038,6 +2055,7 @@ elif st.session_state.vista_actual == "Event Meter" and not st.session_state.mod
         <div class="p-2 w-full md:w-1/4 flex flex-col justify-center text-xs space-y-1">
             <div class="flex justify-between"><span class="font-bold">Código:</span> <span>F-ESD-001</span></div>
             <div class="flex justify-between"><span class="font-bold">Límite Permitido:</span> <span class="font-bold text-red-600">&lt; 100V</span></div>
+            <div class="flex justify-between mt-2 pt-2 border-t border-gray-300"><span class="font-bold text-red-700 text-sm">Folio:</span> <span class="font-bold text-red-700 text-sm">{folio_em}</span></div>
         </div>
     </div>
     
@@ -2094,12 +2112,13 @@ elif st.session_state.vista_actual == "Event Meter" and not st.session_state.mod
 </div>
 </body>
 </html>"""
-                        b64_html = base64.b64encode(html_template.encode('utf-8')).decode('utf-8')
-                        nombre_archivo = f"Reporte_Consolidado_EventMeter_{linea_rep_sel.replace(' ', '_')}.html"
-                        
-                        st.success(f"✅ ¡Reporte consolidado para la línea {linea_rep_sel} generado con éxito!")
-                        href = f'<a href="data:text/html;base64,{b64_html}" download="{nombre_archivo}" target="_blank" style="display: block; text-align: center; padding: 15px; background-color: #003366; color: white; text-decoration: none; border-radius: 8px; font-weight: bold; margin-top: 10px; font-size: 16px;">📥 Descargar Reporte Completo de la Línea (Abrir para imprimir PDF)</a>'
-                        st.markdown(href, unsafe_allow_html=True)
+                            
+                            b64_html = base64.b64encode(html_template.encode('utf-8')).decode('utf-8')
+                            nombre_archivo = f"{folio_em}_{linea_rep_sel.replace(' ', '_')}.html"
+                            
+                            st.success(f"✅ ¡Reporte {folio_em} generado con éxito!")
+                            href = f'<a href="data:text/html;base64,{b64_html}" download="{nombre_archivo}" target="_blank" style="display: block; text-align: center; padding: 15px; background-color: #003366; color: white; text-decoration: none; border-radius: 8px; font-weight: bold; margin-top: 10px; font-size: 16px;">📥 Descargar Reporte Oficial ({folio_em})</a>'
+                            st.markdown(href, unsafe_allow_html=True)
 
     # --- SECCIÓN DEL TEMPORIZADOR (5 MINUTOS) ---
     st.divider()
