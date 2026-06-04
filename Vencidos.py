@@ -1914,7 +1914,7 @@ elif st.session_state.vista_actual == "Escáner":
                     if 'Resistencia (Ω)' in df_maq_hist.columns:
                         df_maq_hist['Resistencia (Ω)'] = df_maq_hist['Resistencia (Ω)'].apply(formatear_res_hist)
                         
-                    df_maq_hist['Fecha'] = pd.to_datetime(df_maq_hist['Fecha']).dt.strftime('%d-%b-%Y')
+                    df_maq_hist['Fecha'] = pd.to_datetime(df_maq_hist['Fecha'], format='ISO8601', errors='coerce').dt.strftime('%d-%b-%Y')
                     st.dataframe(df_maq_hist.fillna("N/D"), use_container_width=True, hide_index=True)
 
                 st.divider()
