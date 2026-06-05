@@ -2772,7 +2772,12 @@ elif st.session_state.vista_actual == "Validación" and not st.session_state.mod
         df_equipos = pd.DataFrame()
         lista_equipos = ["Error de conexión"]
 
-    tab_registro, tab_historial, tab_calificacion = st.tabs(["📝 Registrar Validación", "🖼️ Visor de Registros", "📑 Reportes de Calificación"])
+    tab_registro, tab_historial, tab_calificacion, tab_batas = st.tabs([
+    "📝 Registrar Validación", 
+    "🖼️ Visor de Registros", 
+    "📑 Reportes de Calificación", 
+    "🥼 Control de Batas"
+    ])
 
     with tab_registro:
         if "val_success_msg" in st.session_state and st.session_state.val_success_msg:
@@ -3108,6 +3113,190 @@ elif st.session_state.vista_actual == "Validación" and not st.session_state.mod
                 st.info("Aún no hay reportes de calificación registrados.")
         except Exception as e:
             st.warning(f"No se pudo cargar el historial. Asegúrate de haber creado la tabla SQL. Error: {e}")
+
+    # --- NUEVA PESTAÑA: CONTROL DE BATAS ---
+with tab_batas:
+    st.markdown("### 🥼 Control de Batas (Muestreo Aleatorio)")
+    st.info("Gestión de asignación, validación y sincronización de padrón de empleados.")
+
+    subtab_val, subtab_sync, subtab_hist = st.tabs([
+        "✔️ Validación de Bata", 
+        "🔄 Sincronización de Personal", 
+        "📜 Historial de Validaciones"
+    ])
+
+    # -- SUB-PESTAÑA: VALIDACIÓN --
+    with subtab_val:
+        st.markdown("#### Búsqueda y Validación por Número de Empleado")
+        
+        try:
+            resp_emp = supabase.table("empleados_batas").select("*").eq("estatus_empleado", "Activo").execute()
+            df_empleados = pd.DataFrame(resp_emp.data)
+        except Exception as e:
+            df_empleados = pd.DataFrame()
+            st.error(f"Error cargando empleados: {e}")
+
+        if not df_empleados.empty:
+            dict_empleados = {row['num_empleado']: f"{row['num_empleado']} - {row['nombre']}" for _, row in df_empleados.iterrows()}
+            
+            c_bata1, c_bata2 = st.columns([2, 1])
+            empleado_sel = c_bata1.selectbox("Seleccione el empleado:", options=[""] + list(dict_empleados.keys()), format_func=lambda x: dict_empleados.get(x, "Seleccione una opción..."))
+            
+            if empleado_sel:
+                info_emp = df_empleados[df_empleados['num_empleado'] == empleado_sel].iloc[0]
+                
+                st.markdown(f"**Usuario:** {info_emp['nombre']}")
+                col_m1, col_m2, col_m3 = st.columns(3)
+                col_m1.metric("Fecha de entrega de bata", str(info_emp.get('fecha_entrega_bata', 'N/D')))
+                col_m2.metric("Última validación", str(info_emp.get('fecha_ultima_validacion', 'N/D')))
+                val_res = info_emp.get('valor_resistencia')
+                col_m3.metric("Valor de resistencia", f"{float(val_res):.2e} Ω" if pd.notna(val_res) and val_res else "N/D", delta=info_emp.get('estatus_bata'), delta_color="normal" if info_emp.get('estatus_bata') == "PASA" else "inverse")
+                
+                st.divider()
+                
+                with st.form("form_val_bata"):
+                    c_f1, c_f2 = st.columns(2)
+                    fecha_val = c_f1.date_input("Fecha de validación", datetime.today().date())
+                    res_input = c_f2.number_input("Valor de resistencia (Ohms)", min_value=0.0, format="%.2e", placeholder="Ej: 5.50e+06")
+                    
+                    es_entrega_nueva = st.checkbox("Registrar como fecha de entrega de bata nueva")
+                    
+                    if st.form_submit_button("💾 Guardar Datos", use_container_width=True):
+                        if res_input is None or res_input == 0:
+                            st.error("⚠️ Ingrese un valor de resistencia válido.")
+                        else:
+                            limite_bata = 1.0e11
+                            estatus_bata = "PASA" if res_input <= limite_bata else "FALLA"
+                            
+                            mostrar_notificacion_semestre = False
+                            
+                            if estatus_bata == "FALLA":
+                                st.error(f"🚨 NOTIFICACIÓN: La bata registra {res_input:.2e} Ω, superando el límite de {limite_bata:.2e} Ω. Debe ser reemplazada.")
+                            
+                            # Validar si ya se midió en el semestre corriente
+                            if pd.notna(info_emp.get('fecha_ultima_validacion')) and info_emp.get('fecha_ultima_validacion'):
+                                f_ultima = datetime.fromisoformat(str(info_emp['fecha_ultima_validacion'])).date()
+                                semestre_ultima = 1 if f_ultima.month <= 6 else 2
+                                semestre_actual = 1 if fecha_val.month <= 6 else 2
+                                
+                                if f_ultima.year == fecha_val.year and semestre_ultima == semestre_actual:
+                                    st.warning("⚠️ ANUNCIO: La bata de este empleado ya estaba validada en el semestre corriente. Busque a otro empleado para el muestreo aleatorio.")
+                                    mostrar_notificacion_semestre = True
+                                
+                                # Almacenar en historial el dato que se va a sobreescribir
+                                supabase.table("historial_batas").insert({
+                                    "num_empleado": empleado_sel,
+                                    "fecha_validacion": info_emp['fecha_ultima_validacion'],
+                                    "valor_resistencia": info_emp['valor_resistencia'],
+                                    "auditor": st.session_state.usuario_nombre,
+                                    "estatus_bata": info_emp['estatus_bata']
+                                }).execute()
+                            
+                            # Actualizar datos de empleado
+                            datos_update = {
+                                "fecha_ultima_validacion": fecha_val.isoformat(),
+                                "valor_resistencia": float(res_input),
+                                "estatus_bata": estatus_bata
+                            }
+                            
+                            if es_entrega_nueva:
+                                datos_update["fecha_entrega_bata"] = fecha_val.isoformat()
+                                
+                            try:
+                                supabase.table("empleados_batas").update(datos_update).eq("num_empleado", empleado_sel).execute()
+                                if estatus_bata == "PASA" and not mostrar_notificacion_semestre:
+                                    st.success(f"✅ Validación guardada exitosamente ({res_input:.2e} Ω).")
+                                st.cache_data.clear()
+                                time.sleep(2)
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Error al guardar: {e}")
+        else:
+            st.warning("No hay empleados en el sistema. Realice la sincronización en la siguiente pestaña.")
+
+    # -- SUB-PESTAÑA: SINCRONIZACIÓN HC --
+    with subtab_sync:
+        st.markdown("#### 🔄 Actualización de Usuarios (Altas y Bajas)")
+        st.write("Sube el archivo Excel/CSV semanal. Se procesará automáticamente el número de empleado y nombre.")
+        
+        archivo_hc = st.file_uploader("Subir archivo de Personal", type=["csv", "xlsx"], key="up_hc")
+        
+        if archivo_hc:
+            try:
+                if archivo_hc.name.endswith('.csv'):
+                    df_upload = pd.read_csv(archivo_hc)
+                else:
+                    df_upload = pd.read_excel(archivo_hc)
+                
+                # Detectar columnas basándose en tus variaciones de HC
+                col_num = next((c for c in df_upload.columns if str(c).strip().lower() in ['personnel number', 'numempleado']), None)
+                col_nom = next((c for c in df_upload.columns if str(c).strip().lower() in ['local name', 'nombre']), None)
+                
+                if not col_num or not col_nom:
+                    st.error("❌ No se detectaron las columnas requeridas (número de empleado y nombre).")
+                else:
+                    df_upload = df_upload.dropna(subset=[col_num, col_nom])
+                    df_upload[col_num] = df_upload[col_num].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
+                    
+                    st.success(f"✅ Archivo validado. Total en padrón: {len(df_upload)}")
+                    
+                    if st.button("🚀 Procesar Altas y Bajas", type="primary", use_container_width=True):
+                        with st.spinner("Sincronizando..."):
+                            emp_excel = set(df_upload[col_num].tolist())
+                            
+                            resp_db = supabase.table("empleados_batas").select("num_empleado, estatus_empleado").execute()
+                            df_db = pd.DataFrame(resp_db.data)
+                            
+                            emp_db_activos = set(df_db[df_db['estatus_empleado'] == 'Activo']['num_empleado'].tolist()) if not df_db.empty else set()
+                            emp_db_todos = set(df_db['num_empleado'].tolist()) if not df_db.empty else set()
+                            
+                            bajas = emp_db_activos - emp_excel
+                            altas = emp_excel - emp_db_todos
+                            reactivaciones = (emp_excel.intersection(emp_db_todos)) - emp_db_activos
+                            
+                            for b in bajas:
+                                supabase.table("empleados_batas").update({"estatus_empleado": "Inactivo"}).eq("num_empleado", b).execute()
+                                
+                            for r in reactivaciones:
+                                supabase.table("empleados_batas").update({"estatus_empleado": "Activo"}).eq("num_empleado", r).execute()
+                                
+                            datos_altas = []
+                            for a in altas:
+                                nombre_a = str(df_upload[df_upload[col_num] == a].iloc[0][col_nom])
+                                datos_altas.append({"num_empleado": a, "nombre": nombre_a, "estatus_empleado": "Activo"})
+                            
+                            if datos_altas:
+                                # Insertar en lotes si es muy grande
+                                for i in range(0, len(datos_altas), 500):
+                                    supabase.table("empleados_batas").insert(datos_altas[i:i+500]).execute()
+                                    
+                            st.success(f"✅ Proceso terminado:\n* Altas: {len(altas)}\n* Bajas: {len(bajas)}\n* Reactivados: {len(reactivaciones)}")
+                            st.cache_data.clear()
+            except Exception as e:
+                st.error(f"Error procesando el padrón: {e}")
+
+    # -- SUB-PESTAÑA: HISTORIAL --
+    with subtab_hist:
+        st.markdown("#### 📂 Historial de Registros Sobreescritos")
+        if st.button("🔄 Actualizar", key="ref_batas"):
+            st.cache_data.clear()
+            st.rerun()
+            
+        try:
+            resp_hist_b = supabase.table("historial_batas").select("*").order("fecha_validacion", desc=True).limit(5000).execute()
+            df_hist_b = pd.DataFrame(resp_hist_b.data)
+            
+            if not df_hist_b.empty:
+                df_hist_b['fecha_validacion'] = pd.to_datetime(df_hist_b['fecha_validacion']).dt.strftime('%d-%b-%Y')
+                df_hist_b['valor_resistencia'] = df_hist_b['valor_resistencia'].apply(lambda x: f"{float(x):.2e} Ω" if pd.notna(x) else "N/D")
+                
+                df_out = df_hist_b[['fecha_validacion', 'num_empleado', 'valor_resistencia', 'estatus_bata', 'auditor']].copy()
+                df_out.columns = ['Fecha de Validación', 'Número de Empleado', 'Valor de Resistencia', 'Estatus', 'Auditor']
+                st.dataframe(df_out, use_container_width=True, hide_index=True)
+            else:
+                st.info("Aún no hay historial de registros sobreescritos.")
+        except Exception as e:
+            st.error(f"Error cargando historial: {e}")
 # ==========================================
 # VISTA 6: AJUSTES (CATÁLOGOS MAESTROS)
 # ==========================================
