@@ -1491,7 +1491,7 @@ elif st.session_state.vista_actual == "Mapa" and not st.session_state.modo_lectu
 
     with tab_overview:
         st.markdown("#### 🌐 Dashboard Gerencial Integral (S20.20)")
-        st.info("Resumen global del estado de cumplimiento y dinámica de auditorías en la planta.")
+        st.info("Resumen global del estado de cumplimiento, dinámica de auditorías y movimientos de inventario en la planta.")
 
         # --- 1. EXTRACCIÓN MASIVA DE DATOS ---
         with st.spinner("Compilando métricas globales y rastreando actividad..."):
@@ -1540,7 +1540,7 @@ elif st.session_state.vista_actual == "Mapa" and not st.session_state.modo_lectu
                 if not df_cert_ov.empty:
                     fechas_actividad.extend(df_cert_ov['fecha_registro'].dropna().tolist())
 
-                # G. Historial de Mediciones (Actualizaciones de Inventario)
+                # G. Historial de Mediciones
                 resp_hist_ov = supabase.table("historial_mediciones").select("fecha_modificacion").execute()
                 if resp_hist_ov.data:
                     fechas_actividad.extend([x['fecha_modificacion'] for x in resp_hist_ov.data if x.get('fecha_modificacion')])
@@ -1558,10 +1558,36 @@ elif st.session_state.vista_actual == "Mapa" and not st.session_state.modo_lectu
                         min_sensibilidad = f"{min_val:g} V"
                         alerta_sensibilidad = min_val < 100
 
+                # I. ALTAS Y BAJAS (Inventario y Líneas)
+                hace_30_dias = pd.Timestamp.utcnow().tz_localize(None) - pd.Timedelta(days=30)
+                altas_mob_30d = 0
+                bajas_mob_total = 0
+                altas_lineas_30d = 0
+                total_lineas = 0
+
+                # I.1 Movimientos en Inventario
+                resp_inv_mov = supabase.table("inventario_esd").select("created_at, estatus_operativo").execute()
+                df_inv_mov = pd.DataFrame(resp_inv_mov.data)
+                if not df_inv_mov.empty:
+                    bajas_mob_total = len(df_inv_mov[df_inv_mov['estatus_operativo'].astype(str).str.upper() == 'NO OPERATIVO'])
+                    if 'created_at' in df_inv_mov.columns:
+                        df_inv_mov['created_at'] = pd.to_datetime(df_inv_mov['created_at'], format='ISO8601', errors='coerce', utc=True).dt.tz_localize(None)
+                        altas_mob_30d = len(df_inv_mov[df_inv_mov['created_at'] >= hace_30_dias])
+
+                # I.2 Movimientos en Líneas
+                resp_lin_mov = supabase.table("catalogo_lineas").select("created_at").execute()
+                df_lin_mov = pd.DataFrame(resp_lin_mov.data)
+                if not df_lin_mov.empty:
+                    total_lineas = len(df_lin_mov)
+                    if 'created_at' in df_lin_mov.columns:
+                        df_lin_mov['created_at'] = pd.to_datetime(df_lin_mov['created_at'], format='ISO8601', errors='coerce', utc=True).dt.tz_localize(None)
+                        altas_lineas_30d = len(df_lin_mov[df_lin_mov['created_at'] >= hace_30_dias])
+
             except Exception as e:
                 st.error(f"Error cargando datos para el overview: {e}")
                 df_maq_ov = pd.DataFrame(); df_tierras_ov = pd.DataFrame(); df_em_ov = pd.DataFrame(); df_chec_ov = pd.DataFrame()
                 total_materiales_validados = 0; total_certificados = 0; min_sensibilidad = "N/D"; alerta_sensibilidad = False
+                altas_mob_30d = 0; bajas_mob_total = 0; altas_lineas_30d = 0; total_lineas = 0
 
             # Inventario General (Mobiliario, Ionizadores, Monitores, Pisos)
             df_inv_ov = pd.DataFrame()
@@ -1569,7 +1595,6 @@ elif st.session_state.vista_actual == "Mapa" and not st.session_state.modo_lectu
                 df_inv_ov = df_inv_full[df_inv_full['Estatus operativo'].astype(str).str.upper() != 'NO OPERATIVO'].copy()
 
             # --- 2. CÁLCULO DE MÉTRICAS GLOBALES Y ACTIVIDAD ---
-            # Procesamiento robusto de fechas de actividad (convirtiendo todo a UTC y quitando zona horaria)
             fechas_limpias = pd.to_datetime(fechas_actividad, format='ISO8601', errors='coerce', utc=True).tz_localize(None)
             hoy = pd.Timestamp.utcnow().tz_localize(None)
             dias_diff = (hoy - fechas_limpias).days
@@ -1586,11 +1611,9 @@ elif st.session_state.vista_actual == "Mapa" and not st.session_state.modo_lectu
                 pen = len(df) - (vig + ven)
                 return vig, ven, pen
 
-            # Evaluaciones de Activos
             vig_inv, ven_inv, pen_inv = contar_estatus(df_inv_ov, 'Estatus de verificación', 'VIGENTE', 'VENCIDO')
             vig_maq, ven_maq, pen_maq = contar_estatus(df_maq_ov, 'resultado_estatus', 'VIGENTE', 'VENCIDO')
 
-            # Evaluaciones de Infraestructura / Pruebas
             pasa_t, falla_t, _ = contar_estatus(df_tierras_ov, 'estatus', 'PASA', 'FALLA')
             pasa_em, falla_em, _ = contar_estatus(df_em_ov, 'estatus_verificacion', 'APROBADO', 'RECHAZADO')
             pasa_ch, falla_ch, _ = contar_estatus(df_chec_ov, 'estatus', 'PASA', 'FALLA')
@@ -1615,14 +1638,22 @@ elif st.session_state.vista_actual == "Mapa" and not st.session_state.modo_lectu
         st.markdown("##### 🏆 Desempeño, Calificación y Carga de Trabajo")
         c_perf1, c_perf2, c_perf3, c_perf4 = st.columns(4)
         c_perf1.metric("📦 Materiales Validados", total_materiales_validados, "En Sistema", delta_color="off")
-        c_perf2.metric("📑 Certificados de Calificación", total_certificados, "Documentados", delta_color="off")
+        c_perf2.metric("📑 Certificados de Cal.", total_certificados, "Documentados", delta_color="off")
         c_perf3.metric("⚡ Sensibilidad Mín. Planta", min_sensibilidad, "Riesgo Alto" if alerta_sensibilidad else "Riesgo Controlado", delta_color="inverse" if alerta_sensibilidad else "normal")
-        c_perf4.metric("🔥 Validaciones (Últimos 7 días)", act_7d, "Actualizaciones", delta_color="normal")
+        c_perf4.metric("🔥 Validaciones (Últimos 7d)", act_7d, "Actualizaciones", delta_color="normal")
 
-        # Carga de trabajo 30 y 60 días
         st.caption("Tendencia de Auditorías a Mediano Plazo")
         st.progress(min(act_30d / 500, 1.0) if act_30d > 0 else 0.0, text=f"Últimos 30 días: {act_30d} actualizaciones / mediciones")
         st.progress(min(act_60d / 1000, 1.0) if act_60d > 0 else 0.0, text=f"Últimos 60 días: {act_60d} actualizaciones / mediciones")
+
+        st.divider()
+        
+        st.markdown("##### 🔄 Movimientos de Inventario y Expansión")
+        c_mov1, c_mov2, c_mov3, c_mov4 = st.columns(4)
+        c_mov1.metric("Altas Activos (30d)", altas_mob_30d, "Nuevos registros", delta_color="normal")
+        c_mov2.metric("Bajas Activos (Histórico)", bajas_mob_total, "Desactivados", delta_color="inverse")
+        c_mov3.metric("Nuevas Líneas (30d)", altas_lineas_30d, "Áreas agregadas", delta_color="normal")
+        c_mov4.metric("Líneas Totales Activas", total_lineas, "En catálogo", delta_color="off")
 
         st.divider()
 
