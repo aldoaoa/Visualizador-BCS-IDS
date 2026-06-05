@@ -1502,7 +1502,7 @@ elif st.session_state.vista_actual == "Mapa" and not st.session_state.modo_lectu
                 fechas_actividad = []
                 if not df_maq_ov.empty:
                     fechas_actividad.extend(df_maq_ov['fecha_medicion'].dropna().tolist())
-                    df_maq_ov = df_maq_ov[df_maq_ov['status_operativo'] != 'NO OPERATIVO']
+                    # Para el estatus de cumplimiento, nos quedamos con la última medición válida
                     df_maq_ov = df_maq_ov.sort_values('fecha_medicion', ascending=False).drop_duplicates(subset=['id_maquinaria'], keep='first')
                     
                 # B. Tierras
@@ -1558,41 +1558,56 @@ elif st.session_state.vista_actual == "Mapa" and not st.session_state.modo_lectu
                         min_sensibilidad = f"{min_val:g} V"
                         alerta_sensibilidad = min_val < 100
 
-                # I. ALTAS Y BAJAS (Inventario y Líneas)
+                # ==========================================
+                # I. ALTAS Y BAJAS (Inventario y Maquinaria)
+                # ==========================================
                 hace_30_dias = pd.Timestamp.utcnow().tz_localize(None) - pd.Timedelta(days=30)
-                altas_mob_30d = 0
-                bajas_mob_total = 0
-                altas_lineas_30d = 0
-                total_lineas = 0
+                altas_inv_30d = 0; bajas_inv_total = 0
+                altas_maq_30d = 0; bajas_maq_total = 0
 
-                # I.1 Movimientos en Inventario
-                resp_inv_mov = supabase.table("inventario_esd").select("created_at, estatus_operativo").execute()
-                df_inv_mov = pd.DataFrame(resp_inv_mov.data)
-                if not df_inv_mov.empty:
-                    bajas_mob_total = len(df_inv_mov[df_inv_mov['estatus_operativo'].astype(str).str.upper() == 'NO OPERATIVO'])
-                    if 'created_at' in df_inv_mov.columns:
-                        df_inv_mov['created_at'] = pd.to_datetime(df_inv_mov['created_at'], format='ISO8601', errors='coerce', utc=True).dt.tz_localize(None)
-                        altas_mob_30d = len(df_inv_mov[df_inv_mov['created_at'] >= hace_30_dias])
+                try:
+                    # I.1 Movimientos en Inventario General (Mobiliario, Ionizadores, etc.)
+                    resp_inv_mov = supabase.table("inventario_esd").select("created_at, estatus_operativo").execute()
+                    df_inv_mov = pd.DataFrame(resp_inv_mov.data)
+                    if not df_inv_mov.empty:
+                        bajas_inv_total = len(df_inv_mov[df_inv_mov['estatus_operativo'].astype(str).str.upper() == 'NO OPERATIVO'])
+                        if 'created_at' in df_inv_mov.columns:
+                            df_inv_mov['created_at'] = pd.to_datetime(df_inv_mov['created_at'], format='ISO8601', errors='coerce', utc=True).dt.tz_localize(None)
+                            altas_inv_30d = len(df_inv_mov[df_inv_mov['created_at'] >= hace_30_dias])
 
-                # I.2 Movimientos en Líneas
-                resp_lin_mov = supabase.table("catalogo_lineas").select("created_at").execute()
-                df_lin_mov = pd.DataFrame(resp_lin_mov.data)
-                if not df_lin_mov.empty:
-                    total_lineas = len(df_lin_mov)
-                    if 'created_at' in df_lin_mov.columns:
-                        df_lin_mov['created_at'] = pd.to_datetime(df_lin_mov['created_at'], format='ISO8601', errors='coerce', utc=True).dt.tz_localize(None)
-                        altas_lineas_30d = len(df_lin_mov[df_lin_mov['created_at'] >= hace_30_dias])
+                    # I.2 Movimientos en Maquinaria
+                    # Usamos df_maq_ov que ya tiene id_maquinaria, status_operativo y fecha_medicion
+                    if not df_maq_ov.empty:
+                        # Extraemos las bajas de la consulta global antes de que fueran filtradas
+                        resp_maq_todas = supabase.table("mediciones_maquinaria").select("id_maquinaria, status_operativo, fecha_medicion").execute()
+                        df_maq_todas = pd.DataFrame(resp_maq_todas.data)
+                        
+                        if not df_maq_todas.empty:
+                            bajas_maq_total = len(df_maq_todas[df_maq_todas['status_operativo'].astype(str).str.upper() == 'NO OPERATIVO'])
+                            
+                            # Para contar las 'Altas' de maquinaria, tomamos la fecha de medición más antigua de cada máquina
+                            # asumiendo que esa fue su fecha de creación en el sistema.
+                            df_maq_altas = df_maq_todas.sort_values('fecha_medicion', ascending=True).drop_duplicates(subset=['id_maquinaria'], keep='first')
+                            df_maq_altas['fecha_medicion'] = pd.to_datetime(df_maq_altas['fecha_medicion'], format='ISO8601', errors='coerce', utc=True).dt.tz_localize(None)
+                            altas_maq_30d = len(df_maq_altas[df_maq_altas['fecha_medicion'] >= hace_30_dias])
+
+                except Exception as e_mov:
+                    st.toast(f"Aviso: No se pudieron cargar las métricas de expansión ({e_mov})")
 
             except Exception as e:
                 st.error(f"Error cargando datos para el overview: {e}")
                 df_maq_ov = pd.DataFrame(); df_tierras_ov = pd.DataFrame(); df_em_ov = pd.DataFrame(); df_chec_ov = pd.DataFrame()
                 total_materiales_validados = 0; total_certificados = 0; min_sensibilidad = "N/D"; alerta_sensibilidad = False
-                altas_mob_30d = 0; bajas_mob_total = 0; altas_lineas_30d = 0; total_lineas = 0
+                altas_inv_30d = 0; bajas_inv_total = 0; altas_maq_30d = 0; bajas_maq_total = 0
 
             # Inventario General (Mobiliario, Ionizadores, Monitores, Pisos)
             df_inv_ov = pd.DataFrame()
             if 'df_inv_full' in locals() and df_inv_full is not None and not df_inv_full.empty:
                 df_inv_ov = df_inv_full[df_inv_full['Estatus operativo'].astype(str).str.upper() != 'NO OPERATIVO'].copy()
+                
+            # Maquinaria (Filtramos las operativas)
+            if not df_maq_ov.empty:
+                df_maq_ov = df_maq_ov[df_maq_ov['status_operativo'].astype(str).str.upper() != 'NO OPERATIVO'].copy()
 
             # --- 2. CÁLCULO DE MÉTRICAS GLOBALES Y ACTIVIDAD ---
             fechas_limpias = pd.to_datetime(fechas_actividad, format='ISO8601', errors='coerce', utc=True).tz_localize(None)
@@ -1650,10 +1665,10 @@ elif st.session_state.vista_actual == "Mapa" and not st.session_state.modo_lectu
         
         st.markdown("##### 🔄 Movimientos de Inventario y Expansión")
         c_mov1, c_mov2, c_mov3, c_mov4 = st.columns(4)
-        c_mov1.metric("Altas Activos (30d)", altas_mob_30d, "Nuevos registros", delta_color="normal")
-        c_mov2.metric("Bajas Activos (Histórico)", bajas_mob_total, "Desactivados", delta_color="inverse")
-        c_mov3.metric("Nuevas Líneas (30d)", altas_lineas_30d, "Áreas agregadas", delta_color="normal")
-        c_mov4.metric("Líneas Totales Activas", total_lineas, "En catálogo", delta_color="off")
+        c_mov1.metric("Altas Inventario (30d)", altas_inv_30d, "Mobiliario / Otros", delta_color="normal")
+        c_mov2.metric("Bajas Inventario", bajas_inv_total, "Desactivados históricamente", delta_color="inverse")
+        c_mov3.metric("Altas Maquinaria (30d)", altas_maq_30d, "Nuevas estaciones", delta_color="normal")
+        c_mov4.metric("Bajas Maquinaria", bajas_maq_total, "Desactivadas históricamente", delta_color="inverse")
 
         st.divider()
 
