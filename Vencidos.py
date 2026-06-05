@@ -3214,70 +3214,90 @@ elif st.session_state.vista_actual == "Validación" and not st.session_state.mod
             else:
                 st.warning("No hay empleados en el sistema. Realice la sincronización en la siguiente pestaña.")
     
-        # -- SUB-PESTAÑA: SINCRONIZACIÓN HC --
+    # -- SUB-PESTAÑA: SINCRONIZACIÓN HC --
     with subtab_sync:
         st.markdown("#### 🔄 Actualización de Usuarios (Altas y Bajas)")
-        st.write("Sube el archivo Excel o CSV semanal. El sistema procesará el padrón usando las columnas **Personnel Number** y **Local name**.")
+        st.write("Sube el archivo Excel o CSV semanal. El sistema buscará dinámicamente la tabla usando las columnas **Personnel Number** y **Local name**.")
         
         archivo_hc = st.file_uploader("Subir archivo de Personal", type=["csv", "xlsx"], key="up_hc")
         
         if archivo_hc:
             try:
+                # 1. Leemos el archivo SIN asignar un encabezado inicial
                 if archivo_hc.name.endswith('.csv'):
-                    # A veces los CSV de SAP/Workday traen un encoding diferente, si te da error prueba agregando encoding='latin1' o 'utf-8'
-                    df_upload = pd.read_csv(archivo_hc)
+                    df_raw = pd.read_csv(archivo_hc, header=None, encoding='utf-8') # Agrega encoding='latin1' si hay problemas de acentos en el CSV
                 else:
-                    df_upload = pd.read_excel(archivo_hc)
+                    df_raw = pd.read_excel(archivo_hc, header=None)
                 
-                # Detectar columnas literalmente por los nombres indicados, ignorando espacios en blanco accidentales
-                col_num = next((c for c in df_upload.columns if str(c).strip() == 'Personnel Number'), None)
-                col_nom = next((c for c in df_upload.columns if str(c).strip() == 'Local name'), None)
+                # 2. Buscamos en las primeras 20 filas dónde está "Personnel Number"
+                fila_inicio = None
+                for i in range(min(20, len(df_raw))):
+                    # Comparamos si alguna celda de esta fila es exactamente "Personnel Number"
+                    if df_raw.iloc[i].astype(str).str.strip().eq('Personnel Number').any():
+                        fila_inicio = i
+                        break
                 
-                if not col_num or not col_nom:
-                    st.error(f"❌ No se detectaron las columnas requeridas. Asegúrate de que el archivo contenga 'Personnel Number' y 'Local name'. Columnas leídas: {', '.join(df_upload.columns)}")
+                if fila_inicio is None:
+                    st.error("❌ No se encontró la columna 'Personnel Number' en las primeras 20 filas del archivo. Verifica el formato.")
                 else:
-                    # Limpiar datos nulos en esas columnas
-                    df_upload = df_upload.dropna(subset=[col_num, col_nom])
-                    # Limpiar el número de empleado (por si Excel lo lee como número con decimales tipo 800123.0)
-                    df_upload[col_num] = df_upload[col_num].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
+                    # 3. Recortamos la tabla para que empiece justo en la fila detectada
+                    df_upload = df_raw.iloc[fila_inicio+1:].copy()
                     
-                    st.success(f"✅ Archivo validado. Total en padrón: {len(df_upload)}")
+                    # 4. Asignamos esa fila detectada como el nombre oficial de las columnas
+                    df_upload.columns = df_raw.iloc[fila_inicio].astype(str).str.strip()
                     
-                    if st.button("🚀 Procesar Altas y Bajas", type="primary", use_container_width=True):
-                        with st.spinner("Sincronizando con base de datos..."):
-                            emp_excel = set(df_upload[col_num].tolist())
-                            
-                            # Obtener la base actual
-                            resp_db = supabase.table("empleados_batas").select("num_empleado, estatus_empleado").execute()
-                            df_db = pd.DataFrame(resp_db.data)
-                            
-                            emp_db_activos = set(df_db[df_db['estatus_empleado'] == 'Activo']['num_empleado'].tolist()) if not df_db.empty else set()
-                            emp_db_todos = set(df_db['num_empleado'].tolist()) if not df_db.empty else set()
-                            
-                            # Comparaciones de conjuntos (Sets) para máxima velocidad
-                            bajas = emp_db_activos - emp_excel
-                            altas = emp_excel - emp_db_todos
-                            reactivaciones = (emp_excel.intersection(emp_db_todos)) - emp_db_activos
-                            
-                            # Ejecutar actualizaciones
-                            for b in bajas:
-                                supabase.table("empleados_batas").update({"estatus_empleado": "Inactivo"}).eq("num_empleado", b).execute()
+                    # Nombres literales definidos
+                    col_num = 'Personnel Number'
+                    col_nom = 'Local name'
+                    
+                    if col_num not in df_upload.columns or col_nom not in df_upload.columns:
+                        st.error(f"❌ Las columnas no coinciden exactamente. Columnas leídas: {', '.join(df_upload.columns)}")
+                    else:
+                        # Limpiamos datos vacíos o filas de totales
+                        df_upload = df_upload.dropna(subset=[col_num, col_nom])
+                        
+                        # Limpiamos el número de empleado (por si Excel lo lee como flotante "12345.0")
+                        df_upload[col_num] = df_upload[col_num].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
+                        
+                        st.success(f"✅ Tabla detectada en la fila {fila_inicio + 1}. Total en padrón: {len(df_upload)} empleados.")
+                        
+                        if st.button("🚀 Procesar Altas y Bajas", type="primary", use_container_width=True):
+                            with st.spinner("Sincronizando con base de datos..."):
+                                emp_excel = set(df_upload[col_num].tolist())
                                 
-                            for r in reactivaciones:
-                                supabase.table("empleados_batas").update({"estatus_empleado": "Activo"}).eq("num_empleado", r).execute()
+                                # Obtener la base actual
+                                resp_db = supabase.table("empleados_batas").select("num_empleado, estatus_empleado").execute()
+                                df_db = pd.DataFrame(resp_db.data)
                                 
-                            datos_altas = []
-                            for a in altas:
-                                nombre_a = str(df_upload[df_upload[col_num] == a].iloc[0][col_nom])
-                                datos_altas.append({"num_empleado": a, "nombre": nombre_a, "estatus_empleado": "Activo"})
-                            
-                            if datos_altas:
-                                # Insertar en lotes de 500 para no saturar la API de Supabase si el HC es muy grande
-                                for i in range(0, len(datos_altas), 500):
-                                    supabase.table("empleados_batas").insert(datos_altas[i:i+500]).execute()
+                                emp_db_activos = set(df_db[df_db['estatus_empleado'] == 'Activo']['num_empleado'].tolist()) if not df_db.empty else set()
+                                emp_db_todos = set(df_db['num_empleado'].tolist()) if not df_db.empty else set()
+                                
+                                # Lógica de conjuntos para el Headcount
+                                bajas = emp_db_activos - emp_excel
+                                altas = emp_excel - emp_db_todos
+                                reactivaciones = (emp_excel.intersection(emp_db_todos)) - emp_db_activos
+                                
+                                # Ejecutar bajas
+                                for b in bajas:
+                                    supabase.table("empleados_batas").update({"estatus_empleado": "Inactivo"}).eq("num_empleado", b).execute()
                                     
-                            st.success(f"✅ Proceso terminado:\n* Altas: {len(altas)}\n* Bajas: {len(bajas)}\n* Reactivados: {len(reactivaciones)}")
-                            st.cache_data.clear()
+                                # Ejecutar reactivaciones
+                                for r in reactivaciones:
+                                    supabase.table("empleados_batas").update({"estatus_empleado": "Activo"}).eq("num_empleado", r).execute()
+                                    
+                                # Preparar altas nuevas
+                                datos_altas = []
+                                for a in altas:
+                                    nombre_a = str(df_upload[df_upload[col_num] == a].iloc[0][col_nom])
+                                    datos_altas.append({"num_empleado": a, "nombre": nombre_a, "estatus_empleado": "Activo"})
+                                
+                                if datos_altas:
+                                    # Insertar en lotes de 500 para evitar timeout en la API
+                                    for i in range(0, len(datos_altas), 500):
+                                        supabase.table("empleados_batas").insert(datos_altas[i:i+500]).execute()
+                                        
+                                st.success(f"✅ Proceso terminado:\n* Altas: {len(altas)}\n* Bajas: {len(bajas)}\n* Reactivados: {len(reactivaciones)}")
+                                st.cache_data.clear()
             except Exception as e:
                 st.error(f"Error procesando el padrón: {e}")
     
