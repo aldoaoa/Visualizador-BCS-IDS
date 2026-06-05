@@ -1125,14 +1125,9 @@ if st.session_state.vista_actual == "Alta" and not st.session_state.modo_lectura
             submit_alta = st.form_submit_button("Registrar en sistema", use_container_width=True)
             
         if submit_alta:
+            # 1. Dejamos solo los campos verdaderamente obligatorios para crear el registro
             if not nuevo_id or not fabricante_final:
-                st.error("Por favor complete los campos obligatorios (ID y Fabricante).")
-            elif tipo_alta == "Mobiliario" and valor_alta is None:
-                st.error("⚠️ Ingresa los valores de Base y Exponente.")
-            elif tipo_alta == "Ionizador" and (valor_alta is None or balance_alta is None):
-                st.error("⚠️ Ingresa los valores de Descarga y Balance.")
-            elif tipo_alta == "Monitor Continuo" and valor_alta is None:
-                st.error("⚠️ Ingresa el valor de resistencia medido (Número y Exponente).")
+                st.error("⚠️ Por favor complete los campos obligatorios (ID y Fabricante).")
             else:
                 id_limpio_alta = str(nuevo_id).strip().upper()
                 
@@ -1155,6 +1150,10 @@ if st.session_state.vista_actual == "Alta" and not st.session_state.modo_lectura
                         else:
                             metodo_final = "RTG"
 
+                        # 2. VARIABLE DE CONTROL: Verificamos de forma segura si el usuario ingresó un valor inicial
+                        tiene_valor = valor_alta is not None
+
+                        # 3. DICCIONARIO BLINDADO: Usamos la variable de control para no romper el código con 'None'
                         data_insert = {
                             "id_producto": id_limpio_alta,
                             "categoria": tipo_alta,
@@ -1164,23 +1163,24 @@ if st.session_state.vista_actual == "Alta" and not st.session_state.modo_lectura
                             "limite_minimo": float(nuevo_minimo),
                             "limite_maximo": float(limite_alta) if "E" not in str(limite_alta).upper() else float(limite_alta), 
                             "unidad_medida": "Segundos" if tipo_alta == "Ionizador" else "Ohms",
-                            "valor_actual": float(valor_alta) if valor_alta > 0 else None,
+                            "valor_actual": float(valor_alta) if tiene_valor else None,
                             "metodo_prueba": metodo_final,
-                            "fecha_ultima_verif": fecha_hoy.isoformat() if valor_alta > 0 else None,
-                            "fecha_proxima_verif": proxima.isoformat() if valor_alta > 0 else None,
+                            "fecha_ultima_verif": fecha_hoy.isoformat() if tiene_valor else None,
+                            "fecha_proxima_verif": proxima.isoformat() if tiene_valor else None,
                             "frecuencia": frecuencia_alta,
-                            "estatus_verificacion": "VIGENTE" if valor_alta > 0 and fecha_hoy < proxima else "PENDIENTE",
+                            "estatus_verificacion": "VIGENTE" if tiene_valor else "PENDIENTE",
                             "estatus_operativo": "OPERATIVO",
                             "comentarios": comentarios,
                             "auditor_responsable": st.session_state.usuario_nombre
                         }
                         
+                        # Manejo seguro para el balance del ionizador
                         if tipo_alta == "Ionizador":
-                            data_insert["balance_ionizador"] = float(balance_alta)
+                            data_insert["balance_ionizador"] = float(balance_alta) if balance_alta is not None else None
                         
                         try:
                             supabase.table("inventario_esd").insert(data_insert).execute()
-                            st.success(f"✅ ¡Activo {nuevo_id} registrado!")
+                            st.success(f"✅ ¡Activo {nuevo_id} registrado con éxito!")
                             st.cache_data.clear()
                             st.balloons()
                         except Exception as e:
