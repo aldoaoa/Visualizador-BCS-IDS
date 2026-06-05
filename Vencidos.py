@@ -1608,7 +1608,7 @@ elif st.session_state.vista_actual == "Mapa" and not st.session_state.modo_lectu
             ven_df = df_inv_ov[df_inv_ov['Estatus de verificación'].astype(str).str.upper().str.contains('VENCIDO')]
             for _, r in ven_df.iterrows():
                 cat = str(r.get('Categoría', 'Inventario'))
-                alertas.append({"Área": cat, "ID / Ubicación": f"{r.get('Id de producto')} ({r.get('Línea')})", "Problema": "Calificación Vencida"})
+                alertas.append({"Área": cat, "ID / Ubicación": f"{r.get('Id de producto')} ({r.get('Línea')})", "Problema": "Verificación Vencida"})
                 
         if not df_maq_ov.empty:
             ven_m_df = df_maq_ov[df_maq_ov['resultado_estatus'].astype(str).str.upper().str.contains('VENCIDO')]
