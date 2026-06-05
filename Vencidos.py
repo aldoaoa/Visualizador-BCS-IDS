@@ -1490,39 +1490,146 @@ elif st.session_state.vista_actual == "Mapa" and not st.session_state.modo_lectu
                 st.success(f"✅ **100% Cumplimiento en {tipo_mapa}.**")
 
     with tab_overview:
-        st.markdown("#### Estado Global de Elementos ESD")
-        try:
-            resp_inv2 = supabase.table("inventario_esd").select("id_producto, clasificacion, linea_ubicacion, estatus_verificacion, fecha_proxima_verif").limit(3000).execute()
-            df_ov = pd.DataFrame(resp_inv2.data)
-            
-            if not df_ov.empty:
-                df_ov['Fecha Prox Validación'] = pd.to_datetime(df_ov['fecha_proxima_verif'], errors='coerce')
-                hoy = pd.Timestamp(datetime.today().date())
+        st.markdown("#### 🌐 Dashboard Gerencial Integral (S20.20)")
+        st.info("Resumen global del estado de cumplimiento de todos los módulos del sistema.")
+
+        # --- 1. EXTRACCIÓN MASIVA DE DATOS ---
+        with st.spinner("Compilando métricas de todos los módulos..."):
+            try:
+                # Maquinaria (último estado por máquina)
+                resp_maq_ov = supabase.table("mediciones_maquinaria").select("id_maquinaria, status_operativo, resultado_estatus").execute()
+                df_maq_ov = pd.DataFrame(resp_maq_ov.data)
+                if not df_maq_ov.empty:
+                    df_maq_ov = df_maq_ov[df_maq_ov['status_operativo'] != 'NO OPERATIVO']
+                    df_maq_ov = df_maq_ov.drop_duplicates(subset=['id_maquinaria'], keep='first')
+                    
+                # Tierras (último estado por punto)
+                resp_tierras_ov = supabase.table("tierras_auxiliares").select("id_punto, estatus, fecha_medicion").execute()
+                df_tierras_ov = pd.DataFrame(resp_tierras_ov.data)
+                if not df_tierras_ov.empty:
+                    df_tierras_ov = df_tierras_ov.sort_values('fecha_medicion', ascending=False).drop_duplicates(subset=['id_punto'])
+
+                # Event Meter (último estado por operación)
+                resp_em_ov = supabase.table("event_meter").select("id_operacion, estatus_verificacion, fecha").execute()
+                df_em_ov = pd.DataFrame(resp_em_ov.data)
+                if not df_em_ov.empty:
+                    df_em_ov = df_em_ov.sort_values('fecha', ascending=False).drop_duplicates(subset=['id_operacion'])
+
+                # Checadores (último estado por equipo)
+                resp_chec_ov = supabase.table("verificacion_checadores").select("id_checador, estatus, fecha_verificacion").execute()
+                df_chec_ov = pd.DataFrame(resp_chec_ov.data)
+                if not df_chec_ov.empty:
+                    df_chec_ov = df_chec_ov.sort_values('fecha_verificacion', ascending=False).drop_duplicates(subset=['id_checador'])
+
+            except Exception as e:
+                st.error(f"Error cargando datos para el overview: {e}")
+                df_maq_ov = pd.DataFrame(); df_tierras_ov = pd.DataFrame(); df_em_ov = pd.DataFrame(); df_chec_ov = pd.DataFrame()
+
+            # Inventario General (Mobiliario, Ionizadores, Monitores, Pisos)
+            df_inv_ov = pd.DataFrame()
+            if 'df_inv_full' in locals() and df_inv_full is not None and not df_inv_full.empty:
+                df_inv_ov = df_inv_full[df_inv_full['Estatus operativo'].astype(str).str.upper() != 'NO OPERATIVO'].copy()
+
+        # --- 2. CÁLCULO DE MÉTRICAS ---
+        def contar_estatus(df, col_estatus, val_vigente, val_vencido):
+            if df.empty or col_estatus not in df.columns: return 0, 0, 0
+            estatus_series = df[col_estatus].astype(str).str.upper()
+            vig = estatus_series.str.contains(val_vigente).sum()
+            ven = estatus_series.str.contains(val_vencido).sum()
+            pen = len(df) - (vig + ven)
+            return vig, ven, pen
+
+        # Evaluaciones de Activos
+        vig_inv, ven_inv, pen_inv = contar_estatus(df_inv_ov, 'Estatus de verificación', 'VIGENTE', 'VENCIDO')
+        vig_maq, ven_maq, pen_maq = contar_estatus(df_maq_ov, 'resultado_estatus', 'VIGENTE', 'VENCIDO')
+
+        # Evaluaciones de Infraestructura / Pruebas
+        pasa_t, falla_t, _ = contar_estatus(df_tierras_ov, 'estatus', 'PASA', 'FALLA')
+        pasa_em, falla_em, _ = contar_estatus(df_em_ov, 'estatus_verificacion', 'APROBADO', 'RECHAZADO')
+        pasa_ch, falla_ch, _ = contar_estatus(df_chec_ov, 'estatus', 'PASA', 'FALLA')
+
+        # Totales Globales
+        total_activos = len(df_inv_ov) + len(df_maq_ov)
+        total_vigentes = vig_inv + vig_maq
+        total_vencidos = ven_inv + ven_maq
+        total_pendientes = pen_inv + pen_maq
+
+        cumplimiento_global = (total_vigentes / total_activos * 100) if total_activos > 0 else 100.0
+
+        # --- 3. RENDERIZADO VISUAL ---
+        st.markdown("##### 📈 Índice de Cumplimiento Global (Activos)")
+        kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+        kpi1.metric("Cumplimiento General", f"{cumplimiento_global:.1f}%", f"{-total_vencidos} Vencidos" if total_vencidos > 0 else "Óptimo", delta_color="inverse" if total_vencidos > 0 else "normal")
+        kpi2.metric("🟢 Activos Vigentes", total_vigentes)
+        kpi3.metric("🔴 Activos Vencidos", total_vencidos)
+        kpi4.metric("🟡 Pendientes / N/D", total_pendientes)
+
+        st.divider()
+
+        col_graf, col_metricas = st.columns([1.5, 1])
+
+        with col_graf:
+            st.markdown("**Distribución de Estado (Inventario y Maquinaria)**")
+            if total_activos > 0:
+                df_pie = pd.DataFrame({
+                    "Estado": ["Vigente", "Vencido", "Pendiente"],
+                    "Cantidad": [total_vigentes, total_vencidos, total_pendientes]
+                })
+                # Filtramos los ceros para que la gráfica se vea más limpia
+                df_pie = df_pie[df_pie["Cantidad"] > 0]
                 
-                def estado_validacion(fecha_prox):
-                    if pd.isna(fecha_prox): return "Sin Validación"
-                    dias = (fecha_prox - hoy).days
-                    if dias < 0: return "Vencido"
-                    elif dias <= 30: return "Por Vencer"
-                    else: return "Vigente"
-                        
-                df_ov['Estatus'] = df_ov['Fecha Prox Validación'].apply(estado_validacion)
-                total_vig = len(df_ov[df_ov['Estatus'] == 'Vigente'])
-                total_prx = len(df_ov[df_ov['Estatus'] == 'Por Vencer'])
-                total_ven = len(df_ov[df_ov['Estatus'] == 'Vencido'])
-                
-                col_m1, col_m2, col_m3 = st.columns(3)
-                col_m1.metric("🟢 Vigentes", total_vig)
-                col_m2.metric("🟡 Por Vencer (30 días)", total_prx)
-                col_m3.metric("🔴 Vencidos", total_ven)
-                
-                df_ov['Fecha Prox Validación'] = df_ov['Fecha Prox Validación'].dt.strftime('%d-%b-%Y').fillna("N/D")
-                df_ov = df_ov.rename(columns={'id_producto': 'ID Elemento', 'clasificacion': 'Elemento S20.20', 'linea_ubicacion': 'Ubicación'})
-                st.dataframe(df_ov[['Elemento S20.20', 'ID Elemento', 'Ubicación', 'Estatus', 'Fecha Prox Validación']], use_container_width=True, hide_index=True)
+                fig = px.pie(df_pie, values='Cantidad', names='Estado', color='Estado',
+                             color_discrete_map={"Vigente": "#28a745", "Vencido": "#dc3545", "Pendiente": "#ffc107"},
+                             hole=0.45)
+                fig.update_layout(margin=dict(t=10, b=10, l=10, r=10), height=280)
+                st.plotly_chart(fig, use_container_width=True)
             else:
-                st.warning("Inventario vacío.")
-        except Exception as e:
-            st.error(f"Error al cargar overview: {e}")
+                st.info("No hay datos de activos para graficar.")
+
+        with col_metricas:
+            st.markdown("**Últimas Pruebas de Infraestructura**")
+            
+            st.markdown(f"**🌍 Tierras y Conexiones:**")
+            st.progress(pasa_t / (pasa_t + falla_t) if (pasa_t + falla_t) > 0 else 0.0, text=f"✅ {pasa_t} Pasan | ❌ {falla_t} Fallan")
+            
+            st.markdown(f"**⚡ Event Meter (Descargas):**")
+            st.progress(pasa_em / (pasa_em + falla_em) if (pasa_em + falla_em) > 0 else 0.0, text=f"✅ {pasa_em} Aprobados | ❌ {falla_em} Rechazados")
+            
+            st.markdown(f"**🛂 Checadores de Calzado:**")
+            st.progress(pasa_ch / (pasa_ch + falla_ch) if (pasa_ch + falla_ch) > 0 else 0.0, text=f"✅ {pasa_ch} Pasan | ❌ {falla_ch} Fallan")
+
+        st.divider()
+
+        # --- 4. ALERTAS DE ACCIÓN INMEDIATA ---
+        st.markdown("##### 🚨 Alertas Requieren Acción Inmediata")
+        
+        alertas = []
+        if not df_inv_ov.empty:
+            ven_df = df_inv_ov[df_inv_ov['Estatus de verificación'].astype(str).str.upper().str.contains('VENCIDO')]
+            for _, r in ven_df.iterrows():
+                cat = str(r.get('Categoría', 'Inventario'))
+                alertas.append({"Área": cat, "ID / Ubicación": f"{r.get('Id de producto')} ({r.get('Línea')})", "Problema": "Calificación Vencida"})
+                
+        if not df_maq_ov.empty:
+            ven_m_df = df_maq_ov[df_maq_ov['resultado_estatus'].astype(str).str.upper().str.contains('VENCIDO')]
+            for _, r in ven_m_df.iterrows():
+                alertas.append({"Área": "Maquinaria", "ID / Ubicación": str(r.get('id_maquinaria')), "Problema": "Verificación Vencida"})
+                
+        if not df_tierras_ov.empty:
+            fallas_t_df = df_tierras_ov[df_tierras_ov['estatus'].astype(str).str.upper() == 'FALLA']
+            for _, r in fallas_t_df.iterrows():
+                alertas.append({"Área": "Tierras / Conexiones", "ID / Ubicación": str(r.get('id_punto')), "Problema": "Falla en Resistencia (Excede Límite)"})
+                
+        if not df_chec_ov.empty:
+            fallas_ch_df = df_chec_ov[df_chec_ov['estatus'].astype(str).str.upper() == 'FALLA']
+            for _, r in fallas_ch_df.iterrows():
+                alertas.append({"Área": "Checadores de Ingreso", "ID / Ubicación": str(r.get('id_checador')), "Problema": "Desviación fuera de límite (>5%)"})
+
+        if alertas:
+            df_alertas = pd.DataFrame(alertas)
+            st.dataframe(df_alertas, use_container_width=True, hide_index=True)
+        else:
+            st.success("🎉 ¡Excelente trabajo! No hay activos vencidos ni fallas operativas recientes reportadas en la infraestructura.")
 
 # ==========================================
 # VISTA 2: ESCÁNER Y DETALLES
