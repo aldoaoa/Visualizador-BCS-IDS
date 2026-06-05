@@ -3214,92 +3214,97 @@ elif st.session_state.vista_actual == "Validación" and not st.session_state.mod
             else:
                 st.warning("No hay empleados en el sistema. Realice la sincronización en la siguiente pestaña.")
     
-    # -- SUB-PESTAÑA: SINCRONIZACIÓN HC --
-    with subtab_sync:
-        st.markdown("#### 🔄 Actualización de Usuarios (Altas y Bajas)")
-        st.write("Sube el archivo Excel o CSV semanal. El sistema buscará dinámicamente la tabla usando las columnas **Personnel Number** y **Local name**.")
-        
-        archivo_hc = st.file_uploader("Subir archivo de Personal", type=["csv", "xlsx"], key="up_hc")
-        
-        if archivo_hc:
-            try:
-                # 1. Leemos el archivo SIN asignar un encabezado inicial
-                if archivo_hc.name.endswith('.csv'):
-                    df_raw = pd.read_csv(archivo_hc, header=None, encoding='utf-8') # Agrega encoding='latin1' si hay problemas de acentos en el CSV
-                else:
-                    df_raw = pd.read_excel(archivo_hc, header=None)
-                
-                # 2. Buscamos en las primeras 20 filas dónde está "Personnel Number"
-                fila_inicio = None
-                for i in range(min(20, len(df_raw))):
-                    # Comparamos si alguna celda de esta fila es exactamente "Personnel Number"
-                    if df_raw.iloc[i].astype(str).str.strip().eq('Personnel Number').any():
-                        fila_inicio = i
-                        break
-                
-                if fila_inicio is None:
-                    st.error("❌ No se encontró la columna 'Personnel Number' en las primeras 20 filas del archivo. Verifica el formato.")
-                else:
-                    # 3. Recortamos la tabla para que empiece justo en la fila detectada
-                    df_upload = df_raw.iloc[fila_inicio+1:].copy()
+        # -- SUB-PESTAÑA: SINCRONIZACIÓN HC --
+        with subtab_sync:
+            st.markdown("#### 🔄 Actualización de Usuarios (Altas y Bajas)")
+            st.write("Sube el archivo Excel o CSV semanal. El sistema escaneará **todas las pestañas** para encontrar el padrón automáticamente.")
+            
+            archivo_hc = st.file_uploader("Subir archivo de Personal", type=["csv", "xlsx"], key="up_hc")
+            
+            if archivo_hc:
+                try:
+                    df_upload = None
                     
-                    # 4. Asignamos esa fila detectada como el nombre oficial de las columnas
-                    df_upload.columns = df_raw.iloc[fila_inicio].astype(str).str.strip()
-                    
-                    # Nombres literales definidos
-                    col_num = 'Personnel Number'
-                    col_nom = 'Local name'
-                    
-                    if col_num not in df_upload.columns or col_nom not in df_upload.columns:
-                        st.error(f"❌ Las columnas no coinciden exactamente. Columnas leídas: {', '.join(df_upload.columns)}")
+                    if archivo_hc.name.endswith('.csv'):
+                        # Lógica para CSV
+                        df_temp = pd.read_csv(archivo_hc, header=None, encoding='utf-8')
+                        for i in range(min(20, len(df_temp))):
+                            if df_temp.iloc[i].astype(str).str.strip().eq('Personnel Number').any():
+                                df_upload = df_temp.iloc[i+1:].copy()
+                                df_upload.columns = df_temp.iloc[i].astype(str).str.strip()
+                                break
                     else:
-                        # Limpiamos datos vacíos o filas de totales
-                        df_upload = df_upload.dropna(subset=[col_num, col_nom])
+                        # Lógica para Excel (Múltiples pestañas)
+                        xls = pd.ExcelFile(archivo_hc)
+                        hoja_encontrada = False
                         
-                        # Limpiamos el número de empleado (por si Excel lo lee como flotante "12345.0")
-                        df_upload[col_num] = df_upload[col_num].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
+                        for nombre_hoja in xls.sheet_names:
+                            # Leemos la hoja sin encabezado para buscar la fila de inicio
+                            df_temp = pd.read_excel(xls, sheet_name=nombre_hoja, header=None)
+                            
+                            # Escaneamos las primeras 20 filas
+                            for i in range(min(20, len(df_temp))):
+                                if df_temp.iloc[i].astype(str).str.strip().eq('Personnel Number').any():
+                                    df_upload = df_temp.iloc[i+1:].copy()
+                                    df_upload.columns = df_temp.iloc[i].astype(str).str.strip()
+                                    hoja_encontrada = True
+                                    st.info(f"📄 Se detectó el padrón automáticamente en la pestaña: **{nombre_hoja}** (Fila {i+1})")
+                                    break
+                            
+                            if hoja_encontrada:
+                                break
+                    
+                    if df_upload is None:
+                        st.error("❌ No se encontró la columna 'Personnel Number' en ninguna pestaña o fila inicial del archivo.")
+                    else:
+                        col_num = 'Personnel Number'
+                        col_nom = 'Local name'
                         
-                        st.success(f"✅ Tabla detectada en la fila {fila_inicio + 1}. Total en padrón: {len(df_upload)} empleados.")
-                        
-                        if st.button("🚀 Procesar Altas y Bajas", type="primary", use_container_width=True):
-                            with st.spinner("Sincronizando con base de datos..."):
-                                emp_excel = set(df_upload[col_num].tolist())
-                                
-                                # Obtener la base actual
-                                resp_db = supabase.table("empleados_batas").select("num_empleado, estatus_empleado").execute()
-                                df_db = pd.DataFrame(resp_db.data)
-                                
-                                emp_db_activos = set(df_db[df_db['estatus_empleado'] == 'Activo']['num_empleado'].tolist()) if not df_db.empty else set()
-                                emp_db_todos = set(df_db['num_empleado'].tolist()) if not df_db.empty else set()
-                                
-                                # Lógica de conjuntos para el Headcount
-                                bajas = emp_db_activos - emp_excel
-                                altas = emp_excel - emp_db_todos
-                                reactivaciones = (emp_excel.intersection(emp_db_todos)) - emp_db_activos
-                                
-                                # Ejecutar bajas
-                                for b in bajas:
-                                    supabase.table("empleados_batas").update({"estatus_empleado": "Inactivo"}).eq("num_empleado", b).execute()
+                        if col_num not in df_upload.columns or col_nom not in df_upload.columns:
+                            st.error(f"❌ Las columnas no coinciden. Columnas detectadas en la tabla: {', '.join(df_upload.columns)}")
+                        else:
+                            # Limpiamos datos vacíos
+                            df_upload = df_upload.dropna(subset=[col_num, col_nom])
+                            # Limpiamos el número de empleado
+                            df_upload[col_num] = df_upload[col_num].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
+                            
+                            st.success(f"✅ Tabla lista para sincronizar. Total en padrón: {len(df_upload)} empleados.")
+                            
+                            if st.button("🚀 Procesar Altas y Bajas", type="primary", use_container_width=True):
+                                with st.spinner("Sincronizando con la base de datos..."):
+                                    emp_excel = set(df_upload[col_num].tolist())
                                     
-                                # Ejecutar reactivaciones
-                                for r in reactivaciones:
-                                    supabase.table("empleados_batas").update({"estatus_empleado": "Activo"}).eq("num_empleado", r).execute()
+                                    resp_db = supabase.table("empleados_batas").select("num_empleado, estatus_empleado").execute()
+                                    df_db = pd.DataFrame(resp_db.data)
                                     
-                                # Preparar altas nuevas
-                                datos_altas = []
-                                for a in altas:
-                                    nombre_a = str(df_upload[df_upload[col_num] == a].iloc[0][col_nom])
-                                    datos_altas.append({"num_empleado": a, "nombre": nombre_a, "estatus_empleado": "Activo"})
-                                
-                                if datos_altas:
-                                    # Insertar en lotes de 500 para evitar timeout en la API
-                                    for i in range(0, len(datos_altas), 500):
-                                        supabase.table("empleados_batas").insert(datos_altas[i:i+500]).execute()
+                                    emp_db_activos = set(df_db[df_db['estatus_empleado'] == 'Activo']['num_empleado'].tolist()) if not df_db.empty else set()
+                                    emp_db_todos = set(df_db['num_empleado'].tolist()) if not df_db.empty else set()
+                                    
+                                    # Conjuntos para eficiencia de datos masivos
+                                    bajas = emp_db_activos - emp_excel
+                                    altas = emp_excel - emp_db_todos
+                                    reactivaciones = (emp_excel.intersection(emp_db_todos)) - emp_db_activos
+                                    
+                                    for b in bajas:
+                                        supabase.table("empleados_batas").update({"estatus_empleado": "Inactivo"}).eq("num_empleado", b).execute()
                                         
-                                st.success(f"✅ Proceso terminado:\n* Altas: {len(altas)}\n* Bajas: {len(bajas)}\n* Reactivados: {len(reactivaciones)}")
-                                st.cache_data.clear()
-            except Exception as e:
-                st.error(f"Error procesando el padrón: {e}")
+                                    for r in reactivaciones:
+                                        supabase.table("empleados_batas").update({"estatus_empleado": "Activo"}).eq("num_empleado", r).execute()
+                                        
+                                    datos_altas = []
+                                    for a in altas:
+                                        nombre_a = str(df_upload[df_upload[col_num] == a].iloc[0][col_nom])
+                                        datos_altas.append({"num_empleado": a, "nombre": nombre_a, "estatus_empleado": "Activo"})
+                                    
+                                    if datos_altas:
+                                        # Lotes de 500 para evitar que la API rechace el request por tamaño
+                                        for i in range(0, len(datos_altas), 500):
+                                            supabase.table("empleados_batas").insert(datos_altas[i:i+500]).execute()
+                                            
+                                    st.success(f"✅ Proceso terminado:\n* Altas: {len(altas)}\n* Bajas: {len(bajas)}\n* Reactivados: {len(reactivaciones)}")
+                                    st.cache_data.clear()
+                except Exception as e:
+                    st.error(f"Error procesando el archivo: {e}")
     
         # -- SUB-PESTAÑA: HISTORIAL --
         with subtab_hist:
