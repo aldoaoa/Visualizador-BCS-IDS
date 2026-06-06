@@ -5212,9 +5212,13 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
                                         detalle = {}
                                         for cp in cols_preguntas:
                                             if not any(x in cp.lower() for x in ['nombre', 'puesto', 'empleado', 'fecha']):
-                                                val_puntos = row.get(cp, 0)
-                                                try: val_puntos = float(val_puntos)
-                                                except: val_puntos = 0.0
+                                                val_raw = row.get(cp, 0)
+                                                try: 
+                                                    val_num = float(val_raw)
+                                                    # Validación crucial: Si es NaN, forzar a 0.0
+                                                    val_puntos = 0.0 if pd.isna(val_num) else val_num
+                                                except: 
+                                                    val_puntos = 0.0
                                                 detalle[cp] = val_puntos
                                         
                                         # Parsear fecha de la evaluación
@@ -5222,7 +5226,6 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
                                         try:
                                             fecha_dt = pd.to_datetime(fecha_raw)
                                             fecha_val_str = fecha_dt.strftime('%Y-%m-%d')
-                                            # Calcular el reentrenamiento anual (+1 año)
                                             fecha_proximo_dt = fecha_dt + relativedelta(years=1)
                                             fecha_proximo_str = fecha_proximo_dt.strftime('%Y-%m-%d')
                                         except:
@@ -5230,9 +5233,13 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
                                             fecha_val_str = fecha_dt.strftime('%Y-%m-%d')
                                             fecha_proximo_str = (fecha_dt + relativedelta(years=1)).strftime('%Y-%m-%d')
                                             
-                                        calif_total = row.get(col_calif, 0)
-                                        try: calif_total = float(calif_total)
-                                        except: calif_total = 0.0
+                                        calif_raw = row.get(col_calif, 0)
+                                        try: 
+                                            calif_num = float(calif_raw)
+                                            # Validación crucial para la calificación total
+                                            calif_total = 0.0 if pd.isna(calif_num) else calif_num
+                                        except: 
+                                            calif_total = 0.0
                                             
                                         # 1. Añadir al lote del historial de exámenes
                                         lote_insercion.append({
@@ -5245,22 +5252,20 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
                                         })
                                         
                                         # 2. Actualizar la ficha maestra del empleado (Vigencia Anual)
-                                        # Si el empleado no existe en la tabla (por ser un registro histórico viejo), 
-                                        # el sistema lo ignora de forma segura gracias al flujo transaccional.
                                         try:
                                             supabase.table("empleados_batas").update({
                                                 "fecha_ultimo_entrenamiento": fecha_val_str,
                                                 "fecha_proximo_entrenamiento": fecha_proximo_str
                                             }).eq("num_empleado", emp_id).execute()
                                         except:
-                                            pass # Evita que un empleado histórico no cargado en el HC actual rompa el ciclo
+                                            pass
 
                                     # 3. Inserción masiva del historial
                                     if lote_insercion:
                                         for i in range(0, len(lote_insercion), 300):
                                             supabase.table("entrenamientos_esd").insert(lote_insercion[i:i+300]).execute()
                                             
-                                        st.success(f"🎉 ¡{len(lote_insercion)} exámenes archivados! Las fechas de reentrenamiento anual han sido calculadas y asignadas en las fichas del personal correspondiente.")
+                                        st.success(f"🎉 ¡{len(lote_insercion)} exámenes archivados! Las fechas de reentrenamiento han sido calculadas.")
                                         st.cache_data.clear()
                     except Exception as e:
                         st.error(f"Error procesando {archivo.name}: {e}")
