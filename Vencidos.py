@@ -5103,24 +5103,127 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
 
     # --- PESTAÑA 1: DASHBOARD Y ANÁLISIS ---
     with tab_dash:
-        st.markdown("#### 📈 Análisis de Comprensión del Personal")
-        if st.button("🔄 Refrescar Análisis", key="ref_entrenamiento"):
-            st.cache_data.clear()
+        st.markdown("#### 📊 Dashboard de Certificación y Cumplimiento ESD")
+        st.write("Monitoreo en tiempo real de vigencias anuales y detección temprana de brechas de conocimiento en el piso de producción.")
+        
+        # Configuración de ventanas de tiempo relativas al día de hoy
+        hoy = datetime.today().date()
+        primer_dia_mes = hoy.replace(day=1)
+        if hoy.month == 12:
+            ultimo_dia_mes = hoy.replace(year=hoy.year + 1, month=1, day=1) - timedelta(days=1)
+        else:
+            ultimo_dia_mes = hoy.replace(month=hoy.month + 1, day=1) - timedelta(days=1)
             
+        anio_actual = hoy.year
+
+        # 1. Cargar vigencias desde el padrón maestro
         try:
-            resp_train = supabase.table("entrenamientos_esd").select("*").execute()
-            df_train = pd.DataFrame(resp_train.data)
+            resp_maestro = supabase.table("empleados_batas").select("num_empleado, nombre, fecha_ultimo_entrenamiento, fecha_proximo_entrenamiento").eq("estatus_empleado", "Activo").execute()
+            df_maestro = pd.DataFrame(resp_maestro.data)
+        except Exception as e:
+            df_maestro = pd.DataFrame()
+            st.error(f"Error al conectar con la base maestra de personal: {e}")
+
+        # 2. Cargar historial completo de exámenes para análisis analítico de notas y reactivos
+        try:
+            resp_todo_train = supabase.table("entrenamientos_esd").select("num_empleado, nombre_empleado, fecha_entrenamiento, calificacion_total, detalle_respuestas").execute()
+            df_todo_train = pd.DataFrame(resp_todo_train.data)
+        except Exception as e:
+            df_todo_train = pd.DataFrame()
+            st.error(f"Error al conectar con la bitácora de entrenamientos: {e}")
+
+        if not df_maestro.empty:
+            # Conversión segura a objetos tipo date para filtrado correcto
+            df_maestro['fecha_proximo_entrenamiento'] = pd.to_datetime(df_maestro['fecha_proximo_entrenamiento'], errors='coerce').dt.date
             
-            if not df_train.empty:
-                st.metric("Total de Exámenes Registrados", len(df_train))
+            # Filtrar vencimientos del mes en curso
+            df_vencen_mes = df_maestro[(df_maestro['fecha_proximo_entrenamiento'] >= primer_dia_mes) & (df_maestro['fecha_proximo_entrenamiento'] <= ultimo_dia_mes)]
+            
+            # Filtrar vencimientos del año completo en curso
+            df_vencen_anio = df_maestro[pd.to_datetime(df_maestro['fecha_proximo_entrenamiento'], errors='coerce').dt.year == anio_actual]
+
+            # 3. Filtrar usuarios con calificaciones actuales críticas (70% o menos)
+            df_bajos = pd.DataFrame()
+            if not df_todo_train.empty:
+                df_todo_train['fecha_entrenamiento'] = pd.to_datetime(df_todo_train['fecha_entrenamiento'], errors='coerce')
+                # Obtenemos estrictamente la evaluación más reciente de cada empleado (Último estatus)
+                df_recientes = df_todo_train.sort_values('fecha_entrenamiento', ascending=False).drop_duplicates(subset=['num_empleado'], keep='first')
                 
-                # Desempaquetar el JSON de respuestas para analizar qué preguntas fallan más
+                # Función adaptativa para calcular el porcentaje real de efectividad
+                def evaluar_bajo_rendimiento(row):
+                    calif = row['calificacion_total']
+                    detalle = row['detalle_respuestas']
+                    
+                    if isinstance(detalle, dict) and len(detalle) > 0:
+                        # Si la calificación base ya está normalizada en escala de 0 a 100
+                        if calif > 15:
+                            return calif <= 70.0
+                        else:
+                            # Si es escala corta (ej: 9 de 12 puntos), calculamos la relación porcentual
+                            max_puntos = len(detalle)
+                            porcentaje = (calif / max_puntos) * 100 if max_puntos > 0 else 0
+                            return porcentaje <= 70.0
+                    return calif <= 70.0
+
+                df_recientes['es_bajo'] = df_recientes.apply(evaluar_bajo_rendimiento, axis=1)
+                df_bajos = df_recientes[df_recientes['es_bajo'] == True]
+
+            # Despliegue de métricas de alto nivel en KPI Cards
+            c_kpi1, c_kpi2, c_kpi3 = st.columns(3)
+            c_kpi1.metric("📌 Vencen este Mes", len(df_vencen_mes), delta=f"{len(df_vencen_mes)} Reentrenamientos", delta_color="inverse" if len(df_vencen_mes) > 0 else "normal")
+            c_kpi2.metric("📅 Vencen este Año", len(df_vencen_anio), delta=f"Total Ciclo {anio_actual}", delta_color="off")
+            c_kpi3.metric("⚠️ Personal con Nota ≤ 70%", len(df_bajos), delta="Requieren Capacitación", delta_color="inverse" if len(df_bajos) > 0 else "normal")
+
+            st.divider()
+
+            # Estructuración de las tablas de datos operacionales
+            col_tablas1, col_tablas2 = st.columns(2)
+            
+            with col_tablas1:
+                st.markdown(f"##### ⏳ Certificaciones que expiran este mes ({hoy.strftime('%B')})")
+                if not df_vencen_mes.empty:
+                    df_vencen_mes_show = df_vencen_mes[['num_empleado', 'nombre', 'fecha_proximo_entrenamiento']].copy()
+                    df_vencen_mes_show.columns = ['Número Empleado', 'Nombre', 'Fecha de Vencimiento']
+                    st.dataframe(df_vencen_mes_show, width="stretch", hide_index=True)
+                else:
+                    st.success("🎉 Óptimo: Ninguna certificación de personal vence en el mes corriente.")
+
+                st.markdown("##### 🔴 Usuarios con Calificación Crítica Reciente (≤ 70%)")
+                if not df_bajos.empty:
+                    df_bajos_show = df_bajos[['num_empleado', 'nombre_empleado', 'calificacion_total', 'fecha_entrenamiento']].copy()
+                    df_bajos_show['fecha_entrenamiento'] = df_bajos_show['fecha_entrenamiento'].dt.strftime('%d-%b-%Y')
+                    df_bajos_show.columns = ['Número Empleado', 'Nombre Completo', 'Puntuación Absoluta', 'Fecha de Examen']
+                    st.dataframe(df_bajos_show, width="stretch", hide_index=True)
+                else:
+                    st.success("🎉 Todo el personal evaluado cuenta con un rendimiento superior al 70%.")
+
+            with col_tablas2:
+                st.markdown(f"##### 📅 Cronograma General de Reentrenamientos ({anio_actual})")
+                if not df_vencen_anio.empty:
+                    df_vencen_anio_show = df_vencen_anio[['num_empleado', 'nombre', 'fecha_proximo_entrenamiento']].copy()
+                    # Ordenamos cronológicamente para priorizar las alertas de vencimiento próximas
+                    df_vencen_anio_show = df_vencen_anio_show.sort_values('fecha_proximo_entrenamiento')
+                    df_vencen_anio_show.columns = ['Número Empleado', 'Nombre', 'Fecha de Vencimiento']
+                    st.dataframe(df_vencen_anio_show, width="stretch", hide_index=True)
+                else:
+                    st.info("No se registran entrenamientos programados para expirar en el año corriente.")
+
+            # --- ANÁLISIS AVANZADO DE REACTIVOS (CON FILTRADO CONCEPTUAL) ---
+            st.divider()
+            st.markdown("#### 🧠 Análisis de Reactivos Críticos (Áreas de Oportunidad Técnica)")
+            st.caption("Gráfica automatizada que contabiliza las incorrecciones del personal únicamente en reactivos de conocimiento de control de descargas electrostáticas.")
+            
+            if not df_todo_train.empty:
                 todas_respuestas = []
-                for _, row in df_train.iterrows():
+                for _, row in df_todo_train.iterrows():
                     resp_json = row.get('detalle_respuestas', {})
                     if isinstance(resp_json, dict):
                         for pregunta, puntaje in resp_json.items():
-                            # Asumimos que si puntaje es 0, la falló. Si es > 0, la acertó.
+                            # EXCLUSIÓN CRÍTICA: Filtrar y omitir preguntas sobre el capacitador, instructor o la calidad del curso
+                            palabras_filtro = ['capacitador', 'instructor', 'calidad del curso', 'comentarios', 'sugerencias', 'evaluación del', 'evaluacion del', 'que te parecio', 'qué te pareció']
+                            if any(x in pregunta.lower() for x in palabras_filtro):
+                                continue
+                                
                             try:
                                 p = float(puntaje)
                                 acertada = 1 if p > 0 else 0
@@ -5138,30 +5241,32 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
                     resumen_preguntas['Porcentaje_Falla'] = ((resumen_preguntas['Total_Intentos'] - resumen_preguntas['Aciertos']) / resumen_preguntas['Total_Intentos']) * 100
                     resumen_preguntas = resumen_preguntas.sort_values('Porcentaje_Falla', ascending=False)
                     
-                    # Limpiar nombres de columnas muy largos generados por Forms
-                    resumen_preguntas['Pregunta'] = resumen_preguntas['Pregunta'].str.replace('Puntos: ', '', regex=False).str[:80] + "..."
+                    # Limpieza estética de las cabeceras nativas de Microsoft Forms
+                    resumen_preguntas['Concepto Técnico'] = resumen_preguntas['Pregunta'].str.replace('Puntos: ', '', regex=False).str.strip()
                     
-                    st.markdown("##### 🚨 Top 5 Preguntas con Mayor Índice de Falla")
-                    # Filtramos preguntas basura (como "Puntos: Nombre", "Puntos: Puesto")
-                    df_preguntas_reales = resumen_preguntas[~resumen_preguntas['Pregunta'].str.contains('Nombre|Puesto|Número|Fecha|Turno', case=False, na=False)].head(5)
+                    # Descartar meta-columnas del archivo que no sean preguntas reales
+                    df_preguntas_reales = resumen_preguntas[~resumen_preguntas['Concepto Técnico'].str.contains('Nombre|Puesto|Número|Fecha|Turno|Exámen|Examen', case=False, na=False)].head(5)
                     
-                    import plotly.express as px
-                    fig = px.bar(
-                        df_preguntas_reales, 
-                        x='Porcentaje_Falla', 
-                        y='Pregunta', 
-                        orientation='h',
-                        text_auto='.1f',
-                        title="Porcentaje de error por concepto",
-                        color='Porcentaje_Falla',
-                        color_continuous_scale='Reds'
-                    )
-                    fig.update_layout(yaxis={'categoryorder':'total ascending'})
-                    st.plotly_chart(fig, use_container_width=True)
+                    if not df_preguntas_reales.empty:
+                        fig = px.bar(
+                            df_preguntas_reales, 
+                            x='Porcentaje_Falla', 
+                            y='Concepto Técnico', 
+                            orientation='h',
+                            text_auto='.1f',
+                            labels={'Porcentaje_Falla': '% de Fallas Globales', 'Concepto Técnico': 'Reactivo Evaluado'},
+                            title="Top 5 Conceptos Técnicos con Mayor Frecuencia de Error",
+                            color='Porcentaje_Falla',
+                            color_continuous_scale='Reds'
+                        )
+                        fig.update_layout(yaxis={'categoryorder':'total ascending'}, coloraxis_showscale=False, height=320, margin=dict(l=0, r=0, t=30, b=0))
+                        st.plotly_chart(fig, width="stretch")
+                    else:
+                        st.info("No se localizaron reactivos de conocimiento puro tras aplicar los filtros conceptuales.")
             else:
-                st.info("No hay datos de entrenamiento registrados aún.")
-        except Exception as e:
-            st.error(f"Error cargando dashboard: {e}")
+                st.info("Cargue datos en los módulos históricos o semanales para generar las métricas de reactivos.")
+        else:
+            st.warning("⚠️ El padrón maestro de personal se encuentra vacío. Ejecute la sincronización de Headcount para activar los cálculos automáticos de vencimientos.")
 
     # --- PESTAÑA 2: CARGAR ARCHIVOS HISTÓRICOS (FORMS) ---
     with tab_historico:
