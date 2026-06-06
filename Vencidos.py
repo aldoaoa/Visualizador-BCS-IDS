@@ -819,10 +819,10 @@ with st.sidebar:
     st.divider()
 
     if st.button("🎓 Entrenamiento ESD", use_container_width=True, type="primary" if st.session_state.vista_actual == "Entrenamiento" else "secondary"):
-    st.session_state.vista_actual = "Entrenamiento"
-    limpiar_url_escaneo()
-    st.rerun()
-    
+        st.session_state.vista_actual = "Entrenamiento"
+        limpiar_url_escaneo()
+        st.rerun()
+        
     if st.session_state.modo_lectura:
         st.warning("👁️ Modo Consulta Activo")
         st.markdown("---")
