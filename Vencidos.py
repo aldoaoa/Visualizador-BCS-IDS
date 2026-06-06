@@ -5444,23 +5444,35 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
                                     for _, row in df_clean.iterrows():
                                         emp_id = str(row['num_emp_str'])
                                         
-                                        # BLINDAJE CONTRA NaN EN EL NOMBRE:
+                                        # BLINDAJE CONTRA NaN EN EL NOMBRE
                                         raw_nombre = row.get(col_nom)
                                         if pd.isna(raw_nombre) or str(raw_nombre).strip().lower() == 'nan' or not str(raw_nombre).strip():
                                             nombre_emp = "Personal en Inducción (Nombre Vacío)"
                                         else:
                                             nombre_emp = str(raw_nombre).strip()[:100]
 
-                                        # Mapear puntajes individuales a formato JSON libre de valores NaN
+                                        # MAPEADO DE PUNTAJES CON FILTRO DE RAMIFICACIÓN (BRANCHING)
                                         detalle = {}
                                         for cp in cols_preguntas:
                                             if not any(x in cp.lower() for x in ['nombre', 'puesto', 'empleado', 'fecha', 'exámen', 'examen']):
+                                                # Encontrar la columna de texto de la respuesta original
+                                                col_respuesta_texto = cp.replace("Puntos: ", "", 1).strip()
+                                                
+                                                # VERIFICACIÓN CLAVE: Si la respuesta de texto está vacía, 
+                                                # el empleado NUNCA vio esta pregunta (era de otro examen).
+                                                if col_respuesta_texto in df_raw.columns:
+                                                    respuesta = row.get(col_respuesta_texto)
+                                                    if pd.isna(respuesta) or str(respuesta).strip() == '':
+                                                        continue # Ignoramos el 0 fantasma de otras materias
+                                                        
+                                                # Si sí la vio y contestó, procesamos su puntaje
                                                 val_raw = row.get(cp, 0)
                                                 try:
                                                     val_num = float(val_raw)
                                                     val_puntos = 0.0 if pd.isna(val_num) else val_num
                                                 except:
                                                     val_puntos = 0.0
+                                                    
                                                 detalle[cp] = val_puntos
 
                                         # Determinar fechas y vigencia anual
@@ -5474,7 +5486,7 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
                                             fecha_val_str = fecha_dt.strftime('%Y-%m-%d')
                                             fecha_proximo_str = (fecha_dt + relativedelta(years=1)).strftime('%Y-%m-%d')
 
-                                        # Formatear calificación final y topar a 10 puntos máximo
+                                        # Formatear calificación final topada a 10 puntos máximos
                                         calif_raw = row.get(col_calif, 0)
                                         try:
                                             calif_num = float(calif_raw)
@@ -5493,7 +5505,7 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
                                             "archivo_origen": archivo_sem.name
                                         })
 
-                                        # Actualizar vigencia en el registro maestro del personal
+                                        # Actualizar vigencia en el padrón maestro del personal
                                         try:
                                             supabase.table("empleados_batas").update({
                                                 "fecha_ultimo_entrenamiento": fecha_val_str,
@@ -5507,9 +5519,9 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
                                         for i in range(0, len(lote_insercion), 300):
                                             supabase.table("entrenamientos_esd").insert(lote_insercion[i:i+300]).execute()
                                             
-                                        st.success(f"🎉 ¡Sincronización semanal exitosa! Se actualizaron {len(lote_insercion)} registros de personal en el sistema.")
+                                        st.success(f"🎉 ¡Sincronización exitosa! Se guardaron **{len(lote_insercion)}** exámenes puramente de ESD.")
                                         st.cache_data.clear()
-                                        time.sleep(1.5)
+                                        time.sleep(2)
                                         st.rerun()
                 except Exception as e:
                     st.error(f"Error procesando el archivo semanal: {e}")
