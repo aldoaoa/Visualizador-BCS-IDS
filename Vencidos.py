@@ -817,6 +817,11 @@ RUTA_COORDENADAS = "coordenadas.csv"
 with st.sidebar:
     st.image("https://raw.githubusercontent.com/aldoaoa/Visualizador-BCS-IDS/refs/heads/main/Logo_BCS_transparent%20(1).png", use_container_width=True)
     st.divider()
+
+    if st.button("🎓 Entrenamiento ESD", use_container_width=True, type="primary" if st.session_state.vista_actual == "Entrenamiento" else "secondary"):
+    st.session_state.vista_actual = "Entrenamiento"
+    limpiar_url_escaneo()
+    st.rerun()
     
     if st.session_state.modo_lectura:
         st.warning("👁️ Modo Consulta Activo")
@@ -5081,3 +5086,171 @@ elif st.session_state.vista_actual == "Tierras" and not st.session_state.modo_le
                                 
                         except Exception as e:
                             st.error(f"Error al guardar el registro en SQL. ¿Ya creaste la tabla 'verificacion_checadores'? Detalle: {e}")
+
+#####################################
+#VISTA ENTRENAMIENTO
+#####################################
+
+elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.modo_lectura:
+    st.markdown("### 🎓 Gestión de Entrenamiento y Certificación ESD")
+    st.info("Administra el historial de capacitaciones, calificaciones y analiza las áreas de oportunidad (preguntas con mayor índice de falla).")
+
+    tab_dash, tab_historico, tab_semanal = st.tabs([
+        "📊 Dashboard de Resultados", 
+        "📥 Cargar Histórico (Forms)", 
+        "🔄 Actualización Semanal"
+    ])
+
+    # --- PESTAÑA 1: DASHBOARD Y ANÁLISIS ---
+    with tab_dash:
+        st.markdown("#### 📈 Análisis de Comprensión del Personal")
+        if st.button("🔄 Refrescar Análisis", key="ref_entrenamiento"):
+            st.cache_data.clear()
+            
+        try:
+            resp_train = supabase.table("entrenamientos_esd").select("*").execute()
+            df_train = pd.DataFrame(resp_train.data)
+            
+            if not df_train.empty:
+                st.metric("Total de Exámenes Registrados", len(df_train))
+                
+                # Desempaquetar el JSON de respuestas para analizar qué preguntas fallan más
+                todas_respuestas = []
+                for _, row in df_train.iterrows():
+                    resp_json = row.get('detalle_respuestas', {})
+                    if isinstance(resp_json, dict):
+                        for pregunta, puntaje in resp_json.items():
+                            # Asumimos que si puntaje es 0, la falló. Si es > 0, la acertó.
+                            try:
+                                p = float(puntaje)
+                                acertada = 1 if p > 0 else 0
+                            except:
+                                acertada = 0
+                            todas_respuestas.append({"Pregunta": pregunta, "Acertada": acertada})
+                
+                if todas_respuestas:
+                    df_resp = pd.DataFrame(todas_respuestas)
+                    resumen_preguntas = df_resp.groupby('Pregunta').agg(
+                        Total_Intentos=('Acertada', 'count'),
+                        Aciertos=('Acertada', 'sum')
+                    ).reset_index()
+                    
+                    resumen_preguntas['Porcentaje_Falla'] = ((resumen_preguntas['Total_Intentos'] - resumen_preguntas['Aciertos']) / resumen_preguntas['Total_Intentos']) * 100
+                    resumen_preguntas = resumen_preguntas.sort_values('Porcentaje_Falla', ascending=False)
+                    
+                    # Limpiar nombres de columnas muy largos generados por Forms
+                    resumen_preguntas['Pregunta'] = resumen_preguntas['Pregunta'].str.replace('Puntos: ', '', regex=False).str[:80] + "..."
+                    
+                    st.markdown("##### 🚨 Top 5 Preguntas con Mayor Índice de Falla")
+                    # Filtramos preguntas basura (como "Puntos: Nombre", "Puntos: Puesto")
+                    df_preguntas_reales = resumen_preguntas[~resumen_preguntas['Pregunta'].str.contains('Nombre|Puesto|Número|Fecha|Turno', case=False, na=False)].head(5)
+                    
+                    import plotly.express as px
+                    fig = px.bar(
+                        df_preguntas_reales, 
+                        x='Porcentaje_Falla', 
+                        y='Pregunta', 
+                        orientation='h',
+                        text_auto='.1f',
+                        title="Porcentaje de error por concepto",
+                        color='Porcentaje_Falla',
+                        color_continuous_scale='Reds'
+                    )
+                    fig.update_layout(yaxis={'categoryorder':'total ascending'})
+                    st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("No hay datos de entrenamiento registrados aún.")
+        except Exception as e:
+            st.error(f"Error cargando dashboard: {e}")
+
+    # --- PESTAÑA 2: CARGAR ARCHIVOS HISTÓRICOS (FORMS) ---
+    with tab_historico:
+        st.markdown("#### 📥 Importar Excel/CSV Histórico (Google Forms / MS Forms)")
+        st.write("Sube tus archivos antiguos. El sistema detectará automáticamente el Número de Empleado, Calificación Total y las respuestas individuales evaluando las columnas que dicen 'Puntos: ...'")
+        
+        archivos_hist = st.file_uploader("Seleccionar archivos históricos", type=["csv", "xlsx"], accept_multiple_files=True, key="up_hist")
+        
+        if archivos_hist:
+            for archivo in archivos_hist:
+                with st.expander(f"⚙️ Procesando: {archivo.name}", expanded=True):
+                    try:
+                        if archivo.name.endswith('.csv'):
+                            df_raw = pd.read_csv(archivo)
+                        else:
+                            df_raw = pd.read_excel(archivo)
+                            
+                        # Detectar columnas clave independientemente de variaciones minúsculas/mayúsculas
+                        cols = df_raw.columns
+                        col_num = next((c for c in cols if 'número de empleado' in str(c).lower() or 'numero de empleado' in str(c).lower()), None)
+                        col_nom = next((c for c in cols if 'nombre' in str(c).lower() and 'completo' in str(c).lower()), None)
+                        if not col_nom:
+                            col_nom = next((c for c in cols if str(c).lower() == 'nombre'), None)
+                        
+                        col_calif = next((c for c in cols if 'total de puntos' in str(c).lower()), None)
+                        col_fecha = next((c for c in cols if 'hora de finalización' in str(c).lower() or 'fecha de aplicación' in str(c).lower()), None)
+                        
+                        if not col_num or not col_calif:
+                            st.error(f"❌ No se detectó la columna 'Número de empleado' o 'Total de puntos' en {archivo.name}.")
+                        else:
+                            # Encontrar todas las columnas que representan puntaje de una pregunta
+                            cols_preguntas = [c for c in cols if str(c).strip().startswith('Puntos:')]
+                            
+                            df_clean = df_raw.dropna(subset=[col_num]).copy()
+                            df_clean[col_num] = df_clean[col_num].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
+                            
+                            st.success(f"✅ Se detectaron {len(df_clean)} registros y {len(cols_preguntas)} preguntas evaluables.")
+                            
+                            if st.button(f"🚀 Guardar datos de {archivo.name} en la nube", key=f"btn_{archivo.name}"):
+                                with st.spinner("Procesando y guardando..."):
+                                    lote_insercion = []
+                                    for _, row in df_clean.iterrows():
+                                        # Construir el JSON de las preguntas
+                                        detalle = {}
+                                        for cp in cols_preguntas:
+                                            # Ignorar meta-preguntas como Puntos de nombre, puesto, etc.
+                                            if not any(x in cp.lower() for x in ['nombre', 'puesto', 'empleado', 'fecha']):
+                                                # El valor suele ser el puntaje. Si es NaN o texto raro, es 0
+                                                val_puntos = row.get(cp, 0)
+                                                try:
+                                                    val_puntos = float(val_puntos)
+                                                except:
+                                                    val_puntos = 0.0
+                                                detalle[cp] = val_puntos
+                                        
+                                        fecha_val = row.get(col_fecha, datetime.now())
+                                        try:
+                                            # Intentar forzar a string ISO para la DB
+                                            fecha_val = pd.to_datetime(fecha_val).isoformat()
+                                        except:
+                                            fecha_val = datetime.now().isoformat()
+                                            
+                                        calif_total = row.get(col_calif, 0)
+                                        try:
+                                            calif_total = float(calif_total)
+                                        except:
+                                            calif_total = 0.0
+                                            
+                                        lote_insercion.append({
+                                            "num_empleado": str(row[col_num]),
+                                            "nombre_empleado": str(row.get(col_nom, "N/D"))[:100],
+                                            "fecha_entrenamiento": fecha_val,
+                                            "calificacion_total": calif_total,
+                                            "detalle_respuestas": detalle,
+                                            "archivo_origen": archivo.name
+                                        })
+                                    
+                                    if lote_insercion:
+                                        # Insertar en bloques de 300 para no ahogar Supabase
+                                        for i in range(0, len(lote_insercion), 300):
+                                            supabase.table("entrenamientos_esd").insert(lote_insercion[i:i+300]).execute()
+                                            
+                                        st.success(f"🎉 ¡{len(lote_insercion)} registros de entrenamiento guardados exitosamente!")
+                                        st.cache_data.clear()
+                    except Exception as e:
+                        st.error(f"Error procesando {archivo.name}: {e}")
+
+    # --- PESTAÑA 3: ACTUALIZACIÓN SEMANAL ---
+    with tab_semanal:
+        st.markdown("#### 🔄 Cargar Nuevo Formato Semanal")
+        st.info("Sube el archivo aquí cuando probemos tu nuevo formato semanal en el siguiente paso.")
+        # Aquí meteremos la lógica en el siguiente prompt...
