@@ -5149,21 +5149,20 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
                 # Obtenemos estrictamente la evaluación más reciente de cada empleado (Último estatus)
                 df_recientes = df_todo_train.sort_values('fecha_entrenamiento', ascending=False).drop_duplicates(subset=['num_empleado'], keep='first')
                 
-                # Función adaptativa para calcular el porcentaje real de efectividad
+                # Función exacta para calcular el porcentaje real de efectividad (Base 10)
                 def evaluar_bajo_rendimiento(row):
-                    calif = row['calificacion_total']
-                    detalle = row['detalle_respuestas']
+                    try:
+                        calif = float(row['calificacion_total'])
+                    except:
+                        calif = 0.0
+                        
+                    # Topar la calificación a un máximo de 10 puntos
+                    calif = min(calif, 10.0)
                     
-                    if isinstance(detalle, dict) and len(detalle) > 0:
-                        # Si la calificación base ya está normalizada en escala de 0 a 100
-                        if calif > 15:
-                            return calif <= 70.0
-                        else:
-                            # Si es escala corta (ej: 9 de 12 puntos), calculamos la relación porcentual
-                            max_puntos = len(detalle)
-                            porcentaje = (calif / max_puntos) * 100 if max_puntos > 0 else 0
-                            return porcentaje <= 70.0
-                    return calif <= 70.0
+                    # Calcular porcentaje sobre 10
+                    porcentaje = (calif / 10.0) * 100
+                    
+                    return porcentaje <= 70.0
 
                 df_recientes['es_bajo'] = df_recientes.apply(evaluar_bajo_rendimiento, axis=1)
                 df_bajos = df_recientes[df_recientes['es_bajo'] == True]
@@ -5338,12 +5337,13 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
                                             fecha_val_str = fecha_dt.strftime('%Y-%m-%d')
                                             fecha_proximo_str = (fecha_dt + relativedelta(years=1)).strftime('%Y-%m-%d')
                                             
+                                        # Formatear calificación final y topar a 10 puntos máximo
                                         calif_raw = row.get(col_calif, 0)
-                                        try: 
+                                        try:
                                             calif_num = float(calif_raw)
-                                            # Validación crucial para la calificación total
                                             calif_total = 0.0 if pd.isna(calif_num) else calif_num
-                                        except: 
+                                            calif_total = min(calif_total, 10.0) # Tope máximo normativo
+                                        except:
                                             calif_total = 0.0
                                             
                                         # 1. Añadir al lote del historial de exámenes
@@ -5474,11 +5474,12 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
                                             fecha_val_str = fecha_dt.strftime('%Y-%m-%d')
                                             fecha_proximo_str = (fecha_dt + relativedelta(years=1)).strftime('%Y-%m-%d')
 
-                                        # Formatear calificación final
+                                        # Formatear calificación final y topar a 10 puntos máximo
                                         calif_raw = row.get(col_calif, 0)
                                         try:
                                             calif_num = float(calif_raw)
                                             calif_total = 0.0 if pd.isna(calif_num) else calif_num
+                                            calif_total = min(calif_total, 10.0) # Tope máximo normativo
                                         except:
                                             calif_total = 0.0
 
