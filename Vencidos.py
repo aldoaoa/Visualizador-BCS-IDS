@@ -5270,8 +5270,130 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
                     except Exception as e:
                         st.error(f"Error procesando {archivo.name}: {e}")
 
-    # --- PESTAÑA 3: ACTUALIZACIÓN SEMANAL ---
+        # --- PESTAÑA 3: ACTUALIZACIÓN SEMANAL ---
     with tab_semanal:
-        st.markdown("#### 🔄 Cargar Nuevo Formato Semanal")
-        st.info("Sube el archivo aquí cuando probemos tu nuevo formato semanal en el siguiente paso.")
-        # Aquí meteremos la lógica en el siguiente prompt...
+        st.markdown("#### 🔄 Cargar Formato Semanal de Inducción")
+        st.write("Sube el archivo semanal. El sistema filtrará automáticamente los registros de **'ESD - Teórico'** y separará al personal que aún no cuenta con número de empleado.")
+
+        archivo_sem = st.file_uploader("Subir archivo semanal (Inducción)", type=["csv", "xlsx"], key="up_sem")
+
+        if archivo_sem:
+            with st.expander(f"⚙️ Procesando: {archivo_sem.name}", expanded=True):
+                try:
+                    # Leer archivo
+                    if archivo_sem.name.endswith('.csv'):
+                        df_raw = pd.read_csv(archivo_sem)
+                    else:
+                        df_raw = pd.read_excel(archivo_sem)
+
+                    cols = df_raw.columns
+                    
+                    # 1. Búsqueda dinámica de columnas literales y variaciones
+                    col_examen = next((c for c in cols if 'exámen va a presentar' in str(c).lower() or 'examen va a presentar' in str(c).lower()), None)
+                    col_num = next((c for c in cols if 'número de empleado' in str(c).lower() or 'numero de empleado' in str(c).lower()), None)
+                    col_nom = next((c for c in cols if 'nombre completo' in str(c).lower() or 'nombre' in str(c).lower()), None)
+                    col_calif = next((c for c in cols if 'total de puntos' in str(c).lower()), None)
+                    col_fecha = next((c for c in cols if 'hora de finalización' in str(c).lower() or 'fecha que se realiza' in str(c).lower()), None)
+
+                    if not col_examen or not col_num or not col_calif:
+                        st.error("❌ No se encontraron las columnas clave ('¿Qué exámen va a presentar?', 'Número de Empleado', o 'Total de puntos'). Revisa el formato del archivo.")
+                    else:
+                        total_raw = len(df_raw)
+
+                        # 2. FILTRO 1: Solo registros de ESD
+                        df_esd = df_raw[df_raw[col_examen].astype(str).str.contains('ESD', case=False, na=False)].copy()
+                        total_esd = len(df_esd)
+
+                        # 3. FILTRO 2: Separar con y sin Número de Empleado
+                        # Limpiamos los decimales y espacios (ej: 801234.0 -> 801234)
+                        df_esd['num_emp_str'] = df_esd[col_num].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
+                        
+                        # Creamos una máscara para identificar los vacíos, nulos o ceros
+                        mask_sin_id = df_esd['num_emp_str'].isin(['nan', '', 'None', 'N/A', '0']) | df_esd[col_num].isna()
+                        
+                        df_sin_id = df_esd[mask_sin_id]
+                        df_clean = df_esd[~mask_sin_id]
+
+                        # Mostrar resumen ejecutivo
+                        st.success(f"📊 **Resumen del archivo:**\n- Total de exámenes (todas las materias): **{total_raw}**\n- Exámenes de ESD detectados: **{total_esd}**\n- Listos para guardar en BD (Con número de empleado): **{len(df_clean)}**")
+
+                        # 4. MESA DE AYUDA: Mostrar los que requieren matching manual
+                        if not df_sin_id.empty:
+                            st.warning(f"⚠️ **Atención:** Se detectaron **{len(df_sin_id)}** exámenes de ESD que NO tienen Número de Empleado. Deberán ser revisados y asignados manualmente.")
+                            df_mostrar_sin_id = df_sin_id[[col_fecha, col_nom, col_calif, col_examen]].copy()
+                            df_mostrar_sin_id.columns = ['Fecha / Hora', 'Nombre Capturado', 'Calificación', 'Examen Reportado']
+                            st.dataframe(df_mostrar_sin_id, width="stretch", hide_index=True)
+
+                        # 5. PROCESAMIENTO Y GUARDADO
+                        if not df_clean.empty:
+                            cols_preguntas = [c for c in cols if str(c).strip().startswith('Puntos:')]
+
+                            if st.button("🚀 Procesar y Guardar Exámenes Semanales", key="btn_semanal_guardar", type="primary"):
+                                with st.spinner("Registrando calificaciones y actualizando vigencias de entrenamiento..."):
+                                    lote_insercion = []
+
+                                    for _, row in df_clean.iterrows():
+                                        emp_id = str(row['num_emp_str'])
+                                        nombre_emp = str(row.get(col_nom, "N/D"))[:100]
+
+                                        # Parsear preguntas a JSON asegurando que sean "JSON compliant" (Cero NaN)
+                                        detalle = {}
+                                        for cp in cols_preguntas:
+                                            # Omitimos las columnas de "Puntos" que no son preguntas reales
+                                            if not any(x in cp.lower() for x in ['nombre', 'puesto', 'empleado', 'fecha', 'exámen', 'examen']):
+                                                val_raw = row.get(cp, 0)
+                                                try:
+                                                    val_num = float(val_raw)
+                                                    val_puntos = 0.0 if pd.isna(val_num) else val_num
+                                                except:
+                                                    val_puntos = 0.0
+                                                detalle[cp] = val_puntos
+
+                                        # Parsear fecha y calcular vencimiento (1 año)
+                                        fecha_raw = row.get(col_fecha, datetime.now())
+                                        try:
+                                            fecha_dt = pd.to_datetime(fecha_raw)
+                                            fecha_val_str = fecha_dt.strftime('%Y-%m-%d')
+                                            fecha_proximo_dt = fecha_dt + relativedelta(years=1)
+                                            fecha_proximo_str = fecha_proximo_dt.strftime('%Y-%m-%d')
+                                        except:
+                                            fecha_dt = datetime.now()
+                                            fecha_val_str = fecha_dt.strftime('%Y-%m-%d')
+                                            fecha_proximo_str = (fecha_dt + relativedelta(years=1)).strftime('%Y-%m-%d')
+
+                                        # Formatear calificación
+                                        calif_raw = row.get(col_calif, 0)
+                                        try:
+                                            calif_num = float(calif_raw)
+                                            calif_total = 0.0 if pd.isna(calif_num) else calif_num
+                                        except:
+                                            calif_total = 0.0
+
+                                        # A. Lote para bitácora histórica
+                                        lote_insercion.append({
+                                            "num_empleado": emp_id,
+                                            "nombre_empleado": nombre_emp,
+                                            "fecha_entrenamiento": fecha_dt.isoformat(),
+                                            "calificacion_total": calif_total,
+                                            "detalle_respuestas": detalle,
+                                            "archivo_origen": archivo_sem.name
+                                        })
+
+                                        # B. Actualizar tabla maestra de empleados
+                                        try:
+                                            supabase.table("empleados_batas").update({
+                                                "fecha_ultimo_entrenamiento": fecha_val_str,
+                                                "fecha_proximo_entrenamiento": fecha_proximo_str
+                                            }).eq("num_empleado", emp_id).execute()
+                                        except:
+                                            pass
+
+                                    # C. Inserción masiva
+                                    if lote_insercion:
+                                        for i in range(0, len(lote_insercion), 300):
+                                            supabase.table("entrenamientos_esd").insert(lote_insercion[i:i+300]).execute()
+                                            
+                                        st.success(f"🎉 ¡Éxito! Se actualizaron las certificaciones de **{len(lote_insercion)}** empleados.")
+                                        st.cache_data.clear()
+                except Exception as e:
+                    st.error(f"Error procesando el archivo semanal: {e}")
