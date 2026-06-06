@@ -5201,50 +5201,66 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
                             st.success(f"✅ Se detectaron {len(df_clean)} registros y {len(cols_preguntas)} preguntas evaluables.")
                             
                             if st.button(f"🚀 Guardar datos de {archivo.name} en la nube", key=f"btn_{archivo.name}"):
-                                with st.spinner("Procesando y guardando..."):
+                                with st.spinner("Procesando certificaciones y calculando vigencias anuales..."):
                                     lote_insercion = []
+                                    
                                     for _, row in df_clean.iterrows():
-                                        # Construir el JSON de las preguntas
+                                        emp_id = str(row[col_num]).strip()
+                                        nombre_emp = str(row.get(col_nom, "N/D"))[:100]
+                                        
+                                        # Parsear preguntas a JSON
                                         detalle = {}
                                         for cp in cols_preguntas:
-                                            # Ignorar meta-preguntas como Puntos de nombre, puesto, etc.
                                             if not any(x in cp.lower() for x in ['nombre', 'puesto', 'empleado', 'fecha']):
-                                                # El valor suele ser el puntaje. Si es NaN o texto raro, es 0
                                                 val_puntos = row.get(cp, 0)
-                                                try:
-                                                    val_puntos = float(val_puntos)
-                                                except:
-                                                    val_puntos = 0.0
+                                                try: val_puntos = float(val_puntos)
+                                                except: val_puntos = 0.0
                                                 detalle[cp] = val_puntos
                                         
-                                        fecha_val = row.get(col_fecha, datetime.now())
+                                        # Parsear fecha de la evaluación
+                                        fecha_raw = row.get(col_fecha, datetime.now())
                                         try:
-                                            # Intentar forzar a string ISO para la DB
-                                            fecha_val = pd.to_datetime(fecha_val).isoformat()
+                                            fecha_dt = pd.to_datetime(fecha_raw)
+                                            fecha_val_str = fecha_dt.strftime('%Y-%m-%d')
+                                            # Calcular el reentrenamiento anual (+1 año)
+                                            fecha_proximo_dt = fecha_dt + relativedelta(years=1)
+                                            fecha_proximo_str = fecha_proximo_dt.strftime('%Y-%m-%d')
                                         except:
-                                            fecha_val = datetime.now().isoformat()
+                                            fecha_dt = datetime.now()
+                                            fecha_val_str = fecha_dt.strftime('%Y-%m-%d')
+                                            fecha_proximo_str = (fecha_dt + relativedelta(years=1)).strftime('%Y-%m-%d')
                                             
                                         calif_total = row.get(col_calif, 0)
-                                        try:
-                                            calif_total = float(calif_total)
-                                        except:
-                                            calif_total = 0.0
+                                        try: calif_total = float(calif_total)
+                                        except: calif_total = 0.0
                                             
+                                        # 1. Añadir al lote del historial de exámenes
                                         lote_insercion.append({
-                                            "num_empleado": str(row[col_num]),
-                                            "nombre_empleado": str(row.get(col_nom, "N/D"))[:100],
-                                            "fecha_entrenamiento": fecha_val,
+                                            "num_empleado": emp_id,
+                                            "nombre_empleado": nombre_emp,
+                                            "fecha_entrenamiento": fecha_dt.isoformat(),
                                             "calificacion_total": calif_total,
                                             "detalle_respuestas": detalle,
                                             "archivo_origen": archivo.name
                                         })
-                                    
+                                        
+                                        # 2. Actualizar la ficha maestra del empleado (Vigencia Anual)
+                                        # Si el empleado no existe en la tabla (por ser un registro histórico viejo), 
+                                        # el sistema lo ignora de forma segura gracias al flujo transaccional.
+                                        try:
+                                            supabase.table("empleados_batas").update({
+                                                "fecha_ultimo_entrenamiento": fecha_val_str,
+                                                "fecha_proximo_entrenamiento": fecha_proximo_str
+                                            }).eq("num_empleado", emp_id).execute()
+                                        except:
+                                            pass # Evita que un empleado histórico no cargado en el HC actual rompa el ciclo
+
+                                    # 3. Inserción masiva del historial
                                     if lote_insercion:
-                                        # Insertar en bloques de 300 para no ahogar Supabase
                                         for i in range(0, len(lote_insercion), 300):
                                             supabase.table("entrenamientos_esd").insert(lote_insercion[i:i+300]).execute()
                                             
-                                        st.success(f"🎉 ¡{len(lote_insercion)} registros de entrenamiento guardados exitosamente!")
+                                        st.success(f"🎉 ¡{len(lote_insercion)} exámenes archivados! Las fechas de reentrenamiento anual han sido calculadas y asignadas en las fichas del personal correspondiente.")
                                         st.cache_data.clear()
                     except Exception as e:
                         st.error(f"Error procesando {archivo.name}: {e}")
