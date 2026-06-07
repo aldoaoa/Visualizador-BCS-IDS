@@ -5224,12 +5224,12 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
                                 'qué te pareció', 'que te parecio',
                                 'qué le mejorarías', 'que le mejorarias',
                                 'desempeño del capacitador', 'desempeño del',
-                                'capacitador', 'instructor', 'calidad del curso',
-                                'comentarios', 'sugerencias', 'evaluación del', 
+                                'capacitador', 'instructor', 'curso',
+                                'comentarios', 'sugerencias', 'evaluación', 
                                 'evaluacion del', 'entrenador', 'entrenamiento', 
                                 'instalaciones', 'recomendarías', 'recomendar', 
                                 'satisfacción', 'material didáctico', 'rh', 
-                                'recursos humanos', 'utilidad', 'fomento', 'trabajo', 'conocimientos'
+                                'recursos humanos', 'utilidad', 'fomento', 'trabajo', 'conocimientos', 'cambiarías', 'presentaciones', 'califica'
                             ]
                             
                             if any(x in pregunta.lower() for x in palabras_filtro):
