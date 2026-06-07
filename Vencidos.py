@@ -5541,11 +5541,48 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
 
                             if st.button("🚀 Procesar y Guardar Exámenes Semanales", key="btn_semanal_guardar", type="primary"):
                                 with st.spinner("Registrando calificaciones y asegurando datos..."):
+                                    
+                                    # --- 1. OBTENER REGISTROS EXISTENTES PARA EVITAR DUPLICADOS ---
+                                    try:
+                                        # Traemos solo los datos clave para que sea ultra rápido
+                                        resp_existentes = supabase.table("entrenamientos_esd").select("num_empleado, fecha_entrenamiento").execute()
+                                        
+                                        # Creamos un "Set" (conjunto) con la llave "NUM_EMPLEADO|YYYY-MM-DD"
+                                        # Los Sets en Python son increíblemente rápidos para buscar si algo ya existe
+                                        set_existentes = set()
+                                        for x in resp_existentes.data:
+                                            emp_db = str(x.get('num_empleado')).strip()
+                                            fecha_db = str(x.get('fecha_entrenamiento'))[:10] # Solo YYYY-MM-DD
+                                            set_existentes.add(f"{emp_db}|{fecha_db}")
+                                    except Exception as e:
+                                        set_existentes = set()
+                                        st.warning(f"No se pudo cargar el historial para validar duplicados: {e}")
+
                                     lote_insercion = []
+                                    registros_omitidos = 0
 
                                     for _, row in df_clean.iterrows():
                                         emp_id = str(row['num_emp_str'])
                                         
+                                        # Determinar fechas primero para poder validar si ya existe
+                                        fecha_raw = row.get(col_fecha, datetime.now())
+                                        try:
+                                            fecha_dt = pd.to_datetime(fecha_raw)
+                                            fecha_val_str = fecha_dt.strftime('%Y-%m-%d')
+                                            fecha_proximo_str = (fecha_dt + relativedelta(years=1)).strftime('%Y-%m-%d')
+                                        except:
+                                            fecha_dt = datetime.now()
+                                            fecha_val_str = fecha_dt.strftime('%Y-%m-%d')
+                                            fecha_proximo_str = (fecha_dt + relativedelta(years=1)).strftime('%Y-%m-%d')
+
+                                        # --- 2. FILTRO ANTI-DUPLICADOS ---
+                                        llave_unica = f"{emp_id}|{fecha_val_str}"
+                                        if llave_unica in set_existentes:
+                                            registros_omitidos += 1
+                                            continue # Saltamos este registro porque ya está en la base de datos
+                                            
+                                        # A PARTIR DE AQUÍ SOLO LLEGAN LOS REGISTROS VERDADERAMENTE NUEVOS
+
                                         # BLINDAJE CONTRA NaN EN EL NOMBRE
                                         raw_nombre = row.get(col_nom)
                                         if pd.isna(raw_nombre) or str(raw_nombre).strip().lower() == 'nan' or not str(raw_nombre).strip():
@@ -5557,17 +5594,13 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
                                         detalle = {}
                                         for cp in cols_preguntas:
                                             if not any(x in cp.lower() for x in ['nombre', 'puesto', 'empleado', 'fecha', 'exámen', 'examen']):
-                                                # Encontrar la columna de texto de la respuesta original
                                                 col_respuesta_texto = cp.replace("Puntos: ", "", 1).strip()
                                                 
-                                                # VERIFICACIÓN CLAVE: Si la respuesta de texto está vacía, 
-                                                # el empleado NUNCA vio esta pregunta (era de otro examen).
                                                 if col_respuesta_texto in df_raw.columns:
                                                     respuesta = row.get(col_respuesta_texto)
                                                     if pd.isna(respuesta) or str(respuesta).strip() == '':
-                                                        continue # Ignoramos el 0 fantasma de otras materias
+                                                        continue 
                                                         
-                                                # Si sí la vio y contestó, procesamos su puntaje
                                                 val_raw = row.get(cp, 0)
                                                 try:
                                                     val_num = float(val_raw)
@@ -5577,23 +5610,12 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
                                                     
                                                 detalle[cp] = val_puntos
 
-                                        # Determinar fechas y vigencia anual
-                                        fecha_raw = row.get(col_fecha, datetime.now())
-                                        try:
-                                            fecha_dt = pd.to_datetime(fecha_raw)
-                                            fecha_val_str = fecha_dt.strftime('%Y-%m-%d')
-                                            fecha_proximo_str = (fecha_dt + relativedelta(years=1)).strftime('%Y-%m-%d')
-                                        except:
-                                            fecha_dt = datetime.now()
-                                            fecha_val_str = fecha_dt.strftime('%Y-%m-%d')
-                                            fecha_proximo_str = (fecha_dt + relativedelta(years=1)).strftime('%Y-%m-%d')
-
                                         # Formatear calificación final topada a 10 puntos máximos
                                         calif_raw = row.get(col_calif, 0)
                                         try:
                                             calif_num = float(calif_raw)
                                             calif_total = 0.0 if pd.isna(calif_num) else calif_num
-                                            calif_total = min(calif_total, 10.0) # Tope máximo normativo
+                                            calif_total = min(calif_total, 10.0) 
                                         except:
                                             calif_total = 0.0
 
@@ -5616,14 +5638,19 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
                                         except:
                                             pass
 
-                                    # Inserción masiva en Supabase
+                                    # C. Inserción masiva en Supabase
                                     if lote_insercion:
                                         for i in range(0, len(lote_insercion), 300):
                                             supabase.table("entrenamientos_esd").insert(lote_insercion[i:i+300]).execute()
                                             
-                                        st.success(f"🎉 ¡Sincronización exitosa! Se guardaron **{len(lote_insercion)}** exámenes puramente de ESD.")
+                                        st.success(f"🎉 ¡Sincronización exitosa! Se guardaron **{len(lote_insercion)}** exámenes NUEVOS.")
+                                        if registros_omitidos > 0:
+                                            st.info(f"💡 Se omitieron **{registros_omitidos}** registros que ya existían previamente en la base de datos.")
+                                            
                                         st.cache_data.clear()
-                                        time.sleep(2)
+                                        time.sleep(2.5)
                                         st.rerun()
+                                    else:
+                                        st.warning(f"No se encontraron exámenes nuevos. Se omitieron {registros_omitidos} registros duplicados/ya existentes.")
                 except Exception as e:
                     st.error(f"Error procesando el archivo semanal: {e}")
