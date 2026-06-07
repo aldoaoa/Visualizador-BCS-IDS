@@ -5316,7 +5316,7 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
                                     return ''
     
                             # Aplicamos el mapeo de color estrictamente sobre la columna de Calificación
-                            df_estilado = df_tabla_individual.style.applymap(estilar_calificaciones, subset=['Calificación (Base 10)'])
+                            df_estilado = df_tabla_individual.style.map(estilar_calificaciones, subset=['Calificación (Base 10)'])
                             
                             # Despliegue de la tabla con los estilos inyectados
                             st.dataframe(df_estilado, width="stretch", hide_index=True)
