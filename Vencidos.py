@@ -5219,7 +5219,19 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
                     if isinstance(resp_json, dict):
                         for pregunta, puntaje in resp_json.items():
                             # EXCLUSIÓN CRÍTICA: Filtrar y omitir preguntas sobre el capacitador, instructor o la calidad del curso
-                            palabras_filtro = ['capacitador', 'instructor', 'calidad del curso', 'comentarios', 'sugerencias', 'evaluación del', 'evaluacion del', 'que te parecio', 'qué te pareció']
+                            # EXCLUSIÓN CRÍTICA: Filtrar y omitir preguntas sobre el capacitador, instructor o la calidad del curso
+                            palabras_filtro = [
+                                'qué te pareció', 'que te parecio',
+                                'qué le mejorarías', 'que le mejorarias',
+                                'desempeño del capacitador', 'desempeño del',
+                                'capacitador', 'instructor', 'calidad del curso',
+                                'comentarios', 'sugerencias', 'evaluación del', 
+                                'evaluacion del', 'entrenador', 'entrenamiento', 
+                                'instalaciones', 'recomendarías', 'recomendar', 
+                                'satisfacción', 'material didáctico', 'rh', 
+                                'recursos humanos', 'utilidad'
+                            ]
+                            
                             if any(x in pregunta.lower() for x in palabras_filtro):
                                 continue
                                 
