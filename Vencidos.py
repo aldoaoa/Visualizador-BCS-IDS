@@ -5262,96 +5262,96 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
                         st.plotly_chart(fig, width="stretch")
                     else:
                         st.info("No se localizaron reactivos de conocimiento puro tras aplicar los filtros conceptuales.")
-           # =========================================================
-        # 🔍 SECCIÓN: BÚSQUEDA INTERACTIVA POR EMPLEADO
-        # =========================================================
-        st.divider()
-        st.markdown("#### 🔍 Consultar Historial Individual de Entrenamiento")
-        st.write("Introduce el número de empleado para extraer su expediente completo de certificaciones y el desglose de sus respuestas.")
-
-        # Inicializar el estado de la búsqueda en session_state para evitar pérdidas de datos al interactuar con expanders
-        if "emp_search_id" not in st.session_state:
-            st.session_state.emp_search_id = ""
-
-        with st.form("form_busqueda_individual"):
-            c_search1, c_search2 = st.columns([3, 1])
-            num_empleado_input = c_search1.text_input("Número de Empleado / Personnel Number:", value=st.session_state.emp_search_id)
-            btn_buscar = c_search2.form_submit_button("🔍 Buscar Historial", width="stretch")
-
-        if btn_buscar and num_empleado_input.strip():
-            st.session_state.emp_search_id = num_empleado_input.strip()
-            
-            with st.spinner(f"Consultando expediente para el ID {st.session_state.emp_search_id}..."):
-                try:
-                    # Consulta directa y selectiva a Supabase para optimizar rendimiento
-                    resp_individual = supabase.table("entrenamientos_esd")\
-                                              .select("fecha_entrenamiento, nombre_empleado, calificacion_total, archivo_origen, detalle_respuestas")\
-                                              .eq("num_empleado", st.session_state.emp_search_id)\
-                                              .order("fecha_entrenamiento", desc=True)\
-                                              .execute()
-                    
-                    if resp_individual.data:
-                        df_individual = pd.DataFrame(resp_individual.data)
+            # =========================================================
+            # 🔍 SECCIÓN: BÚSQUEDA INTERACTIVA POR EMPLEADO
+            # =========================================================
+            st.divider()
+            st.markdown("#### 🔍 Consultar Historial Individual de Entrenamiento")
+            st.write("Introduce el número de empleado para extraer su expediente completo de certificaciones y el desglose de sus respuestas.")
+    
+            # Inicializar el estado de la búsqueda en session_state para evitar pérdidas de datos al interactuar con expanders
+            if "emp_search_id" not in st.session_state:
+                st.session_state.emp_search_id = ""
+    
+            with st.form("form_busqueda_individual"):
+                c_search1, c_search2 = st.columns([3, 1])
+                num_empleado_input = c_search1.text_input("Número de Empleado / Personnel Number:", value=st.session_state.emp_search_id)
+                btn_buscar = c_search2.form_submit_button("🔍 Buscar Historial", width="stretch")
+    
+            if btn_buscar and num_empleado_input.strip():
+                st.session_state.emp_search_id = num_empleado_input.strip()
+                
+                with st.spinner(f"Consultando expediente para el ID {st.session_state.emp_search_id}..."):
+                    try:
+                        # Consulta directa y selectiva a Supabase para optimizar rendimiento
+                        resp_individual = supabase.table("entrenamientos_esd")\
+                                                  .select("fecha_entrenamiento, nombre_empleado, calificacion_total, archivo_origen, detalle_respuestas")\
+                                                  .eq("num_empleado", st.session_state.emp_search_id)\
+                                                  .order("fecha_entrenamiento", desc=True)\
+                                                  .execute()
                         
-                        # Formatear la columna de fecha para visualización en pantalla
-                        df_individual['fecha_entrenamiento'] = pd.to_datetime(df_individual['fecha_entrenamiento']).dt.strftime('%d-%b-%Y %H:%M')
-                        
-                        nombre_detectado = df_individual.iloc[0]['nombre_empleado']
-                        st.markdown(f"👤 **Empleado:** {nombre_detectado}")
-                        
-                        # Preparar DataFrame estructurado para la tabla visual
-                        df_tabla_individual = df_individual[['fecha_entrenamiento', 'calificacion_total', 'archivo_origen']].copy()
-                        df_tabla_individual.columns = ['Fecha de Aplicación', 'Calificación (Base 10)', 'Reporte de Origen']
-
-                        # --- CONFIGURACIÓN DE SEMÁFORO VISUAL (NOTAS REPROBATORIAS EN ROJO) ---
-                        # Definimos el estilo condicional: Rojo suave para reprobados (<= 7.0), verde suave para aprobados
-                        def estilar_calificaciones(val):
-                            try:
-                                v = float(val)
-                                if v <= 7.0:
-                                    return 'background-color: #ffcccc; color: #cc0000; font-weight: bold;'
-                                else:
-                                    return 'background-color: #e2f0d9; color: #385723;'
-                            except:
-                                return ''
-
-                        # Aplicamos el mapeo de color estrictamente sobre la columna de Calificación
-                        df_estilado = df_tabla_individual.style.applymap(estilar_calificaciones, subset=['Calificación (Base 10)'])
-                        
-                        # Despliegue de la tabla con los estilos inyectados
-                        st.dataframe(df_estilado, width="stretch", hide_index=True)
-
-                        # --- DESGLOSE INTERACTIVO DE REACTIVOS POR INTENTO ---
-                        st.markdown("##### 📜 Desglose de preguntas por examen")
-                        st.caption("Despliega cada contenedor para revisar qué reactivos específicos contestó de forma correcta (1.0) o incorrecta (0.0) en cada fecha.")
-                        
-                        for idx, row in df_individual.iterrows():
-                            fecha_intento = row['fecha_entrenamiento']
-                            nota_intento = row['calificacion_total']
-                            detalle_json = row.get('detalle_respuestas', {})
+                        if resp_individual.data:
+                            df_individual = pd.DataFrame(resp_individual.data)
                             
-                            icono_intento = "🟢" if nota_intento > 7.0 else "🔴"
+                            # Formatear la columna de fecha para visualización en pantalla
+                            df_individual['fecha_entrenamiento'] = pd.to_datetime(df_individual['fecha_entrenamiento']).dt.strftime('%d-%b-%Y %H:%M')
                             
-                            with st.expander(f"{icono_intento} Evaluación del {fecha_intento} — Calificación: {nota_intento}/10"):
-                                if isinstance(detalle_json, dict) and len(detalle_json) > 0:
-                                    # Convertir el JSON a un formato de lista limpio para el usuario
-                                    lista_reactivos = []
-                                    for preg, puntaje in detalle_json.items():
-                                        limpio_preg = preg.replace('Puntos: ', '', 1).strip()
-                                        lista_reactivos.append({
-                                            "Reactivo Evaluado": limpio_preg,
-                                            "Puntaje Obtenido": f"✔️ Correcta (1.0)" if float(puntaje) > 0 else "❌ Incorrecta (0.0)"
-                                        })
-                                    
-                                    df_reactivos = pd.DataFrame(lista_reactivos)
-                                    st.dataframe(df_reactivos, width="stretch", hide_index=True)
-                                else:
-                                    st.info("Este registro histórico no cuenta con el desglose detallado de reactivos en formato JSON.")
-                    else:
-                        st.warning(f"🔍 No se localizaron registros de capacitación para el número de empleado: **{st.session_state.emp_search_id}**.")
-                        
-                except Exception as e:
-                    st.error(f"Ocurrió un error al consultar el registro en la base de datos: {e}")
+                            nombre_detectado = df_individual.iloc[0]['nombre_empleado']
+                            st.markdown(f"👤 **Empleado:** {nombre_detectado}")
+                            
+                            # Preparar DataFrame estructurado para la tabla visual
+                            df_tabla_individual = df_individual[['fecha_entrenamiento', 'calificacion_total', 'archivo_origen']].copy()
+                            df_tabla_individual.columns = ['Fecha de Aplicación', 'Calificación (Base 10)', 'Reporte de Origen']
+    
+                            # --- CONFIGURACIÓN DE SEMÁFORO VISUAL (NOTAS REPROBATORIAS EN ROJO) ---
+                            # Definimos el estilo condicional: Rojo suave para reprobados (<= 7.0), verde suave para aprobados
+                            def estilar_calificaciones(val):
+                                try:
+                                    v = float(val)
+                                    if v <= 7.0:
+                                        return 'background-color: #ffcccc; color: #cc0000; font-weight: bold;'
+                                    else:
+                                        return 'background-color: #e2f0d9; color: #385723;'
+                                except:
+                                    return ''
+    
+                            # Aplicamos el mapeo de color estrictamente sobre la columna de Calificación
+                            df_estilado = df_tabla_individual.style.applymap(estilar_calificaciones, subset=['Calificación (Base 10)'])
+                            
+                            # Despliegue de la tabla con los estilos inyectados
+                            st.dataframe(df_estilado, width="stretch", hide_index=True)
+    
+                            # --- DESGLOSE INTERACTIVO DE REACTIVOS POR INTENTO ---
+                            st.markdown("##### 📜 Desglose de preguntas por examen")
+                            st.caption("Despliega cada contenedor para revisar qué reactivos específicos contestó de forma correcta (1.0) o incorrecta (0.0) en cada fecha.")
+                            
+                            for idx, row in df_individual.iterrows():
+                                fecha_intento = row['fecha_entrenamiento']
+                                nota_intento = row['calificacion_total']
+                                detalle_json = row.get('detalle_respuestas', {})
+                                
+                                icono_intento = "🟢" if nota_intento > 7.0 else "🔴"
+                                
+                                with st.expander(f"{icono_intento} Evaluación del {fecha_intento} — Calificación: {nota_intento}/10"):
+                                    if isinstance(detalle_json, dict) and len(detalle_json) > 0:
+                                        # Convertir el JSON a un formato de lista limpio para el usuario
+                                        lista_reactivos = []
+                                        for preg, puntaje in detalle_json.items():
+                                            limpio_preg = preg.replace('Puntos: ', '', 1).strip()
+                                            lista_reactivos.append({
+                                                "Reactivo Evaluado": limpio_preg,
+                                                "Puntaje Obtenido": f"✔️ Correcta (1.0)" if float(puntaje) > 0 else "❌ Incorrecta (0.0)"
+                                            })
+                                        
+                                        df_reactivos = pd.DataFrame(lista_reactivos)
+                                        st.dataframe(df_reactivos, width="stretch", hide_index=True)
+                                    else:
+                                        st.info("Este registro histórico no cuenta con el desglose detallado de reactivos en formato JSON.")
+                        else:
+                            st.warning(f"🔍 No se localizaron registros de capacitación para el número de empleado: **{st.session_state.emp_search_id}**.")
+                            
+                    except Exception as e:
+                        st.error(f"Ocurrió un error al consultar el registro en la base de datos: {e}")
             else:
                 st.info("Cargue datos en los módulos históricos o semanales para generar las métricas de reactivos.")
         else:
