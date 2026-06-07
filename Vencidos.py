@@ -5229,7 +5229,7 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
                                 'evaluacion del', 'entrenador', 'entrenamiento', 
                                 'instalaciones', 'recomendarías', 'recomendar', 
                                 'satisfacción', 'material didáctico', 'rh', 
-                                'recursos humanos', 'utilidad'
+                                'recursos humanos', 'utilidad', 'fomento', 'trabajo', 'conocimientos'
                             ]
                             
                             if any(x in pregunta.lower() for x in palabras_filtro):
