@@ -9,3 +9,5 @@ pytesseract
 supabase
 st-supabase-connection
 Werkzeug
+streamlit
+pandas
