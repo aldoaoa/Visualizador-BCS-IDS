@@ -5432,6 +5432,27 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
                                         # Parsear preguntas a JSON
                                         detalle = {}
                                         for cp in cols_preguntas:
+                                            # LISTA NEGRA COMPLETA (Técnica + RH)
+                                            palabras_filtro = [
+                                                'qué te pareció', 'que te parecio',
+                                                'qué le mejorarías', 'que le mejorarias',
+                                                'desempeño del capacitador', 'desempeño del',
+                                                'capacitador', 'instructor', 'curso',
+                                                'comentarios', 'sugerencias', 'evaluación', 
+                                                'evaluacion del', 'entrenador', 'entrenamiento', 
+                                                'instalaciones', 'recomendarías', 'recomendar', 
+                                                'satisfacción', 'material didáctico', 'rh', 
+                                                'recursos humanos', 'utilidad', 'fomento', 'trabajo', 'conocimientos', 'cambiarías', 'presentaciones', 'califica', 'conocimientos'
+                                            ]
+                                            
+                                            if not any(x in cp.lower() for x in palabras_filtro):
+                                                val_raw = row.get(cp)
+                                                # Solo lo agregamos al JSON si la celda NO está vacía (no es NaN)
+                                                if pd.notna(val_raw) and str(val_raw).strip() != '':
+                                                    try:
+                                                        detalle[cp] = float(val_raw)
+                                                    except:
+                                                        pass # Ignoramos celdas con texto inválido
                                             if not any(x in cp.lower() for x in ['nombre', 'puesto', 'empleado', 'fecha']):
                                                 val_raw = row.get(cp, 0)
                                                 try: 
@@ -5610,6 +5631,27 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
                                         # MAPEADO DE PUNTAJES CON FILTRO DE RAMIFICACIÓN (BRANCHING)
                                         detalle = {}
                                         for cp in cols_preguntas:
+                                            # LISTA NEGRA COMPLETA (Técnica + RH)
+                                            palabras_filtro = [
+                                                'qué te pareció', 'que te parecio',
+                                                'qué le mejorarías', 'que le mejorarias',
+                                                'desempeño del capacitador', 'desempeño del',
+                                                'capacitador', 'instructor', 'curso',
+                                                'comentarios', 'sugerencias', 'evaluación', 
+                                                'evaluacion del', 'entrenador', 'entrenamiento', 
+                                                'instalaciones', 'recomendarías', 'recomendar', 
+                                                'satisfacción', 'material didáctico', 'rh', 
+                                                'recursos humanos', 'utilidad', 'fomento', 'trabajo', 'conocimientos', 'cambiarías', 'presentaciones', 'califica', 'conocimientos'
+                                            ]
+                                                            
+                                            if not any(x in cp.lower() for x in palabras_filtro):
+                                                val_raw = row.get(cp)
+                                                # Solo lo agregamos al JSON si la celda NO está vacía (no es NaN)
+                                                if pd.notna(val_raw) and str(val_raw).strip() != '':
+                                                    try:
+                                                        detalle[cp] = float(val_raw)
+                                                    except:
+                                                        pass # Ignoramos celdas con texto inválido
                                             if not any(x in cp.lower() for x in ['nombre', 'puesto', 'empleado', 'fecha', 'exámen', 'examen']):
                                                 col_respuesta_texto = cp.replace("Puntos: ", "", 1).strip()
                                                 
