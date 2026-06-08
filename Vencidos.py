@@ -5322,20 +5322,20 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
                             df_tabla_individual = df_individual[['fecha_entrenamiento', 'Calificación (Base 10)', 'archivo_origen']].copy()
                             df_tabla_individual.columns = ['Fecha de Aplicación', 'Calificación (Base 10)', 'Reporte de Origen']
 
-                        # Definimos el estilo condicional: Rojo para reprobados (<= 7.0), verde para aprobados
-                        def estilar_calificaciones(val):
-                            try:
-                                v = float(val)
-                                if v <= 7.0:
-                                    return 'background-color: #ffcccc; color: #cc0000; font-weight: bold;'
-                                else:
-                                    return 'background-color: #e2f0d9; color: #385723;'
-                            except:
-                                return ''
-
-                        # Aplicamos el mapeo de color
-                        df_estilado = df_tabla_individual.style.map(estilar_calificaciones, subset=['Calificación (Base 10)'])
-                        st.dataframe(df_estilado, width="stretch", hide_index=True)
+                            # Definimos el estilo condicional: Rojo para reprobados (<= 7.0), verde para aprobados
+                            def estilar_calificaciones(val):
+                                try:
+                                    v = float(val)
+                                    if v <= 7.0:
+                                        return 'background-color: #ffcccc; color: #cc0000; font-weight: bold;'
+                                    else:
+                                        return 'background-color: #e2f0d9; color: #385723;'
+                                except:
+                                    return ''
+    
+                            # Aplicamos el mapeo de color
+                            df_estilado = df_tabla_individual.style.map(estilar_calificaciones, subset=['Calificación (Base 10)'])
+                            st.dataframe(df_estilado, width="stretch", hide_index=True)
     
                             # --- DESGLOSE INTERACTIVO DE REACTIVOS POR INTENTO ---
                             st.markdown("##### 📜 Desglose de preguntas por examen")
