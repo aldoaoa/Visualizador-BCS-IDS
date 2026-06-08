@@ -5343,12 +5343,23 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
                             
                             for idx, row in df_individual.iterrows():
                                 fecha_intento = row['fecha_entrenamiento']
-                                nota_intento = row['calificacion_total']
                                 detalle_json = row.get('detalle_respuestas', {})
                                 
+                                # RECALCULAR NOTA EXACTA BASE 10 PARA EL ENCABEZADO DEL DESPLEGABLE
+                                if isinstance(detalle_json, dict) and len(detalle_json) > 0:
+                                    total_r = len(detalle_json)
+                                    aciertos_r = sum([1.0 for v in detalle_json.values() if float(v) > 0])
+                                    nota_intento = round((aciertos_r / total_r) * 10.0, 2)
+                                else:
+                                    try:
+                                        nota_intento = min(float(row['calificacion_total']), 10.0)
+                                    except:
+                                        nota_intento = 0.0
+                                
+                                # Determinar el ícono del semáforo según la nota real recalculated
                                 icono_intento = "🟢" if nota_intento > 7.0 else "🔴"
                                 
-                                with st.expander(f"{icono_intento} Evaluación del {fecha_intento} — Calificación: {nota_intento}/10"):
+                                with st.expander(f"{icono_intento} Evaluación del {fecha_intento} — Calificación Real: {nota_intento} / 10.0"):
                                     if isinstance(detalle_json, dict) and len(detalle_json) > 0:
                                         # Convertir el JSON a un formato de lista limpio para el usuario
                                         lista_reactivos = []
