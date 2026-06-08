@@ -3297,38 +3297,79 @@ elif st.session_state.vista_actual == "Validación" and not st.session_state.mod
                             
                             st.success(f"✅ Tabla lista para sincronizar. Total en padrón: {len(df_upload)} empleados.")
                             
-                            if st.button("🚀 Procesar Altas y Bajas", type="primary", use_container_width=True):
-                                with st.spinner("Sincronizando con la base de datos..."):
-                                    emp_excel = set(df_upload[col_num].tolist())
+                            if st.button("🔄 Sincronizar Padrón de Personal", type="primary"):
+                                with st.spinner("Comparando base de datos con el nuevo archivo de HC..."):
                                     
-                                    resp_db = supabase.table("empleados_batas").select("num_empleado, estatus_empleado").execute()
-                                    df_db = pd.DataFrame(resp_db.data)
+                                    # 1. Limpiar los IDs del Excel entrante
+                                    df_raw['num_empleado_clean'] = df_raw[col_num].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
+                                    # Descartar filas vacías
+                                    df_excel = df_raw[df_raw['num_empleado_clean'] != 'nan'] 
                                     
-                                    emp_db_activos = set(df_db[df_db['estatus_empleado'] == 'Activo']['num_empleado'].tolist()) if not df_db.empty else set()
-                                    emp_db_todos = set(df_db['num_empleado'].tolist()) if not df_db.empty else set()
-                                    
-                                    # Conjuntos para eficiencia de datos masivos
-                                    bajas = emp_db_activos - emp_excel
-                                    altas = emp_excel - emp_db_todos
-                                    reactivaciones = (emp_excel.intersection(emp_db_todos)) - emp_db_activos
-                                    
-                                    for b in bajas:
-                                        supabase.table("empleados_batas").update({"estatus_empleado": "Inactivo"}).eq("num_empleado", b).execute()
+                                    # Crear un diccionario del Excel para acceso rápido: { '1234': {'nombre': 'Juan', 'depto': 'SMT'} }
+                                    empleados_excel = {}
+                                    for _, row in df_excel.iterrows():
+                                        emp_id = row['num_empleado_clean']
+                                        empleados_excel[emp_id] = {
+                                            "nombre": str(row.get(col_nom, 'N/D')).strip()[:100],
+                                            "departamento": str(row.get(col_depto, 'N/D')).strip()[:100], # Cambia col_depto por tu columna real
+                                            "estatus_empleado": "Activo"
+                                        }
                                         
-                                    for r in reactivaciones:
-                                        supabase.table("empleados_batas").update({"estatus_empleado": "Activo"}).eq("num_empleado", r).execute()
+                                    set_excel_ids = set(empleados_excel.keys())
+
+                                    # 2. Descargar el estado actual de la Base de Datos (Solo necesitamos los IDs y su estatus)
+                                    try:
+                                        resp_db = supabase.table("empleados_batas").select("num_empleado, estatus_empleado").execute()
+                                        db_data = resp_db.data
+                                    except Exception as e:
+                                        db_data = []
+                                        st.error(f"Error al conectar con la base de datos: {e}")
                                         
-                                    datos_altas = []
-                                    for a in altas:
-                                        nombre_a = str(df_upload[df_upload[col_num] == a].iloc[0][col_nom])
-                                        datos_altas.append({"num_empleado": a, "nombre": nombre_a, "estatus_empleado": "Activo"})
+                                    set_db_ids = set([str(x['num_empleado']).strip() for x in db_data])
                                     
-                                    if datos_altas:
-                                        # Lotes de 500 para evitar que la API rechace el request por tamaño
-                                        for i in range(0, len(datos_altas), 500):
-                                            supabase.table("empleados_batas").insert(datos_altas[i:i+500]).execute()
-                                            
-                                    st.success(f"✅ Proceso terminado:\n* Altas: {len(altas)}\n* Bajas: {len(bajas)}\n* Reactivados: {len(reactivaciones)}")
+                                    # 3. LÓGICA DE CONJUNTOS (La magia de la sincronización)
+                                    
+                                    # A) ALTAS NUEVAS: Están en el Excel, pero no en la BD
+                                    ids_nuevos = set_excel_ids - set_db_ids
+                                    
+                                    # B) BAJAS (Soft Delete): Están activos en la BD, pero ya no vienen en el Excel
+                                    # Filtramos para no volver a dar de baja a los que ya están dados de baja
+                                    activos_en_db = set([str(x['num_empleado']).strip() for x in db_data if x.get('estatus_empleado') == 'Activo'])
+                                    ids_baja = activos_en_db - set_excel_ids
+                                    
+                                    # C) ACTUALIZACIONES: Están en ambos lados (se actualiza nombre/depto por si hubo cambios y se asegura estatus Activo)
+                                    ids_actualizar = set_excel_ids.intersection(set_db_ids)
+
+                                    # --- EJECUCIÓN EN SUPABASE ---
+                                    
+                                    # Procesar ALTAS (Insert)
+                                    lote_altas = []
+                                    for emp_id in ids_nuevos:
+                                        datos = empleados_excel[emp_id]
+                                        datos['num_empleado'] = emp_id
+                                        # Campos de entrenamiento vacíos porque son nuevos
+                                        lote_altas.append(datos)
+                                        
+                                    if lote_altas:
+                                        for i in range(0, len(lote_altas), 300):
+                                            supabase.table("empleados_batas").insert(lote_altas[i:i+300]).execute()
+
+                                    # Procesar ACTUALIZACIONES (Update)
+                                    for emp_id in ids_actualizar:
+                                        datos = empleados_excel[emp_id]
+                                        supabase.table("empleados_batas").update(datos).eq("num_empleado", emp_id).execute()
+
+                                    # Procesar BAJAS (Update estatus a 'Baja' / 'Inactivo')
+                                    for emp_id in ids_baja:
+                                        supabase.table("empleados_batas").update({"estatus_empleado": "Baja"}).eq("num_empleado", emp_id).execute()
+
+                                    # --- RESUMEN FINAL ---
+                                    st.success("✅ Sincronización de personal completada con éxito.")
+                                    col1, col2, col3 = st.columns(3)
+                                    col1.metric("🟢 Nuevos Ingresos (Altas)", len(ids_nuevos))
+                                    col2.metric("🔄 Registros Actualizados", len(ids_actualizar))
+                                    col3.metric("🔴 Personal en Baja", len(ids_baja))
+                                    
                                     st.cache_data.clear()
                 except Exception as e:
                     st.error(f"Error procesando el archivo: {e}")
