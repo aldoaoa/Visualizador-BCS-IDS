@@ -5149,20 +5149,20 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
                 # Obtenemos estrictamente la evaluación más reciente de cada empleado (Último estatus)
                 df_recientes = df_todo_train.sort_values('fecha_entrenamiento', ascending=False).drop_duplicates(subset=['num_empleado'], keep='first')
                 
-                # Función exacta para calcular el porcentaje real de efectividad (Base 10)
+                # Función exacta para calcular la efectividad analizando el JSON de respuestas
                 def evaluar_bajo_rendimiento(row):
-                    try:
-                        calif = float(row['calificacion_total'])
-                    except:
-                        calif = 0.0
-                        
-                    # Topar la calificación a un máximo de 10 puntos
-                    calif = min(calif, 10.0)
-                    
-                    # Calcular porcentaje sobre 10
-                    porcentaje = (calif / 10.0) * 100
-                    
-                    return porcentaje <= 70.0
+                    detalle = row.get('detalle_respuestas', {})
+                    if isinstance(detalle, dict) and len(detalle) > 0:
+                        total_reactivos = len(detalle)
+                        aciertos = sum([1.0 for v in detalle.values() if float(v) > 0])
+                        calif_base_10 = (aciertos / total_reactivos) * 10.0
+                        return calif_base_10 <= 7.0
+                    else:
+                        # Respaldo de seguridad si el registro no tiene JSON
+                        try:
+                            return float(row['calificacion_total']) <= 7.0
+                        except:
+                            return True
 
                 df_recientes['es_bajo'] = df_recientes.apply(evaluar_bajo_rendimiento, axis=1)
                 df_bajos = df_recientes[df_recientes['es_bajo'] == True]
@@ -5219,7 +5219,6 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
                     if isinstance(resp_json, dict):
                         for pregunta, puntaje in resp_json.items():
                             # EXCLUSIÓN CRÍTICA: Filtrar y omitir preguntas sobre el capacitador, instructor o la calidad del curso
-                            # EXCLUSIÓN CRÍTICA: Filtrar y omitir preguntas sobre el capacitador, instructor o la calidad del curso
                             palabras_filtro = [
                                 'qué te pareció', 'que te parecio',
                                 'qué le mejorarías', 'que le mejorarias',
@@ -5229,7 +5228,7 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
                                 'evaluacion del', 'entrenador', 'entrenamiento', 
                                 'instalaciones', 'recomendarías', 'recomendar', 
                                 'satisfacción', 'material didáctico', 'rh', 
-                                'recursos humanos', 'utilidad', 'fomento', 'trabajo', 'conocimientos', 'cambiarías', 'presentaciones', 'califica'
+                                'recursos humanos', 'utilidad', 'fomento', 'trabajo', 'conocimientos', 'cambiarías', 'presentaciones', 'califica', 'conocimientos'
                             ]
                             
                             if any(x in pregunta.lower() for x in palabras_filtro):
@@ -5302,36 +5301,41 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
                                                   .order("fecha_entrenamiento", desc=True)\
                                                   .execute()
                         
-                        if resp_individual.data:
-                            df_individual = pd.DataFrame(resp_individual.data)
+                    if resp_individual.data:
+                        df_individual = pd.DataFrame(resp_individual.data)
+                        df_individual['fecha_entrenamiento'] = pd.to_datetime(df_individual['fecha_entrenamiento']).dt.strftime('%d-%b-%Y %H:%M')
+                        
+                        nombre_detectado = df_individual.iloc[0]['nombre_empleado']
+                        st.markdown(f"👤 **Empleado:** {nombre_detectado}")
+                        
+                        # Recalcular la nota exacta al vuelo para registros históricos
+                        def calcular_nota_real(detalle):
+                            if isinstance(detalle, dict) and len(detalle) > 0:
+                                total = len(detalle)
+                                aciertos = sum([1.0 for v in detalle.values() if float(v) > 0])
+                                return round((aciertos / total) * 10.0, 2)
+                            return 0.0
                             
-                            # Formatear la columna de fecha para visualización en pantalla
-                            df_individual['fecha_entrenamiento'] = pd.to_datetime(df_individual['fecha_entrenamiento']).dt.strftime('%d-%b-%Y %H:%M')
-                            
-                            nombre_detectado = df_individual.iloc[0]['nombre_empleado']
-                            st.markdown(f"👤 **Empleado:** {nombre_detectado}")
-                            
-                            # Preparar DataFrame estructurado para la tabla visual
-                            df_tabla_individual = df_individual[['fecha_entrenamiento', 'calificacion_total', 'archivo_origen']].copy()
-                            df_tabla_individual.columns = ['Fecha de Aplicación', 'Calificación (Base 10)', 'Reporte de Origen']
-    
-                            # --- CONFIGURACIÓN DE SEMÁFORO VISUAL (NOTAS REPROBATORIAS EN ROJO) ---
-                            # Definimos el estilo condicional: Rojo suave para reprobados (<= 7.0), verde suave para aprobados
-                            def estilar_calificaciones(val):
-                                try:
-                                    v = float(val)
-                                    if v <= 7.0:
-                                        return 'background-color: #ffcccc; color: #cc0000; font-weight: bold;'
-                                    else:
-                                        return 'background-color: #e2f0d9; color: #385723;'
-                                except:
-                                    return ''
-    
-                            # Aplicamos el mapeo de color estrictamente sobre la columna de Calificación
-                            df_estilado = df_tabla_individual.style.map(estilar_calificaciones, subset=['Calificación (Base 10)'])
-                            
-                            # Despliegue de la tabla con los estilos inyectados
-                            st.dataframe(df_estilado, width="stretch", hide_index=True)
+                        df_individual['Calificación (Base 10)'] = df_individual['detalle_respuestas'].apply(calcular_nota_real)
+                        
+                        # Preparar DataFrame estructurado
+                        df_tabla_individual = df_individual[['fecha_entrenamiento', 'Calificación (Base 10)', 'archivo_origen']].copy()
+                        df_tabla_individual.columns = ['Fecha de Aplicación', 'Calificación (Base 10)', 'Reporte de Origen']
+
+                        # Definimos el estilo condicional: Rojo para reprobados (<= 7.0), verde para aprobados
+                        def estilar_calificaciones(val):
+                            try:
+                                v = float(val)
+                                if v <= 7.0:
+                                    return 'background-color: #ffcccc; color: #cc0000; font-weight: bold;'
+                                else:
+                                    return 'background-color: #e2f0d9; color: #385723;'
+                            except:
+                                return ''
+
+                        # Aplicamos el mapeo de color
+                        df_estilado = df_tabla_individual.style.map(estilar_calificaciones, subset=['Calificación (Base 10)'])
+                        st.dataframe(df_estilado, width="stretch", hide_index=True)
     
                             # --- DESGLOSE INTERACTIVO DE REACTIVOS POR INTENTO ---
                             st.markdown("##### 📜 Desglose de preguntas por examen")
@@ -5439,13 +5443,15 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
                                             fecha_val_str = fecha_dt.strftime('%Y-%m-%d')
                                             fecha_proximo_str = (fecha_dt + relativedelta(years=1)).strftime('%Y-%m-%d')
                                             
-                                        # Formatear calificación final y topar a 10 puntos máximo
-                                        calif_raw = row.get(col_calif, 0)
-                                        try:
-                                            calif_num = float(calif_raw)
-                                            calif_total = 0.0 if pd.isna(calif_num) else calif_num
-                                            calif_total = min(calif_total, 10.0) # Tope máximo normativo
-                                        except:
+                                        # NUEVA LÓGICA: Ignoramos el total crudo del Excel.
+                                        # Calculamos la calificación exacta (Base 10) según la cantidad real de reactivos extraídos.
+                                        total_reactivos = len(detalle)
+                                        if total_reactivos > 0:
+                                            # Sumamos 1.0 por cada respuesta que tenga un valor mayor a 0
+                                            aciertos_totales = sum([1.0 for v in detalle.values() if float(v) > 0])
+                                            # Obtenemos proporción y multiplicamos por 10 (con 2 decimales)
+                                            calif_total = round((aciertos_totales / total_reactivos) * 10.0, 2)
+                                        else:
                                             calif_total = 0.0
                                             
                                         # 1. Añadir al lote del historial de exámenes
@@ -5610,13 +5616,15 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
                                                     
                                                 detalle[cp] = val_puntos
 
-                                        # Formatear calificación final topada a 10 puntos máximos
-                                        calif_raw = row.get(col_calif, 0)
-                                        try:
-                                            calif_num = float(calif_raw)
-                                            calif_total = 0.0 if pd.isna(calif_num) else calif_num
-                                            calif_total = min(calif_total, 10.0) 
-                                        except:
+                                        # NUEVA LÓGICA: Ignoramos el total crudo del Excel.
+                                        # Calculamos la calificación exacta (Base 10) según la cantidad real de reactivos extraídos.
+                                        total_reactivos = len(detalle)
+                                        if total_reactivos > 0:
+                                            # Sumamos 1.0 por cada respuesta que tenga un valor mayor a 0
+                                            aciertos_totales = sum([1.0 for v in detalle.values() if float(v) > 0])
+                                            # Obtenemos proporción y multiplicamos por 10 (con 2 decimales)
+                                            calif_total = round((aciertos_totales / total_reactivos) * 10.0, 2)
+                                        else:
                                             calif_total = 0.0
 
                                         # Estructurar objeto para la bitácora histórica
