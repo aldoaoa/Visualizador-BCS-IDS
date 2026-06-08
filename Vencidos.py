@@ -3322,8 +3322,7 @@ elif st.session_state.vista_actual == "Validación" and not st.session_state.mod
                                             
                                         empleados_excel[emp_id] = {
                                             "nombre": str(row.get(col_nom, 'N/D')).strip()[:100],
-                                            "departamento": depto_val, 
-                                            "estatus_empleado": "Activo"
+                                             "estatus_empleado": "Activo"
                                         }
                                         
                                     set_excel_ids = set(empleados_excel.keys())
