@@ -5429,39 +5429,37 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
                                         emp_id = str(row[col_num]).strip()
                                         nombre_emp = str(row.get(col_nom, "N/D"))[:100]
                                         
-                                        # Parsear preguntas a JSON
+                                        # Declaramos la lista negra FUERA del for para mayor velocidad
+                                        palabras_filtro = [
+                                            'nombre', 'puesto', 'empleado', 'fecha', 'exámen', 'examen',
+                                            'qué te pareció', 'que te parecio', 'qué le mejorarías', 'que le mejorarias',
+                                            'desempeño del capacitador', 'desempeño del', 'capacitador', 'instructor', 'curso',
+                                            'comentarios', 'sugerencias', 'evaluación', 
+                                            'evaluacion del', 'entrenador', 'entrenamiento', 
+                                            'instalaciones', 'recomendarías', 'recomendar', 
+                                            'satisfacción', 'material didáctico', 'rh', 
+                                            'recursos humanos', 'utilidad', 'fomento', 'trabajo', 
+                                            'conocimientos', 'cambiarías', 'presentaciones', 'califica'
+                                        ]
+
+                                        # MAPEADO DE PUNTAJES HISTÓRICOS
                                         detalle = {}
                                         for cp in cols_preguntas:
-                                            # LISTA NEGRA COMPLETA (Técnica + RH)
-                                            palabras_filtro = [
-                                                'qué te pareció', 'que te parecio',
-                                                'qué le mejorarías', 'que le mejorarias',
-                                                'desempeño del capacitador', 'desempeño del',
-                                                'capacitador', 'instructor', 'curso',
-                                                'comentarios', 'sugerencias', 'evaluación', 
-                                                'evaluacion del', 'entrenador', 'entrenamiento', 
-                                                'instalaciones', 'recomendarías', 'recomendar', 
-                                                'satisfacción', 'material didáctico', 'rh', 
-                                                'recursos humanos', 'utilidad', 'fomento', 'trabajo', 'conocimientos', 'cambiarías', 'presentaciones', 'califica', 'conocimientos'
-                                            ]
+                                            # 1. FILTRO: Si la columna tiene alguna palabra prohibida, la saltamos por completo
+                                            if any(x in cp.lower() for x in palabras_filtro):
+                                                continue
+                                                
+                                            val_raw = row.get(cp)
                                             
-                                            if not any(x in cp.lower() for x in palabras_filtro):
-                                                val_raw = row.get(cp)
-                                                # Solo lo agregamos al JSON si la celda NO está vacía (no es NaN)
-                                                if pd.notna(val_raw) and str(val_raw).strip() != '':
-                                                    try:
-                                                        detalle[cp] = float(val_raw)
-                                                    except:
-                                                        pass # Ignoramos celdas con texto inválido
-                                            if not any(x in cp.lower() for x in ['nombre', 'puesto', 'empleado', 'fecha']):
-                                                val_raw = row.get(cp, 0)
-                                                try: 
-                                                    val_num = float(val_raw)
-                                                    # Validación crucial: Si es NaN, forzar a 0.0
-                                                    val_puntos = 0.0 if pd.isna(val_num) else val_num
-                                                except: 
-                                                    val_puntos = 0.0
-                                                detalle[cp] = val_puntos
+                                            # 2. IGNORAR VACÍOS FANTASMAS: Si la celda está vacía (NaN), NUNCA vio la pregunta.
+                                            if pd.isna(val_raw) or str(val_raw).strip() == '':
+                                                continue
+                                                
+                                            # 3. GUARDADO SEGURO: Si superó los filtros, es pregunta técnica y sí la contestó
+                                            try:
+                                                detalle[cp] = float(val_raw)
+                                            except:
+                                                pass # Ignoramos celdas con texto inválido
                                         
                                         # Parsear fecha de la evaluación
                                         fecha_raw = row.get(col_fecha, datetime.now())
@@ -5628,46 +5626,43 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
                                         else:
                                             nombre_emp = str(raw_nombre).strip()[:100]
 
-                                        # MAPEADO DE PUNTAJES CON FILTRO DE RAMIFICACIÓN (BRANCHING)
+                                        # MAPEADO DE PUNTAJES CON FILTRO DE RAMIFICACIÓN Y LISTA NEGRA
                                         detalle = {}
+                                        
+                                        # Declaramos la lista negra FUERA del for para mayor velocidad
+                                        palabras_filtro = [
+                                            'nombre', 'puesto', 'empleado', 'fecha', 'exámen', 'examen',
+                                            'qué te pareció', 'que te parecio', 'qué le mejorarías', 'que le mejorarias',
+                                            'desempeño del capacitador', 'desempeño del', 'capacitador', 'instructor', 'curso',
+                                            'comentarios', 'sugerencias', 'evaluación', 
+                                            'evaluacion del', 'entrenador', 'entrenamiento', 
+                                            'instalaciones', 'recomendarías', 'recomendar', 
+                                            'satisfacción', 'material didáctico', 'rh', 
+                                            'recursos humanos', 'utilidad', 'fomento', 'trabajo', 
+                                            'conocimientos', 'cambiarías', 'presentaciones', 'califica'
+                                        ]
+
                                         for cp in cols_preguntas:
-                                            # LISTA NEGRA COMPLETA (Técnica + RH)
-                                            palabras_filtro = [
-                                                'qué te pareció', 'que te parecio',
-                                                'qué le mejorarías', 'que le mejorarias',
-                                                'desempeño del capacitador', 'desempeño del',
-                                                'capacitador', 'instructor', 'curso',
-                                                'comentarios', 'sugerencias', 'evaluación', 
-                                                'evaluacion del', 'entrenador', 'entrenamiento', 
-                                                'instalaciones', 'recomendarías', 'recomendar', 
-                                                'satisfacción', 'material didáctico', 'rh', 
-                                                'recursos humanos', 'utilidad', 'fomento', 'trabajo', 'conocimientos', 'cambiarías', 'presentaciones', 'califica', 'conocimientos'
-                                            ]
-                                                            
-                                            if not any(x in cp.lower() for x in palabras_filtro):
-                                                val_raw = row.get(cp)
-                                                # Solo lo agregamos al JSON si la celda NO está vacía (no es NaN)
-                                                if pd.notna(val_raw) and str(val_raw).strip() != '':
-                                                    try:
-                                                        detalle[cp] = float(val_raw)
-                                                    except:
-                                                        pass # Ignoramos celdas con texto inválido
-                                            if not any(x in cp.lower() for x in ['nombre', 'puesto', 'empleado', 'fecha', 'exámen', 'examen']):
-                                                col_respuesta_texto = cp.replace("Puntos: ", "", 1).strip()
+                                            # 1. FILTRO DE LISTA NEGRA: Si la pregunta contiene alguna palabra de RH o metadatos, la ignoramos.
+                                            if any(x in cp.lower() for x in palabras_filtro):
+                                                continue 
                                                 
-                                                if col_respuesta_texto in df_raw.columns:
-                                                    respuesta = row.get(col_respuesta_texto)
-                                                    if pd.isna(respuesta) or str(respuesta).strip() == '':
-                                                        continue 
-                                                        
-                                                val_raw = row.get(cp, 0)
-                                                try:
-                                                    val_num = float(val_raw)
-                                                    val_puntos = 0.0 if pd.isna(val_num) else val_num
-                                                except:
-                                                    val_puntos = 0.0
-                                                    
-                                                detalle[cp] = val_puntos
+                                            # 2. FILTRO DE RAMIFICACIÓN (Evitar 0s fantasmas de otras materias)
+                                            col_respuesta_texto = cp.replace("Puntos: ", "", 1).strip()
+                                            if col_respuesta_texto in df_raw.columns:
+                                                respuesta = row.get(col_respuesta_texto)
+                                                if pd.isna(respuesta) or str(respuesta).strip() == '':
+                                                    continue # Si no contestó nada de texto, nunca vio la pregunta. La ignoramos.
+
+                                            # 3. GUARDADO SEGURO DEL PUNTAJE
+                                            val_raw = row.get(cp, 0)
+                                            try:
+                                                val_num = float(val_raw)
+                                                val_puntos = 0.0 if pd.isna(val_num) else val_num
+                                            except:
+                                                val_puntos = 0.0
+                                                
+                                            detalle[cp] = val_puntos
 
                                         # NUEVA LÓGICA: Ignoramos el total crudo del Excel.
                                         # Calculamos la calificación exacta (Base 10) según la cantidad real de reactivos extraídos.
