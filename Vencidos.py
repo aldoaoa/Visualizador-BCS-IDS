@@ -5126,19 +5126,19 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
     # --- PESTAÑA 1: DASHBOARD Y ANÁLISIS ---
     with tab_dash:
         st.markdown("#### 📊 Dashboard de Certificación y Cumplimiento ESD")
-        st.write("Monitoreo en tiempo real de vigencias anuales y detección temprana de brechas de conocimiento en el piso de producción.")
+        st.write("Monitoreo en tiempo real de vigencias, detección de vencimientos y brechas de conocimiento exclusivo para **personal activo**.")
         
         # Configuración de ventanas de tiempo relativas al día de hoy
         hoy = datetime.today().date()
+        limite_365 = hoy + timedelta(days=365)
+        
         primer_dia_mes = hoy.replace(day=1)
         if hoy.month == 12:
             ultimo_dia_mes = hoy.replace(year=hoy.year + 1, month=1, day=1) - timedelta(days=1)
         else:
             ultimo_dia_mes = hoy.replace(month=hoy.month + 1, day=1) - timedelta(days=1)
-            
-        anio_actual = hoy.year
 
-        # 1. Cargar vigencias desde el padrón maestro
+        # 1. Cargar vigencias desde el padrón maestro (SOLO PERSONAL ACTIVO)
         try:
             resp_maestro = supabase.table("empleados_batas").select("num_empleado, nombre, fecha_ultimo_entrenamiento, fecha_proximo_entrenamiento").eq("estatus_empleado", "Activo").execute()
             df_maestro = pd.DataFrame(resp_maestro.data)
@@ -5146,7 +5146,7 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
             df_maestro = pd.DataFrame()
             st.error(f"Error al conectar con la base maestra de personal: {e}")
 
-        # 2. Cargar historial completo de exámenes para análisis analítico de notas y reactivos
+        # 2. Cargar historial completo de exámenes
         try:
             resp_todo_train = supabase.table("entrenamientos_esd").select("num_empleado, nombre_empleado, fecha_entrenamiento, calificacion_total, detalle_respuestas").execute()
             df_todo_train = pd.DataFrame(resp_todo_train.data)
@@ -5154,24 +5154,37 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
             df_todo_train = pd.DataFrame()
             st.error(f"Error al conectar con la bitácora de entrenamientos: {e}")
 
+        # =====================================================================
+        # 3. FILTRO MAESTRO GLOBAL: Descartar personal inactivo de TODAS las métricas
+        # =====================================================================
+        if not df_maestro.empty and not df_todo_train.empty:
+            empleados_activos_lista = df_maestro['num_empleado'].astype(str).tolist()
+            # Nos quedamos estrictamente con los exámenes del personal que sigue activo en empleados_batas
+            df_todo_train = df_todo_train[df_todo_train['num_empleado'].astype(str).isin(empleados_activos_lista)]
+
         if not df_maestro.empty:
-            # Conversión segura a objetos tipo date para filtrado correcto
+            # Conversión segura a objetos tipo date
             df_maestro['fecha_proximo_entrenamiento'] = pd.to_datetime(df_maestro['fecha_proximo_entrenamiento'], errors='coerce').dt.date
             
-            # Filtrar vencimientos del mes en curso
-            df_vencen_mes = df_maestro[(df_maestro['fecha_proximo_entrenamiento'] >= primer_dia_mes) & (df_maestro['fecha_proximo_entrenamiento'] <= ultimo_dia_mes)]
-            
-            # Filtrar vencimientos del año completo en curso
-            df_vencen_anio = df_maestro[pd.to_datetime(df_maestro['fecha_proximo_entrenamiento'], errors='coerce').dt.year == anio_actual]
+            # A) Métrica Nueva: Personal SIN entrenamiento vigente (Vencido en el pasado o nunca entrenado)
+            mask_sin_vigencia = df_maestro['fecha_proximo_entrenamiento'].isna() | (df_maestro['fecha_proximo_entrenamiento'] < hoy)
+            df_sin_vigencia = df_maestro[mask_sin_vigencia]
 
-            # 3. Filtrar usuarios con calificaciones actuales críticas (70% o menos)
+            # B) Cronograma General: Vencen en los próximos 365 días EXCLUSIVAMENTE (Descarta vencidos)
+            mask_proximos_365 = (df_maestro['fecha_proximo_entrenamiento'] >= hoy) & (df_maestro['fecha_proximo_entrenamiento'] <= limite_365)
+            df_vencen_anio = df_maestro[mask_proximos_365]
+
+            # C) Vencen este mes (Descarta los que ya vencieron en meses previos)
+            mask_mes = (df_maestro['fecha_proximo_entrenamiento'] >= hoy) & (df_maestro['fecha_proximo_entrenamiento'] <= ultimo_dia_mes)
+            df_vencen_mes = df_maestro[mask_mes]
+
+            # D) Filtrar usuarios activos con calificaciones críticas en su intento más reciente (≤ 70%)
             df_bajos = pd.DataFrame()
             if not df_todo_train.empty:
                 df_todo_train['fecha_entrenamiento'] = pd.to_datetime(df_todo_train['fecha_entrenamiento'], errors='coerce')
-                # Obtenemos estrictamente la evaluación más reciente de cada empleado (Último estatus)
+                # Obtenemos la evaluación más reciente de cada empleado activo
                 df_recientes = df_todo_train.sort_values('fecha_entrenamiento', ascending=False).drop_duplicates(subset=['num_empleado'], keep='first')
                 
-                # Función exacta para calcular la efectividad analizando el JSON de respuestas
                 def evaluar_bajo_rendimiento(row):
                     detalle = row.get('detalle_respuestas', {})
                     if isinstance(detalle, dict) and len(detalle) > 0:
@@ -5180,7 +5193,6 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
                         calif_base_10 = (aciertos / total_reactivos) * 10.0
                         return calif_base_10 <= 7.0
                     else:
-                        # Respaldo de seguridad si el registro no tiene JSON
                         try:
                             return float(row['calificacion_total']) <= 7.0
                         except:
@@ -5189,45 +5201,46 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
                 df_recientes['es_bajo'] = df_recientes.apply(evaluar_bajo_rendimiento, axis=1)
                 df_bajos = df_recientes[df_recientes['es_bajo'] == True]
 
-            # Despliegue de métricas de alto nivel en KPI Cards
-            c_kpi1, c_kpi2, c_kpi3 = st.columns(3)
-            c_kpi1.metric("📌 Vencen este Mes", len(df_vencen_mes), delta=f"{len(df_vencen_mes)} Reentrenamientos", delta_color="inverse" if len(df_vencen_mes) > 0 else "normal")
-            c_kpi2.metric("📅 Vencen este Año", len(df_vencen_anio), delta=f"Total Ciclo {anio_actual}", delta_color="off")
-            c_kpi3.metric("⚠️ Personal con Nota ≤ 70%", len(df_bajos), delta="Requieren Capacitación", delta_color="inverse" if len(df_bajos) > 0 else "normal")
+            # --- DESPLIEGUE DE KPI CARDS (4 Columnas) ---
+            c_kpi1, c_kpi2, c_kpi3, c_kpi4 = st.columns(4)
+            c_kpi1.metric("🚨 Sin Vigencia / Vencidos", len(df_sin_vigencia), delta="Acción Requerida", delta_color="inverse" if len(df_sin_vigencia) > 0 else "normal")
+            c_kpi2.metric("📌 Vencen este Mes", len(df_vencen_mes), delta=f"Límite: {ultimo_dia_mes.strftime('%d-%b')}")
+            c_kpi3.metric("📅 Proyección 365", len(df_vencen_anio), delta="Próximos 12 Meses", delta_color="off")
+            c_kpi4.metric("⚠️ Notas ≤ 70%", len(df_bajos), delta="Requieren Capacitación", delta_color="inverse" if len(df_bajos) > 0 else "normal")
 
             st.divider()
 
-            # Estructuración de las tablas de datos operacionales
+            # --- TABLAS OPERACIONALES ---
             col_tablas1, col_tablas2 = st.columns(2)
             
             with col_tablas1:
-                st.markdown(f"##### ⏳ Certificaciones que expiran este mes ({hoy.strftime('%B')})")
-                if not df_vencen_mes.empty:
-                    df_vencen_mes_show = df_vencen_mes[['num_empleado', 'nombre', 'fecha_proximo_entrenamiento']].copy()
-                    df_vencen_mes_show.columns = ['Número Empleado', 'Nombre', 'Fecha de Vencimiento']
-                    st.dataframe(df_vencen_mes_show, width="stretch", hide_index=True)
+                st.markdown("##### 🚨 Personal SIN Entrenamiento Vigente (Prioridad)")
+                if not df_sin_vigencia.empty:
+                    df_sin_vigencia_show = df_sin_vigencia[['num_empleado', 'nombre', 'fecha_proximo_entrenamiento']].copy()
+                    df_sin_vigencia_show['fecha_proximo_entrenamiento'] = df_sin_vigencia_show['fecha_proximo_entrenamiento'].fillna("Nunca Registrado")
+                    df_sin_vigencia_show.columns = ['No. Empleado', 'Nombre', 'Estatus Vigencia']
+                    st.dataframe(df_sin_vigencia_show, width="stretch", hide_index=True)
                 else:
-                    st.success("🎉 Óptimo: Ninguna certificación de personal vence en el mes corriente.")
+                    st.success("🎉 Óptimo: Todo el personal activo cuenta con entrenamiento vigente.")
 
-                st.markdown("##### 🔴 Usuarios con Calificación Crítica Reciente (≤ 70%)")
+                st.markdown("##### 🔴 Notas Críticas Activas (≤ 70%)")
                 if not df_bajos.empty:
                     df_bajos_show = df_bajos[['num_empleado', 'nombre_empleado', 'calificacion_total', 'fecha_entrenamiento']].copy()
                     df_bajos_show['fecha_entrenamiento'] = df_bajos_show['fecha_entrenamiento'].dt.strftime('%d-%b-%Y')
-                    df_bajos_show.columns = ['Número Empleado', 'Nombre Completo', 'Puntuación Absoluta', 'Fecha de Examen']
+                    df_bajos_show.columns = ['No. Empleado', 'Nombre', 'Puntuación Cruda', 'Último Examen']
                     st.dataframe(df_bajos_show, width="stretch", hide_index=True)
                 else:
-                    st.success("🎉 Todo el personal evaluado cuenta con un rendimiento superior al 70%.")
+                    st.success("🎉 Ningún usuario activo con calificación reprobatoria reciente.")
 
             with col_tablas2:
-                st.markdown(f"##### 📅 Cronograma General de Reentrenamientos ({anio_actual})")
+                st.markdown(f"##### 📅 Cronograma de Reentrenamientos (Próximos 365 días)")
                 if not df_vencen_anio.empty:
                     df_vencen_anio_show = df_vencen_anio[['num_empleado', 'nombre', 'fecha_proximo_entrenamiento']].copy()
-                    # Ordenamos cronológicamente para priorizar las alertas de vencimiento próximas
-                    df_vencen_anio_show = df_vencen_anio_show.sort_values('fecha_proximo_entrenamiento')
-                    df_vencen_anio_show.columns = ['Número Empleado', 'Nombre', 'Fecha de Vencimiento']
+                    df_vencen_anio_show = df_vencen_anio_show.sort_values('fecha_proximo_entrenamiento') # Ordenar próximos a vencer
+                    df_vencen_anio_show.columns = ['No. Empleado', 'Nombre', 'Próximo Reentrenamiento']
                     st.dataframe(df_vencen_anio_show, width="stretch", hide_index=True)
                 else:
-                    st.info("No se registran entrenamientos programados para expirar en el año corriente.")
+                    st.info("No hay reentrenamientos proyectados en el periodo establecido.")
 
             # --- ANÁLISIS AVANZADO DE REACTIVOS (CON FILTRADO CONCEPTUAL) ---
             st.divider()
