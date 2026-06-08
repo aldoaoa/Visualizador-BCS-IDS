@@ -818,10 +818,11 @@ with st.sidebar:
     st.image("https://raw.githubusercontent.com/aldoaoa/Visualizador-BCS-IDS/refs/heads/main/Logo_BCS_transparent%20(1).png", use_container_width=True)
     st.divider()
 
-    if st.button("🎓 Entrenamiento ESD", use_container_width=True, type="primary" if st.session_state.vista_actual == "Entrenamiento" else "secondary"):
-        st.session_state.vista_actual = "Entrenamiento"
-        limpiar_url_escaneo()
-        st.rerun()
+    ################# Sacamos del sidebar training y lo agregamos a los botones de navegación.##############################
+    #if st.button("🎓 Entrenamiento ESD", use_container_width=True, type="primary" if st.session_state.vista_actual == "Entrenamiento" else "secondary"):
+    #   st.session_state.vista_actual = "Entrenamiento"
+    #   limpiar_url_escaneo()
+    #   st.rerun()
         
     if st.session_state.modo_lectura:
         st.warning("👁️ Modo Consulta Activo")
