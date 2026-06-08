@@ -5301,26 +5301,26 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
                                                   .order("fecha_entrenamiento", desc=True)\
                                                   .execute()
                         
-                    if resp_individual.data:
-                        df_individual = pd.DataFrame(resp_individual.data)
-                        df_individual['fecha_entrenamiento'] = pd.to_datetime(df_individual['fecha_entrenamiento']).dt.strftime('%d-%b-%Y %H:%M')
-                        
-                        nombre_detectado = df_individual.iloc[0]['nombre_empleado']
-                        st.markdown(f"👤 **Empleado:** {nombre_detectado}")
-                        
-                        # Recalcular la nota exacta al vuelo para registros históricos
-                        def calcular_nota_real(detalle):
-                            if isinstance(detalle, dict) and len(detalle) > 0:
-                                total = len(detalle)
-                                aciertos = sum([1.0 for v in detalle.values() if float(v) > 0])
-                                return round((aciertos / total) * 10.0, 2)
-                            return 0.0
+                        if resp_individual.data:
+                            df_individual = pd.DataFrame(resp_individual.data)
+                            df_individual['fecha_entrenamiento'] = pd.to_datetime(df_individual['fecha_entrenamiento']).dt.strftime('%d-%b-%Y %H:%M')
                             
-                        df_individual['Calificación (Base 10)'] = df_individual['detalle_respuestas'].apply(calcular_nota_real)
-                        
-                        # Preparar DataFrame estructurado
-                        df_tabla_individual = df_individual[['fecha_entrenamiento', 'Calificación (Base 10)', 'archivo_origen']].copy()
-                        df_tabla_individual.columns = ['Fecha de Aplicación', 'Calificación (Base 10)', 'Reporte de Origen']
+                            nombre_detectado = df_individual.iloc[0]['nombre_empleado']
+                            st.markdown(f"👤 **Empleado:** {nombre_detectado}")
+                            
+                            # Recalcular la nota exacta al vuelo para registros históricos
+                            def calcular_nota_real(detalle):
+                                if isinstance(detalle, dict) and len(detalle) > 0:
+                                    total = len(detalle)
+                                    aciertos = sum([1.0 for v in detalle.values() if float(v) > 0])
+                                    return round((aciertos / total) * 10.0, 2)
+                                return 0.0
+                                
+                            df_individual['Calificación (Base 10)'] = df_individual['detalle_respuestas'].apply(calcular_nota_real)
+                            
+                            # Preparar DataFrame estructurado
+                            df_tabla_individual = df_individual[['fecha_entrenamiento', 'Calificación (Base 10)', 'archivo_origen']].copy()
+                            df_tabla_individual.columns = ['Fecha de Aplicación', 'Calificación (Base 10)', 'Reporte de Origen']
 
                         # Definimos el estilo condicional: Rojo para reprobados (<= 7.0), verde para aprobados
                         def estilar_calificaciones(val):
