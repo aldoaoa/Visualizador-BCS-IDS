@@ -3287,6 +3287,9 @@ elif st.session_state.vista_actual == "Validación" and not st.session_state.mod
                         col_num = 'Personnel Number'
                         col_nom = 'Local name'
                         
+                        # Buscar dinámicamente la columna de departamento por si cambia de nombre
+                        col_depto = next((c for c in df_upload.columns if 'department' in str(c).lower() or 'depto' in str(c).lower() or 'área' in str(c).lower() or 'area' in str(c).lower() or 'cost center' in str(c).lower()), None)
+                        
                         if col_num not in df_upload.columns or col_nom not in df_upload.columns:
                             st.error(f"❌ Las columnas no coinciden. Columnas detectadas en la tabla: {', '.join(df_upload.columns)}")
                         else:
@@ -3300,24 +3303,32 @@ elif st.session_state.vista_actual == "Validación" and not st.session_state.mod
                             if st.button("🔄 Sincronizar Padrón de Personal", type="primary"):
                                 with st.spinner("Comparando base de datos con el nuevo archivo de HC..."):
                                     
-                                    # 1. Limpiar los IDs del Excel entrante
-                                    df_raw['num_empleado_clean'] = df_raw[col_num].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
-                                    # Descartar filas vacías
-                                    df_excel = df_raw[df_raw['num_empleado_clean'] != 'nan'] 
+                                    # 1. Limpiar los IDs usando df_upload (CORRECCIÓN AQUÍ)
+                                    df_upload['num_empleado_clean'] = df_upload[col_num].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
                                     
-                                    # Crear un diccionario del Excel para acceso rápido: { '1234': {'nombre': 'Juan', 'depto': 'SMT'} }
+                                    # Descartar filas vacías o nulas
+                                    df_excel = df_upload[(df_upload['num_empleado_clean'] != 'nan') & (df_upload['num_empleado_clean'] != '') & (df_upload['num_empleado_clean'] != 'None')] 
+                                    
+                                    # Crear un diccionario del Excel para acceso rápido
                                     empleados_excel = {}
                                     for _, row in df_excel.iterrows():
                                         emp_id = row['num_empleado_clean']
+                                        
+                                        # Validación segura para el departamento
+                                        if col_depto and col_depto in df_excel.columns:
+                                            depto_val = str(row.get(col_depto, 'N/D')).strip()[:100]
+                                        else:
+                                            depto_val = "No Especificado"
+                                            
                                         empleados_excel[emp_id] = {
                                             "nombre": str(row.get(col_nom, 'N/D')).strip()[:100],
-                                            "departamento": str(row.get(col_depto, 'N/D')).strip()[:100], # Cambia col_depto por tu columna real
+                                            "departamento": depto_val, 
                                             "estatus_empleado": "Activo"
                                         }
                                         
                                     set_excel_ids = set(empleados_excel.keys())
 
-                                    # 2. Descargar el estado actual de la Base de Datos (Solo necesitamos los IDs y su estatus)
+                                    # 2. Descargar el estado actual de la Base de Datos (Solo IDs y estatus)
                                     try:
                                         resp_db = supabase.table("empleados_batas").select("num_empleado, estatus_empleado").execute()
                                         db_data = resp_db.data
@@ -3327,17 +3338,16 @@ elif st.session_state.vista_actual == "Validación" and not st.session_state.mod
                                         
                                     set_db_ids = set([str(x['num_empleado']).strip() for x in db_data])
                                     
-                                    # 3. LÓGICA DE CONJUNTOS (La magia de la sincronización)
+                                    # 3. LÓGICA DE CONJUNTOS
                                     
-                                    # A) ALTAS NUEVAS: Están en el Excel, pero no en la BD
+                                    # A) ALTAS NUEVAS
                                     ids_nuevos = set_excel_ids - set_db_ids
                                     
-                                    # B) BAJAS (Soft Delete): Están activos en la BD, pero ya no vienen en el Excel
-                                    # Filtramos para no volver a dar de baja a los que ya están dados de baja
+                                    # B) BAJAS (Soft Delete)
                                     activos_en_db = set([str(x['num_empleado']).strip() for x in db_data if x.get('estatus_empleado') == 'Activo'])
                                     ids_baja = activos_en_db - set_excel_ids
                                     
-                                    # C) ACTUALIZACIONES: Están en ambos lados (se actualiza nombre/depto por si hubo cambios y se asegura estatus Activo)
+                                    # C) ACTUALIZACIONES
                                     ids_actualizar = set_excel_ids.intersection(set_db_ids)
 
                                     # --- EJECUCIÓN EN SUPABASE ---
@@ -3347,7 +3357,6 @@ elif st.session_state.vista_actual == "Validación" and not st.session_state.mod
                                     for emp_id in ids_nuevos:
                                         datos = empleados_excel[emp_id]
                                         datos['num_empleado'] = emp_id
-                                        # Campos de entrenamiento vacíos porque son nuevos
                                         lote_altas.append(datos)
                                         
                                     if lote_altas:
@@ -3360,8 +3369,9 @@ elif st.session_state.vista_actual == "Validación" and not st.session_state.mod
                                         supabase.table("empleados_batas").update(datos).eq("num_empleado", emp_id).execute()
 
                                     # Procesar BAJAS (Update estatus a 'Baja' / 'Inactivo')
-                                    for emp_id in ids_baja:
-                                        supabase.table("empleados_batas").update({"estatus_empleado": "Baja"}).eq("num_empleado", emp_id).execute()
+                                    if ids_baja:
+                                        for emp_id in ids_baja:
+                                            supabase.table("empleados_batas").update({"estatus_empleado": "Baja"}).eq("num_empleado", emp_id).execute()
 
                                     # --- RESUMEN FINAL ---
                                     st.success("✅ Sincronización de personal completada con éxito.")
