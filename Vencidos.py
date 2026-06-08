@@ -944,65 +944,86 @@ if id_escaneado_url or valor_ocr_detectado:
 elif id_baja_url:
     st.session_state.vista_actual = "Alta"
 
+# --- MENÚ DE NAVEGACIÓN DINÁMICO ---
+rol = st.session_state.get("rol_usuario", "Consulta")
+
+# Definir qué pestañas puede ver cada rol
+es_admin = rol in ["Admin", "Auditor"]
+es_rh = rol == "RH_Training"
+
 if not st.session_state.modo_lectura:
     # Ajustamos a 6 columnas tras agrupar Auditorías y Pruebas
-    c_nav1, c_nav2, c_nav3, c_nav4, c_nav5, c_nav6 = st.columns(6)
-    
-    with c_nav1:
-        if st.button("🗺️ Mapa y Reportes", use_container_width=True, type="primary" if st.session_state.vista_actual == "Mapa" else "secondary"):
-            st.session_state.vista_actual = "Mapa"
-            limpiar_url_escaneo() 
-            st.rerun()
-            
-    with c_nav2:
-        # Menú desplegable para Auditorías
-        with st.popover("📋 Auditorías", use_container_width=True):
-            if st.button("📱 Escáner", use_container_width=True, type="primary" if st.session_state.vista_actual == "Escáner" else "secondary"):
-                st.session_state.vista_actual = "Escáner"
-                limpiar_url_escaneo()
+    c_nav1, c_nav2, c_nav3, c_nav4, c_nav5, c_nav6, c_nav7 = st.columns(7)
+    # Pestañas generales (solo Personal ESD o admin)
+    if es_admin:
+        with c_nav1:
+            if st.button("🗺️ Mapa y Reportes", use_container_width=True, type="primary" if st.session_state.vista_actual == "Mapa" else "secondary"):
+                st.session_state.vista_actual = "Mapa"
+                limpiar_url_escaneo() 
                 st.rerun()
-            if st.button("🆕 Alta/Baja", use_container_width=True, type="primary" if st.session_state.vista_actual == "Alta" else "secondary"):
-                st.session_state.vista_actual = "Alta"
-                limpiar_url_escaneo()
-                st.rerun()
-            if st.button("🏭 Maquinaria", use_container_width=True, type="primary" if st.session_state.vista_actual == "Maquinaria" else "secondary"):
-                st.session_state.vista_actual = "Maquinaria"
-                limpiar_url_escaneo()
-                st.rerun()
-            if st.button("🌍 Tierras", use_container_width=True, type="primary" if st.session_state.vista_actual == "Tierras" else "secondary"):
-                st.session_state.vista_actual = "Tierras"
+                
+        with c_nav2:
+            # Menú desplegable para Auditorías
+            with st.popover("📋 Auditorías", use_container_width=True):
+                if st.button("📱 Escáner", use_container_width=True, type="primary" if st.session_state.vista_actual == "Escáner" else "secondary"):
+                    st.session_state.vista_actual = "Escáner"
+                    limpiar_url_escaneo()
+                    st.rerun()
+                if st.button("🆕 Alta/Baja", use_container_width=True, type="primary" if st.session_state.vista_actual == "Alta" else "secondary"):
+                    st.session_state.vista_actual = "Alta"
+                    limpiar_url_escaneo()
+                    st.rerun()
+                if st.button("🏭 Maquinaria", use_container_width=True, type="primary" if st.session_state.vista_actual == "Maquinaria" else "secondary"):
+                    st.session_state.vista_actual = "Maquinaria"
+                    limpiar_url_escaneo()
+                    st.rerun()
+                if st.button("🌍 Tierras", use_container_width=True, type="primary" if st.session_state.vista_actual == "Tierras" else "secondary"):
+                    st.session_state.vista_actual = "Tierras"
+                    limpiar_url_escaneo()
+                    st.rerun()
+                    
+        with c_nav3:
+            # Menú desplegable para Pruebas
+            with st.popover("🧪 Pruebas", use_container_width=True):
+                if st.button("⚡ Event Meter", use_container_width=True, type="primary" if st.session_state.vista_actual == "Event Meter" else "secondary"):
+                    st.session_state.vista_actual = "Event Meter"
+                    limpiar_url_escaneo()
+                    st.rerun()
+                if st.button("🚶‍♂️ Walking Test", use_container_width=True, type="primary" if st.session_state.vista_actual == "Walking Test" else "secondary"):
+                    st.session_state.vista_actual = "Walking Test"
+                    limpiar_url_escaneo()
+                    st.rerun()
+                    
+        with c_nav4:
+            if st.button("✅ Validación", use_container_width=True, type="primary" if st.session_state.vista_actual == "Validación" else "secondary"):
+                st.session_state.vista_actual = "Validación"
                 limpiar_url_escaneo()
                 st.rerun()
                 
-    with c_nav3:
-        # Menú desplegable para Pruebas
-        with st.popover("🧪 Pruebas", use_container_width=True):
-            if st.button("⚡ Event Meter", use_container_width=True, type="primary" if st.session_state.vista_actual == "Event Meter" else "secondary"):
-                st.session_state.vista_actual = "Event Meter"
+        with c_nav5:
+            if st.button("📅 Programación", use_container_width=True, type="primary" if st.session_state.vista_actual == "Schedule" else "secondary"):
+                st.session_state.vista_actual = "Schedule"
                 limpiar_url_escaneo()
-                st.rerun()
-            if st.button("🚶‍♂️ Walking Test", use_container_width=True, type="primary" if st.session_state.vista_actual == "Walking Test" else "secondary"):
-                st.session_state.vista_actual = "Walking Test"
-                limpiar_url_escaneo()
-                st.rerun()
+                st.rerun()  
                 
-    with c_nav4:
-        if st.button("✅ Validación", use_container_width=True, type="primary" if st.session_state.vista_actual == "Validación" else "secondary"):
-            st.session_state.vista_actual = "Validación"
-            limpiar_url_escaneo()
+        with c_nav6:
+            if st.button("🔌 Sensibilidad", use_container_width=True, type="primary" if st.session_state.vista_actual == "Sensibilidad" else "secondary"):
+                st.session_state.vista_actual = "Sensibilidad"
+                limpiar_url_escaneo()
+                st.rerun()
+    # Pestaña de Entrenamiento (Visible para ambos)
+    with c_nav7:
+        if st.button("🎓 Entrenamiento", width="stretch", type="primary" if st.session_state.vista_actual == "Entrenamiento" else "secondary"):
+            st.session_state.vista_actual = "Entrenamiento"
             st.rerun()
-            
-    with c_nav5:
-        if st.button("📅 Programación", use_container_width=True, type="primary" if st.session_state.vista_actual == "Schedule" else "secondary"):
-            st.session_state.vista_actual = "Schedule"
-            limpiar_url_escaneo()
-            st.rerun()  
-            
-    with c_nav6:
-        if st.button("🔌 Sensibilidad", use_container_width=True, type="primary" if st.session_state.vista_actual == "Sensibilidad" else "secondary"):
-            st.session_state.vista_actual = "Sensibilidad"
-            limpiar_url_escaneo()
-            st.rerun()
+
+    # Si es solo RH, ocultamos el resto de botones
+    if es_rh:
+        st.info("👤 Modo RH: Acceso restringido a módulo de Entrenamiento.")
+        # Aquí puedes forzar que si intentan cambiar de vista, los regrese
+        if st.session_state.vista_actual not in ["Entrenamiento"]:
+            st.session_state.vista_actual = "Entrenamiento"
+            st.rerun()            
 else:
     st.session_state.vista_actual = "Escáner"
 
@@ -3668,7 +3689,7 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
                     nuevo_nombre = st.text_input("Nombre Real (Ej: Juan Pérez)")
                     nuevo_user = st.text_input("ID de Usuario de acceso (Ej: jperez)")
                     nuevo_pwd = st.text_input("Contraseña", type="password")
-                    nuevo_rol = st.selectbox("Rol en el Sistema", ["Auditor", "Admin"])
+                    nuevo_rol = st.selectbox("Rol en el Sistema", ["Auditor", "Admin", "RH_Training"])
                     
                     if st.form_submit_button("💾 Registrar Usuario", use_container_width=True):
                         if nuevo_nombre and nuevo_user and nuevo_pwd:
