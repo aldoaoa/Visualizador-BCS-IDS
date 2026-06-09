@@ -5032,13 +5032,13 @@ elif st.session_state.vista_actual == "Tierras" and not st.session_state.modo_le
         if "borrador_piso" not in st.session_state:
             st.session_state.borrador_piso = {}
 
-        # --- SECCIÓN A: MAPA DE CALOR VERDADERO (CONTINUO Y PROPORCIONAL) ---
+        # --- SECCIÓN A: MAPA DE CALOR RADIAL (IDW) ---
         st.divider()
-        st.markdown(f"#### 🌡️ Estado del Piso (Mapa Calor Interpolado) - {cuarto_sel}")
+        st.markdown(f"#### 🌡️ Estado del Piso (Mapa de Calor Radial) - {cuarto_sel}")
         
         try:
             import numpy as np
-            from scipy.interpolate import griddata
+            from scipy.spatial.distance import cdist
             import plotly.graph_objects as go
             import math
             import requests
@@ -5047,15 +5047,15 @@ elif st.session_state.vista_actual == "Tierras" and not st.session_state.modo_le
             
             url_img = diagramas_cuartos[cuarto_sel]
             
-            # --- 1. LECTURA DINÁMICA DE LA IMAGEN PARA PROPORCIONES PERFECTAS ---
+            # 1. LECTURA DINÁMICA DE LA IMAGEN PARA PROPORCIONES PERFECTAS
             try:
                 response = requests.get(url_img)
                 img_pil = Image.open(BytesIO(response.content))
                 img_width, img_height = img_pil.size
             except Exception as e:
-                st.warning("No se pudo cargar la imagen para extraer dimensiones. Usando medidas estándar.")
+                st.warning("No se pudo cargar la imagen original. Usando formato estándar.")
                 img_width, img_height = 1000, 700
-                img_pil = url_img # Fallback al link
+                img_pil = url_img 
 
             coords_map = COORDENADAS_PISOS.get(cuarto_sel, {})
             
@@ -5066,7 +5066,6 @@ elif st.session_state.vista_actual == "Tierras" and not st.session_state.modo_le
                 ultima_fecha = df_piso_hist['fecha_medicion'].max()
                 df_latest = df_piso_hist[df_piso_hist['fecha_medicion'] == ultima_fecha].copy()
                 
-                # 2. Preparar datos para interpolación (Resolviendo la inversión del Eje Y)
                 know_points_x = []
                 know_points_y = []
                 values_log = []
@@ -5077,13 +5076,12 @@ elif st.session_state.vista_actual == "Tierras" and not st.session_state.modo_le
                     if pt in coords_map:
                         val = float(row['medicion_ohms'])
                         
-                        # Fija los valores logarítmicos entre 7 y 9
+                        # Fija los valores logarítmicos entre 7 y 9 (1e7 a 1e9)
                         log_val = math.log10(val) if val > 0 else 7.0
                         log_val_clamped = max(7.0, min(9.0, log_val))
                         
-                        # Traducción de Coordenadas de Paint a Plano Cartesiano
                         x_plot = coords_map[pt][0]
-                        y_plot = img_height - coords_map[pt][1] # Desinversión dinámica usando la altura real
+                        y_plot = img_height - coords_map[pt][1] 
                         
                         know_points_x.append(x_plot)
                         know_points_y.append(y_plot)
@@ -5093,34 +5091,50 @@ elif st.session_state.vista_actual == "Tierras" and not st.session_state.modo_le
                             "X": x_plot, "Y": y_plot, "P": pt, "R": f"{val:.2e}"
                         })
 
-                if len(know_points_x) >= 4:
-                    # 3. Crear rejilla densa adaptada al tamaño real de la imagen
-                    grid_x, grid_y = np.mgrid[0:img_width:150j, 0:img_height:150j]
-                    points = np.array([know_points_x, know_points_y]).T
+                if len(know_points_x) >= 2:
+                    # 2. RESOLUCIÓN PROPORCIONAL PARA EVITAR ÓVALOS
+                    # Forzamos que la cuadrícula matemática tenga la misma relación de aspecto que la imagen
+                    res_x = 250
+                    res_y = max(10, int(250 * (img_height / img_width)))
                     
-                    # 4. Interpolación matemática (crea el degradado continuo)
-                    grid_z = griddata(points, values_log, (grid_x, grid_y), method='linear')
-                    grid_z_filled = griddata(points, values_log, (grid_x, grid_y), method='nearest')
-                    grid_z = np.where(np.isnan(grid_z), grid_z_filled, grid_z)
+                    grid_x, grid_y = np.mgrid[0:img_width:complex(0, res_x), 0:img_height:complex(0, res_y)]
+                    
+                    grid_coords = np.vstack([grid_x.ravel(), grid_y.ravel()]).T
+                    known_coords = np.array([know_points_x, know_points_y]).T
+                    known_values = np.array(values_log)
+
+                    # 3. INTERPOLACIÓN RADIAL (INVERSE DISTANCE WEIGHTING - IDW)
+                    # Calcula la distancia exacta en píxeles creando áreas de influencia circulares
+                    dists = cdist(grid_coords, known_coords)
+                    dists = np.where(dists == 0, 1e-10, dists) # Evitar división por cero
+                    
+                    # 'power' controla qué tan grandes son los círculos. 2.5 es ideal para disipación.
+                    power = 2.5 
+                    weights = 1.0 / (dists ** power)
+                    
+                    grid_z_flat = np.sum(weights * known_values, axis=1) / np.sum(weights, axis=1)
+                    grid_z = grid_z_flat.reshape(res_x, res_y)
 
                     fig = go.Figure()
 
-                    # 5. CAPA DE CALOR: Capa semitransparente con los colores normativos
+                    # 4. CAPA DE CALOR: 5 colores de transición para degradado suave
                     fig.add_trace(go.Heatmap(
                         z=grid_z.T, 
-                        x=np.linspace(0, img_width, 150),
-                        y=np.linspace(0, img_height, 150),
+                        x=np.linspace(0, img_width, res_x),
+                        y=np.linspace(0, img_height, res_y),
                         colorscale=[
-                            [0.0, "rgba(40, 167, 69, 0.65)"],  # VERDE (10^7)
-                            [0.5, "rgba(255, 193, 7, 0.65)"],  # AMARILLO (10^8)
-                            [1.0, "rgba(220, 53, 69, 0.70)"]   # ROJO (10^9)
+                            [0.00, "rgba(40, 167, 69, 0.45)"],   # 7.0: Verde 
+                            [0.25, "rgba(139, 195, 74, 0.50)"],  # 7.5: Verde Claro
+                            [0.50, "rgba(255, 193, 7, 0.55)"],   # 8.0: Amarillo
+                            [0.75, "rgba(253, 126, 20, 0.65)"],  # 8.5: Naranja
+                            [1.00, "rgba(220, 53, 69, 0.75)"]    # 9.0: Rojo (Falla)
                         ],
                         zmin=7.0, zmax=9.0, 
                         showscale=False,
                         hoverinfo='skip'
                     ))
 
-                    # 6. CAPA DE PUNTOS: Dibujamos los números exactos
+                    # 5. CAPA DE PUNTOS
                     df_reales = pd.DataFrame(puntos_reales)
                     fig.add_trace(go.Scatter(
                         x=df_reales['X'], y=df_reales['Y'],
@@ -5133,7 +5147,7 @@ elif st.session_state.vista_actual == "Tierras" and not st.session_state.modo_le
                         customdata=df_reales['R']
                     ))
 
-                    # 7. CONFIGURACIÓN DEL PLANO: Bloqueo estricto de proporción
+                    # 6. CONFIGURACIÓN DEL PLANO Y BLOQUEO DE PROPORCIÓN
                     fig.update_layout(
                         xaxis=dict(visible=False, range=[0, img_width]),
                         yaxis=dict(visible=False, range=[0, img_height], scaleanchor="x", scaleratio=1), 
@@ -5142,7 +5156,7 @@ elif st.session_state.vista_actual == "Tierras" and not st.session_state.modo_le
                             xref="x", yref="y",
                             x=0, y=img_height, 
                             sizex=img_width, sizey=img_height,
-                            sizing="stretch", # Como los ejes y la imagen miden lo mismo, stretch es perfecto
+                            sizing="stretch",
                             layer="below"
                         )],
                         margin=dict(l=0, r=0, t=0, b=0),
@@ -5152,7 +5166,7 @@ elif st.session_state.vista_actual == "Tierras" and not st.session_state.modo_le
                     st.plotly_chart(fig, use_container_width=True)
                     st.caption(f"Visualizando estado actual basado en auditoría del: {str(ultima_fecha)[:10]}")
                 else:
-                    st.warning(f"Se necesitan al menos 4 puntos medidos en la última auditoría para generar el mapa continuo.")
+                    st.warning(f"Se necesitan al menos 2 puntos medidos para generar el mapa continuo.")
                     st.image(diagramas_cuartos[cuarto_sel], use_container_width=True)
             else:
                 st.info(f"No hay mediciones históricas para proyectar el mapa de calor.")
