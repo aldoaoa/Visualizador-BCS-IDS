@@ -5034,20 +5034,18 @@ elif st.session_state.vista_actual == "Tierras" and not st.session_state.modo_le
 
         # --- SECCIÓN A: MAPA DE CALOR VERDADERO (CONTINUO) ---
         st.divider()
-        st.markdown(f"#### 🌡️ Estado del Piso (Mapa Calor Interpolado) - {cuarto_sel}")
+        st.markdown(f"#### 🌡️ Estado del Piso (Mapa de Calor) - {cuarto_sel}")
         
-        # Definir extensión aproximada de la imagen basada en las coordenadas
-        # Esto asegura que la imagen de fondo no se estire y mantenga proporción
+        # Dimensiones estimadas para contener el plano sin estirarse
         img_width = 1050
         img_height = 750
         coords_map = COORDENADAS_PISOS.get(cuarto_sel, {})
 
         try:
-            # Importaciones necesarias para interpolación
             import numpy as np
             from scipy.interpolate import griddata
+            import plotly.graph_objects as go  # Librería fundamental para capas
             
-            # Consultamos base de datos
             resp_piso_hist = supabase.table("validacion_piso").select("*").eq("cuarto", cuarto_sel).order("fecha_medicion", desc=True).limit(500).execute()
             df_piso_hist = pd.DataFrame(resp_piso_hist.data)
             
@@ -5055,7 +5053,7 @@ elif st.session_state.vista_actual == "Tierras" and not st.session_state.modo_le
                 ultima_fecha = df_piso_hist['fecha_medicion'].max()
                 df_latest = df_piso_hist[df_piso_hist['fecha_medicion'] == ultima_fecha].copy()
                 
-                # 1. Preparar datos para interpolación
+                # 1. Preparar datos para interpolación (Resolviendo la inversión del Eje Y)
                 know_points_x = []
                 know_points_y = []
                 values_log = []
@@ -5065,93 +5063,93 @@ elif st.session_state.vista_actual == "Tierras" and not st.session_state.modo_le
                     pt = int(row['punto'])
                     if pt in coords_map:
                         val = float(row['medicion_ohms'])
-                        know_points_x.append(coords_map[pt][0])
-                        # Invertimos Y para Scipy porque las imágenes se leen de arriba a abajo en Plotly
-                        know_points_y.append(coords_map[pt][1]) 
-                        values_log.append(math.log10(val) if val > 0 else 7)
+                        
+                        # A) Fija los valores logarítmicos entre 7 y 9 para asegurar colores consistentes
+                        log_val = math.log10(val) if val > 0 else 7.0
+                        log_val_clamped = max(7.0, min(9.0, log_val))
+                        
+                        # B) Traducción de Coordenadas de Paint a Plano Cartesiano
+                        x_paint = coords_map[pt][0]
+                        y_paint = coords_map[pt][1]
+                        x_plot = x_paint
+                        y_plot = img_height - y_paint # <--- AQUÍ OCURRE LA MAGIA PARA DESVOLTEAR LOS PUNTOS
+                        
+                        know_points_x.append(x_plot)
+                        know_points_y.append(y_plot)
+                        values_log.append(log_val_clamped)
+                        
                         puntos_reales.append({
-                            "X": coords_map[pt][0], "Y": coords_map[pt][1], 
-                            "P": pt, "R": f"{val:.2e}"
+                            "X": x_plot, "Y": y_plot, "P": pt, "R": f"{val:.2e}"
                         })
 
-                if len(know_points_x) >= 4: # Necesitamos al menos unos pocos puntos para interpolar
-                    # 2. Crear rejilla densa sobre el área de la imagen
+                if len(know_points_x) >= 4:
+                    # 2. Crear rejilla densa (100x100) sobre todo el plano
                     grid_x, grid_y = np.mgrid[0:img_width:100j, 0:img_height:100j]
                     points = np.array([know_points_x, know_points_y]).T
                     
-                    # 3. INTERPOLACIÓN MATEMÁTICA (Linear para degradados suaves sin inventar picos extremos)
+                    # 3. Interpolación matemática (crea el degradado continuo)
                     grid_z = griddata(points, values_log, (grid_x, grid_y), method='linear')
-                    
-                    # Rellenar NaNs en los bordes (donde scipy no puede extrapolar)
                     grid_z_filled = griddata(points, values_log, (grid_x, grid_y), method='nearest')
                     grid_z = np.where(np.isnan(grid_z), grid_z_filled, grid_z)
 
-                    # 4. Crear Gráfica Plotly
                     fig = go.Figure()
 
-                    # -- CAPA 1: El Verdadero Mapa de Calor CONTINUO (Interpolado) como Image/Imshow --
-                    # plotly.imshow es más rápido y eficiente para mallas densas
-                    heatmap_trace = px.imshow(
-                        grid_z.T, # Trasponer para alinear ejes
+                    # 4. CAPA DE CALOR: Capa semitransparente con los colores normativos
+                    fig.add_trace(go.Heatmap(
+                        z=grid_z.T, # .T para alinear la matriz con los ejes X,Y
                         x=np.linspace(0, img_width, 100),
                         y=np.linspace(0, img_height, 100),
-                        color_continuous_scale=["#28a745", "#ffc107", "#dc3545"], # Verde -> Amarillo -> Rojo
-                        range_color=[7, 9], # 10^7 a 10^9
-                        aspect="auto", # Scipy grid ya tiene la forma correcta
-                    ).data[0]
-                    
-                    # Ajustar transparencia del overlay de color
-                    heatmap_trace.update(opacity=0.55, hoverinfo='skip')
-                    fig.add_trace(heatmap_trace)
+                        colorscale=[
+                            [0.0, "rgba(40, 167, 69, 0.65)"],  # VERDE: < 10^8
+                            [0.5, "rgba(255, 193, 7, 0.65)"],  # AMARILLO ALERTA: ~ 10^8
+                            [1.0, "rgba(220, 53, 69, 0.70)"]   # ROJO FALLA: >= 10^9
+                        ],
+                        zmin=7.0, zmax=9.0, # Fija la escala rígidamente
+                        showscale=False,
+                        hoverinfo='skip'
+                    ))
 
-                    # -- CAPA 2: Puntos Reales y Etiquetas (Opcional, ayuda a identificar) --
+                    # 5. CAPA DE PUNTOS: Dibujamos los números exactos
                     df_reales = pd.DataFrame(puntos_reales)
                     fig.add_trace(go.Scatter(
                         x=df_reales['X'], y=df_reales['Y'],
                         mode='markers+text',
                         text=df_reales['P'],
-                        marker=dict(size=20, color='black', line=dict(width=1, color='white')),
+                        marker=dict(size=22, color='black', line=dict(width=2, color='white')),
                         textposition="middle center",
                         textfont=dict(color='white', size=11, weight='bold'),
-                        hovertemplate="<b>Punto %{text}</b><br>Resistencia: %{customdata} Ω<extra></extra>",
+                        hovertemplate="<b>Punto %{text}</b><br>Resistencia Real: %{customdata} Ω<extra></extra>",
                         customdata=df_reales['R']
                     ))
 
-                    # 5. Configuración del Layout (IMAGEN DE FONDO Y PROPORCIÓN CORRECTA)
+                    # 6. CONFIGURACIÓN DEL PLANO: Imagen de fondo y proporciones bloqueadas
                     fig.update_layout(
                         xaxis=dict(visible=False, range=[0, img_width]),
-                        # scaleanchor="x" FUERZA a que el eje Y mantenga la misma proporción de píxeles que X
-                        # El diagrama NO SE ESTIRARÁ.
-                        yaxis=dict(visible=False, range=[img_height, 0], scaleanchor="x", scaleratio=1), 
+                        yaxis=dict(visible=False, range=[0, img_height], scaleanchor="x", scaleratio=1), 
                         images=[dict(
                             source=diagramas_cuartos[cuarto_sel],
-                            xref="x", yref="y", x=0, y=0,
+                            xref="x", yref="y",
+                            x=0, y=img_height, # Esquina superior izquierda
                             sizex=img_width, sizey=img_height,
-                            sizing="stretch", # Esto estira la imagen DENTRO del contenedor fijo (bounding box)
+                            sizing="stretch",
                             layer="below"
                         )],
                         margin=dict(l=0, r=0, t=0, b=0),
                         height=600,
-                        coloraxis_colorbar=dict(
-                            title="Estado Piso (Ω)", tickvals=[7, 8, 9],
-                            ticktext=["< 10^7 (Pasa)", "10^8 (Alerta)", "≥ 10^9 (Falla)"],
-                            len=0.6, yanchor="top", y=1
-                        ),
                         showlegend=False
                     )
                     
                     st.plotly_chart(fig, use_container_width=True)
                     st.caption(f"Visualizando estado actual basado en auditoría del: {str(ultima_fecha)[:10]}")
                 else:
-                    st.warning(f"Se necesitan al menos 4 puntos medidos en la última auditoría para generar un degradado continuo. Mostrando solo diagrama.")
+                    st.warning(f"Se necesitan al menos 4 puntos medidos en la última auditoría para generar el mapa continuo.")
                     st.image(diagramas_cuartos[cuarto_sel], use_container_width=True)
             else:
-                st.info(f"No hay mediciones históricas para proyectar el mapa de calor del {cuarto_sel}.")
+                st.info(f"No hay mediciones históricas para proyectar el mapa de calor.")
                 st.image(diagramas_cuartos[cuarto_sel], use_container_width=True)
                 
         except ImportError:
-            st.error("Error: Faltan librerías para la interpolación del mapa de calor. Ejecuta: pip install numpy scipy")
-            st.image(diagramas_cuartos[cuarto_sel], use_container_width=True)
+            st.error("Error: Faltan librerías. Ejecuta en tu terminal: pip install numpy scipy")
         except Exception as e:
             st.error(f"Error generando el mapa de calor avanzado: {e}")
 
@@ -5165,6 +5163,8 @@ elif st.session_state.vista_actual == "Tierras" and not st.session_state.modo_le
             hum_piso = c_met3.text_input("Humedad (% RH):", value="45")
             
             st.markdown("##### 📍 Captura de Puntos (Ohms)")
+            st.caption("Introduce la base y exponente (Ej: 5.2e7). Deja en 0 los puntos que no apliquen.")
+            
             puntos_rtg = {}
             for fila in range(3):
                 cols = st.columns(5)
@@ -5182,7 +5182,7 @@ elif st.session_state.vista_actual == "Tierras" and not st.session_state.modo_le
             btn_borrador = c_btn1.form_submit_button("📝 Guardar Borrador (Temporal)", use_container_width=True)
             submit_piso = c_btn2.form_submit_button("💾 Guardar Validación Final", type="primary", use_container_width=True)
 
-        # Lógica formularios (Borrador / Guardado)
+        # Lógica formularios
         if btn_borrador:
             for p_num, p_val in puntos_rtg.items():
                 if p_val > 0: st.session_state.borrador_piso[f"{cuarto_sel}_{p_num}"] = p_val
