@@ -11,3 +11,5 @@ st-supabase-connection
 Werkzeug
 streamlit
 pandas
+numpy
+scipy
