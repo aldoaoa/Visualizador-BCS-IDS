@@ -5048,6 +5048,9 @@ elif st.session_state.vista_actual == "Tierras" and not st.session_state.modo_le
         st.markdown(f"**Diagrama de Puntos: {cuarto_sel}**")
         st.image(diagramas_cuartos[cuarto_sel], use_container_width=True)
         st.divider()
+        # 1. Inicializar el caché persistente para los borradores si no existe
+        if "borrador_piso" not in st.session_state:
+            st.session_state.borrador_piso = {}
 
         with st.form("form_validacion_piso"):
             c_met1, c_met2, c_met3 = st.columns(3)
@@ -5058,58 +5061,92 @@ elif st.session_state.vista_actual == "Tierras" and not st.session_state.modo_le
             st.markdown("##### 📍 Captura de Puntos (Ohms)")
             st.caption("Si la medición está en formato científico, introdúcela como base y exponente (Ej: 5.2e7 -> 52000000). Deja en 0 los puntos que no apliquen.")
             
-            # Generamos 15 inputs en un grid de 3 filas x 5 columnas
             puntos_rtg = {}
             for fila in range(3):
                 cols = st.columns(5)
                 for col_idx in range(5):
                     punto_num = (fila * 5) + col_idx + 1
+                    
+                    # --- MAGIA DEL BORRADOR ---
+                    # Buscamos si este punto específico ya fue guardado en el borrador de este cuarto
+                    llave_unica = f"{cuarto_sel}_{punto_num}"
+                    valor_previo = st.session_state.borrador_piso.get(llave_unica, None)
+                    
                     with cols[col_idx]:
-                        # Utilizamos notación científica por default para facilitar la lectura de los ceros
-                        val = st.number_input(f"Punto {punto_num}", min_value=0.0, format="%.2e", step=1e6, key=f"punto_{cuarto_sel}_{punto_num}", value=None, placeholder="0.0")
+                        # Inyectamos el valor_previo y quitamos el parámetro 'key' para que no compita
+                        val = st.number_input(
+                            f"Punto {punto_num}", 
+                            min_value=0.0, 
+                            format="%.2e", 
+                            step=1e6, 
+                            value=valor_previo, 
+                            placeholder="0.0"
+                        )
                         puntos_rtg[punto_num] = val
 
-            if st.form_submit_button("💾 Guardar Validación del Cuarto", use_container_width=True):
-                puntos_a_guardar = {k: v for k, v in puntos_rtg.items() if v > 0}
-                
-                if not puntos_a_guardar:
-                    st.error("⚠️ Debes registrar al menos un punto mayor a 0 para guardar.")
-                else:
-                    with st.spinner(f"Guardando {len(puntos_a_guardar)} puntos del {cuarto_sel}..."):
-                        fallas = 0
-                        registros_db = []
-                        fecha_registro = datetime.now().isoformat()
+            st.divider()
+            
+            # --- DOS BOTONES DE ACCIÓN ---
+            c_btn1, c_btn2 = st.columns(2)
+            btn_borrador = c_btn1.form_submit_button("📝 Guardar Borrador (No envía a BD)", use_container_width=True)
+            submit_piso = c_btn2.form_submit_button("💾 Guardar Validación del Cuarto", type="primary", use_container_width=True)
+
+        # =======================================================
+        # LÓGICA DE PROCESAMIENTO (FUERA DEL FORMULARIO)
+        # =======================================================
+        
+        if btn_borrador:
+            # Guardamos todo lo que escribió en el diccionario persistente del servidor
+            for p_num, p_val in puntos_rtg.items():
+                if p_val > 0:
+                    st.session_state.borrador_piso[f"{cuarto_sel}_{p_num}"] = p_val
+            st.success("✅ Progreso guardado temporalmente. Puedes apagar la tablet o cambiar de pestaña sin perder los datos.")
+
+        if submit_piso:
+            puntos_a_guardar = {k: v for k, v in puntos_rtg.items() if v > 0}
+            
+            if not puntos_a_guardar:
+                st.error("⚠️ Debes registrar al menos un punto mayor a 0 para guardar.")
+            else:
+                with st.spinner(f"Guardando {len(puntos_a_guardar)} puntos del {cuarto_sel}..."):
+                    fallas = 0
+                    registros_db = []
+                    fecha_registro = datetime.now().isoformat()
+                    
+                    for p_num, p_val in puntos_a_guardar.items():
+                        estatus_punto = "PASA" if p_val < 1.0e9 else "FALLA"
+                        if estatus_punto == "FALLA":
+                            fallas += 1
+                            
+                        registros_db.append({
+                            "cuarto": cuarto_sel,
+                            "punto": p_num,
+                            "medicion_ohms": p_val,
+                            "temperatura": temp_piso,
+                            "humedad": hum_piso,
+                            "equipo_medicion": equipo_piso_sel,
+                            "estatus": estatus_punto,
+                            "auditor": st.session_state.usuario_nombre,
+                            "fecha_medicion": fecha_registro
+                        })
                         
-                        for p_num, p_val in puntos_a_guardar.items():
-                            estatus_punto = "PASA" if p_val < 1.0e9 else "FALLA"
-                            if estatus_punto == "FALLA":
-                                fallas += 1
-                                
-                            registros_db.append({
-                                "cuarto": cuarto_sel,
-                                "punto": p_num,
-                                "medicion_ohms": p_val,
-                                "temperatura": temp_piso,
-                                "humedad": hum_piso,
-                                "equipo_medicion": equipo_piso_sel,
-                                "estatus": estatus_punto,
-                                "auditor": st.session_state.usuario_nombre,
-                                "fecha_medicion": fecha_registro
-                            })
+                    try:
+                        supabase.table("validacion_piso").insert(registros_db).execute()
+                        
+                        # LIMPIEZA: Si se guardó con éxito en SQL, borramos el caché temporal de ese cuarto
+                        for p_num in range(1, 16):
+                            st.session_state.borrador_piso.pop(f"{cuarto_sel}_{p_num}", None)
+                        
+                        if fallas == 0:
+                            st.success(f"✅ ¡Cuarto validado con éxito! Se registraron {len(puntos_a_guardar)} puntos dentro de especificación (< 1.0x10^9 Ω).")
+                        else:
+                            st.error(f"🚨 ¡Atención! Se registraron {fallas} puntos fuera de especificación. Requiere acción de limpieza o mantenimiento.")
                             
-                        try:
-                            supabase.table("validacion_piso").insert(registros_db).execute()
-                            
-                            if fallas == 0:
-                                st.success(f"✅ ¡Cuarto validado con éxito! Se registraron {len(puntos_a_guardar)} puntos dentro de especificación (< 1.0x10^9 Ω).")
-                            else:
-                                st.error(f"🚨 ¡Atención! Se registraron {fallas} puntos fuera de especificación. Requiere acción de limpieza o mantenimiento.")
-                                
-                            st.balloons()
-                            time.sleep(2)
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Error al guardar los puntos en SQL: {e}")
+                        st.balloons()
+                        time.sleep(2.5)
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error al guardar los puntos en SQL: {e}")
     # --- PESTAÑA 4: CHECADORES INTEGRADOS (NUEVO) ---
     with tab_checadores:
         st.markdown("#### 🛂 Verificación Mensual de Checadores Integrados")
