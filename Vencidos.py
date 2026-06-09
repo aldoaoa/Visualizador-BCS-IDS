@@ -5016,7 +5016,34 @@ elif st.session_state.vista_actual == "Tierras" and not st.session_state.modo_le
             equipos_piso = ["Sin equipos registrados"]
 
         cuarto_sel = st.selectbox("1. Selecciona el Cuarto a Validar:", options=list(diagramas_cuartos.keys()))
+
+        # --- NUEVA SECCIÓN: VISOR DE HISTORIAL DE PISOS ---
+        st.divider()
+        st.markdown("#### 📂 Historial de Validaciones de Piso")
         
+        if st.button("🔄 Actualizar Historial de Pisos"):
+            st.rerun()
+            
+        try:
+            # Consultamos la tabla de validación de pisos
+            resp_piso_hist = supabase.table("validacion_piso").select("*").order("fecha_medicion", desc=True).limit(500).execute()
+            df_piso_hist = pd.DataFrame(resp_piso_hist.data)
+            
+            if not df_piso_hist.empty:
+                # Formateo visual
+                df_piso_hist['fecha_medicion'] = pd.to_datetime(df_piso_hist['fecha_medicion']).dt.strftime('%d-%b-%Y')
+                df_piso_hist['medicion_ohms'] = df_piso_hist['medicion_ohms'].apply(lambda x: f"{float(x):.2e} Ω")
+                
+                # Columnas amigables
+                df_mostrar = df_piso_hist[['fecha_medicion', 'cuarto', 'punto', 'medicion_ohms', 'estatus', 'auditor']].copy()
+                df_mostrar.columns = ['Fecha', 'Cuarto', 'Punto', 'Resistencia', 'Estatus', 'Auditor']
+                
+                st.dataframe(df_mostrar, use_container_width=True, hide_index=True)
+            else:
+                st.info("Aún no hay mediciones de piso registradas.")
+        except Exception as e:
+            st.error(f"Error al cargar historial de pisos: {e}")
+            
         # Mostrar el diagrama del cuarto seleccionado
         st.markdown(f"**Diagrama de Puntos: {cuarto_sel}**")
         st.image(diagramas_cuartos[cuarto_sel], use_container_width=True)
