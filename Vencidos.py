@@ -1424,6 +1424,7 @@ elif st.session_state.vista_actual == "Mapa" and not st.session_state.modo_lectu
             df_total = df_ion_local.copy()
         elif tipo_mapa == "Pisos":
             # --- CONFIGURACIÓN DE RECURSOS PARA PISOS ---
+            df_total = df_piso_local.copy() if not df_piso_local.empty else pd.DataFrame()
             diagramas_cuartos = {
                 "Cuarto 1": "https://raw.githubusercontent.com/aldoaoa/Visualizador-BCS-IDS/refs/heads/testing/1.png",
                 "Cuarto 2": "https://raw.githubusercontent.com/aldoaoa/Visualizador-BCS-IDS/refs/heads/testing/2.png",
