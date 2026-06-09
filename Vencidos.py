@@ -4990,22 +4990,22 @@ elif st.session_state.vista_actual == "Tierras" and not st.session_state.modo_le
         except Exception as e:
             st.error(f"Error al cargar el historial: {e}")
 
-    # --- PESTAÑA 3: VALIDACIÓN DE PISO Y MAPA DE CALOR ---
+    # --- PESTAÑA 3: VALIDACIÓN DE PISO Y MAPA DE CALOR CONTINUO ---
     with tab_piso:
-        st.markdown("#### 🗺️ Validación Semestral de Piso ESD")
-        st.info("Medición de Resistencia a Tierra (RTG). Límite de aprobación: < 1.0x10^9 Ω.")
+        st.markdown("#### 🗺️ Visualización Avanzada de Piso ESD")
+        st.info("Límite de aprobación ANSI/ESD S20.20: < 1.0x10^9 Ω (1 Gigaohm).")
         
         # Diccionario con las URLs de los diagramas
         diagramas_cuartos = {
-            "Cuarto 1": "https://raw.githubusercontent.com/aldoaoa/Visualizador-BCS-IDS/refs/heads/testing/1.png?text=Diagrama+Cuarto+1",
-            "Cuarto 2": "https://raw.githubusercontent.com/aldoaoa/Visualizador-BCS-IDS/refs/heads/testing/2.png?text=Diagrama+Cuarto+2",
-            "Cuarto 3": "https://raw.githubusercontent.com/aldoaoa/Visualizador-BCS-IDS/refs/heads/testing/3.png?text=Diagrama+Cuarto+3",
-            "Cuarto 4": "https://raw.githubusercontent.com/aldoaoa/Visualizador-BCS-IDS/refs/heads/testing/4.png?text=Diagrama+Cuarto+4",
-            "Cuarto 5": "https://raw.githubusercontent.com/aldoaoa/Visualizador-BCS-IDS/refs/heads/testing/5.png?text=Diagrama+Cuarto+5",
-            "Cuarto 6": "https://raw.githubusercontent.com/aldoaoa/Visualizador-BCS-IDS/refs/heads/testing/6.png?text=Diagrama+Cuarto+6"
+            "Cuarto 1": "https://raw.githubusercontent.com/aldoaoa/Visualizador-BCS-IDS/refs/heads/testing/1.png",
+            "Cuarto 2": "https://raw.githubusercontent.com/aldoaoa/Visualizador-BCS-IDS/refs/heads/testing/2.png",
+            "Cuarto 3": "https://raw.githubusercontent.com/aldoaoa/Visualizador-BCS-IDS/refs/heads/testing/3.png",
+            "Cuarto 4": "https://raw.githubusercontent.com/aldoaoa/Visualizador-BCS-IDS/refs/heads/testing/4.png",
+            "Cuarto 5": "https://raw.githubusercontent.com/aldoaoa/Visualizador-BCS-IDS/refs/heads/testing/5.png",
+            "Cuarto 6": "https://raw.githubusercontent.com/aldoaoa/Visualizador-BCS-IDS/refs/heads/testing/6.png"
         }
 
-        # Coordenadas exactas mapeadas para el Heatmap
+        # Tus coordenadas mapeadas
         COORDENADAS_PISOS = {
             "Cuarto 1": {1: (53, 649), 2: (241, 656), 3: (508, 651), 4: (576, 568), 5: (484, 567), 6: (242, 567), 7: (56, 472), 8: (241, 466), 9: (471, 466), 10: (533, 381), 11: (243, 384), 12: (242, 259), 13: (593, 258), 14: (205, 173), 15: (561, 66)},
             "Cuarto 2": {1: (38, 404), 2: (174, 365), 3: (154, 277), 4: (255, 222), 5: (109, 65), 6: (346, 85), 7: (523, 90), 8: (579, 211), 9: (334, 201), 10: (330, 380), 11: (253, 461), 12: (251, 585), 13: (588, 385), 14: (590, 511), 15: (482, 595)},
@@ -5027,79 +5027,132 @@ elif st.session_state.vista_actual == "Tierras" and not st.session_state.modo_le
 
         cuarto_sel = st.selectbox("1. Selecciona el Cuarto a Validar / Consultar:", options=list(diagramas_cuartos.keys()))
         
-        # 1. Inicializar el caché persistente para los borradores si no existe
+        # Inicializar borrador
         if "borrador_piso" not in st.session_state:
             st.session_state.borrador_piso = {}
 
-        # --- SECCIÓN A: MAPA DE CALOR (HISTÓRICO MÁS RECIENTE) ---
+        # --- SECCIÓN A: MAPA DE CALOR VERDADERO (CONTINUO) ---
         st.divider()
-        st.markdown(f"#### 🌡️ Mapa de Calor de Resistencia - {cuarto_sel}")
+        st.markdown(f"#### 🌡️ Estado del Piso (Mapa Calor Interpolado) - {cuarto_sel}")
         
+        # Definir extensión aproximada de la imagen basada en las coordenadas
+        # Esto asegura que la imagen de fondo no se estire y mantenga proporción
+        img_width = 1050
+        img_height = 750
+        coords_map = COORDENADAS_PISOS.get(cuarto_sel, {})
+
         try:
-            # Consultamos la tabla de validación de pisos
+            # Importaciones necesarias para interpolación
+            import numpy as np
+            from scipy.interpolate import griddata
+            
+            # Consultamos base de datos
             resp_piso_hist = supabase.table("validacion_piso").select("*").eq("cuarto", cuarto_sel).order("fecha_medicion", desc=True).limit(500).execute()
             df_piso_hist = pd.DataFrame(resp_piso_hist.data)
             
             if not df_piso_hist.empty:
-                # Extraemos solo la última auditoría (usando la fecha máxima)
                 ultima_fecha = df_piso_hist['fecha_medicion'].max()
                 df_latest = df_piso_hist[df_piso_hist['fecha_medicion'] == ultima_fecha].copy()
                 
-                # Preparar datos para Plotly
-                coords = COORDENADAS_PISOS.get(cuarto_sel, {})
-                plot_data = []
+                # 1. Preparar datos para interpolación
+                know_points_x = []
+                know_points_y = []
+                values_log = []
+                puntos_reales = []
+                
                 for _, row in df_latest.iterrows():
                     pt = int(row['punto'])
-                    if pt in coords:
+                    if pt in coords_map:
                         val = float(row['medicion_ohms'])
-                        # Usamos logaritmo base 10 (1e7 -> 7, 1e8 -> 8, 1e9 -> 9) para crear un degradado perfecto
-                        log_val = math.log10(val) if val > 0 else 0
-                        plot_data.append({
-                            "Punto": pt, "X": coords[pt][0], "Y": coords[pt][1], 
-                            "Resistencia": val, "LogRes": log_val, "Estatus": row['estatus']
+                        know_points_x.append(coords_map[pt][0])
+                        # Invertimos Y para Scipy porque las imágenes se leen de arriba a abajo en Plotly
+                        know_points_y.append(coords_map[pt][1]) 
+                        values_log.append(math.log10(val) if val > 0 else 7)
+                        puntos_reales.append({
+                            "X": coords_map[pt][0], "Y": coords_map[pt][1], 
+                            "P": pt, "R": f"{val:.2e}"
                         })
-                
-                if plot_data:
-                    df_plot = pd.DataFrame(plot_data)
+
+                if len(know_points_x) >= 4: # Necesitamos al menos unos pocos puntos para interpolar
+                    # 2. Crear rejilla densa sobre el área de la imagen
+                    grid_x, grid_y = np.mgrid[0:img_width:100j, 0:img_height:100j]
+                    points = np.array([know_points_x, know_points_y]).T
                     
-                    # Rango de colores dinámico: <10^7 (Verde), 10^8 (Amarillo), >=10^9 (Rojo)
-                    fig = px.scatter(
-                        df_plot, x="X", y="Y", color="LogRes", text="Punto",
+                    # 3. INTERPOLACIÓN MATEMÁTICA (Linear para degradados suaves sin inventar picos extremos)
+                    grid_z = griddata(points, values_log, (grid_x, grid_y), method='linear')
+                    
+                    # Rellenar NaNs en los bordes (donde scipy no puede extrapolar)
+                    grid_z_filled = griddata(points, values_log, (grid_x, grid_y), method='nearest')
+                    grid_z = np.where(np.isnan(grid_z), grid_z_filled, grid_z)
+
+                    # 4. Crear Gráfica Plotly
+                    fig = go.Figure()
+
+                    # -- CAPA 1: El Verdadero Mapa de Calor CONTINUO (Interpolado) como Image/Imshow --
+                    # plotly.imshow es más rápido y eficiente para mallas densas
+                    heatmap_trace = px.imshow(
+                        grid_z.T, # Trasponer para alinear ejes
+                        x=np.linspace(0, img_width, 100),
+                        y=np.linspace(0, img_height, 100),
                         color_continuous_scale=["#28a745", "#ffc107", "#dc3545"], # Verde -> Amarillo -> Rojo
-                        range_color=[7, 9], # Fija el degradado entre 10M y 1G
-                        hover_data={"X": False, "Y": False, "LogRes": False, "Resistencia": True, "Estatus": True}
-                    )
+                        range_color=[7, 9], # 10^7 a 10^9
+                        aspect="auto", # Scipy grid ya tiene la forma correcta
+                    ).data[0]
                     
-                    # Estilo de las "burbujas" del mapa de calor
-                    fig.update_traces(
-                        marker=dict(size=45, opacity=0.9, line=dict(width=2, color='black')),
-                        textfont=dict(color='white', size=16, weight='bold')
-                    )
-                    
-                    # Dibujar imagen de fondo y bloquear ejes para evitar distorsión
-                    # Asumimos un área de dibujo holgada (1050x750) para que quepan todos los cuartos
+                    # Ajustar transparencia del overlay de color
+                    heatmap_trace.update(opacity=0.55, hoverinfo='skip')
+                    fig.add_trace(heatmap_trace)
+
+                    # -- CAPA 2: Puntos Reales y Etiquetas (Opcional, ayuda a identificar) --
+                    df_reales = pd.DataFrame(puntos_reales)
+                    fig.add_trace(go.Scatter(
+                        x=df_reales['X'], y=df_reales['Y'],
+                        mode='markers+text',
+                        text=df_reales['P'],
+                        marker=dict(size=20, color='black', line=dict(width=1, color='white')),
+                        textposition="middle center",
+                        textfont=dict(color='white', size=11, weight='bold'),
+                        hovertemplate="<b>Punto %{text}</b><br>Resistencia: %{customdata} Ω<extra></extra>",
+                        customdata=df_reales['R']
+                    ))
+
+                    # 5. Configuración del Layout (IMAGEN DE FONDO Y PROPORCIÓN CORRECTA)
                     fig.update_layout(
-                        xaxis=dict(visible=False, range=[0, 1050]),
-                        yaxis=dict(visible=False, range=[750, 0]), # Eje Y invertido (imágenes se leen de arriba a abajo)
+                        xaxis=dict(visible=False, range=[0, img_width]),
+                        # scaleanchor="x" FUERZA a que el eje Y mantenga la misma proporción de píxeles que X
+                        # El diagrama NO SE ESTIRARÁ.
+                        yaxis=dict(visible=False, range=[img_height, 0], scaleanchor="x", scaleratio=1), 
                         images=[dict(
-                            source=diagramas_cuartos[cuarto_sel], xref="x", yref="y",
-                            x=0, y=0, sizex=1050, sizey=750, sizing="stretch", layer="below"
+                            source=diagramas_cuartos[cuarto_sel],
+                            xref="x", yref="y", x=0, y=0,
+                            sizex=img_width, sizey=img_height,
+                            sizing="stretch", # Esto estira la imagen DENTRO del contenedor fijo (bounding box)
+                            layer="below"
                         )],
-                        margin=dict(l=0, r=0, t=0, b=0), height=550,
+                        margin=dict(l=0, r=0, t=0, b=0),
+                        height=600,
                         coloraxis_colorbar=dict(
-                            title="Desgaste", tickvals=[7, 8, 9],
-                            ticktext=["Óptimo (<10M)", "Alerta (100M)", "Falla (≥1G)"]
-                        )
+                            title="Estado Piso (Ω)", tickvals=[7, 8, 9],
+                            ticktext=["< 10^7 (Pasa)", "10^8 (Alerta)", "≥ 10^9 (Falla)"],
+                            len=0.6, yanchor="top", y=1
+                        ),
+                        showlegend=False
                     )
                     
                     st.plotly_chart(fig, use_container_width=True)
-                    st.caption(f"Visualizando la auditoría más reciente realizada el: {str(ultima_fecha)[:10]}")
+                    st.caption(f"Visualizando estado actual basado en auditoría del: {str(ultima_fecha)[:10]}")
+                else:
+                    st.warning(f"Se necesitan al menos 4 puntos medidos en la última auditoría para generar un degradado continuo. Mostrando solo diagrama.")
+                    st.image(diagramas_cuartos[cuarto_sel], use_container_width=True)
             else:
                 st.info(f"No hay mediciones históricas para proyectar el mapa de calor del {cuarto_sel}.")
                 st.image(diagramas_cuartos[cuarto_sel], use_container_width=True)
                 
+        except ImportError:
+            st.error("Error: Faltan librerías para la interpolación del mapa de calor. Ejecuta: pip install numpy scipy")
+            st.image(diagramas_cuartos[cuarto_sel], use_container_width=True)
         except Exception as e:
-            st.error(f"Error generando el mapa de calor: {e}")
+            st.error(f"Error generando el mapa de calor avanzado: {e}")
 
         # --- SECCIÓN B: FORMULARIO DE CAPTURA CON BORRADOR ---
         st.divider()
@@ -5111,100 +5164,60 @@ elif st.session_state.vista_actual == "Tierras" and not st.session_state.modo_le
             hum_piso = c_met3.text_input("Humedad (% RH):", value="45")
             
             st.markdown("##### 📍 Captura de Puntos (Ohms)")
-            st.caption("Si la medición está en formato científico, introdúcela como base y exponente (Ej: 5.2e7 -> 52000000). Deja en 0 los puntos que no apliquen.")
-            
             puntos_rtg = {}
             for fila in range(3):
                 cols = st.columns(5)
                 for col_idx in range(5):
                     punto_num = (fila * 5) + col_idx + 1
-                    
-                    # --- MAGIA DEL BORRADOR ---
-                    # Buscamos si este punto específico ya fue guardado en el borrador
                     llave_unica = f"{cuarto_sel}_{punto_num}"
                     valor_previo = st.session_state.borrador_piso.get(llave_unica, None)
                     
                     with cols[col_idx]:
-                        val = st.number_input(
-                            f"Punto {punto_num}", 
-                            min_value=0.0, format="%.2e", step=1e6, 
-                            value=valor_previo, placeholder="0.0"
-                        )
+                        val = st.number_input(f"Punto {punto_num}", min_value=0.0, format="%.2e", step=1e6, value=valor_previo, placeholder="0.0")
                         puntos_rtg[punto_num] = val
 
             st.divider()
-            
-            # --- DOS BOTONES DE ACCIÓN ---
             c_btn1, c_btn2 = st.columns(2)
-            btn_borrador = c_btn1.form_submit_button("📝 Guardar Borrador (No envía a BD)", use_container_width=True)
-            submit_piso = c_btn2.form_submit_button("💾 Guardar Validación del Cuarto", type="primary", use_container_width=True)
+            btn_borrador = c_btn1.form_submit_button("📝 Guardar Borrador (Temporal)", use_container_width=True)
+            submit_piso = c_btn2.form_submit_button("💾 Guardar Validación Final", type="primary", use_container_width=True)
 
-        # Lógica de procesamiento de botones
+        # Lógica formularios (Borrador / Guardado)
         if btn_borrador:
             for p_num, p_val in puntos_rtg.items():
-                if p_val > 0:
-                    st.session_state.borrador_piso[f"{cuarto_sel}_{p_num}"] = p_val
-            st.success("✅ Progreso guardado temporalmente. Puedes cambiar de cuarto o apagar la pantalla sin perder los datos.")
+                if p_val > 0: st.session_state.borrador_piso[f"{cuarto_sel}_{p_num}"] = p_val
+            st.success("✅ Progreso guardado temporalmente.")
 
         if submit_piso:
             puntos_a_guardar = {k: v for k, v in puntos_rtg.items() if v > 0}
-            
             if not puntos_a_guardar:
-                st.error("⚠️ Debes registrar al menos un punto mayor a 0 para guardar.")
+                st.error("⚠️ Registra al menos un punto.")
             else:
-                with st.spinner(f"Guardando {len(puntos_a_guardar)} puntos del {cuarto_sel}..."):
-                    fallas = 0
+                with st.spinner(f"Guardando..."):
                     registros_db = []
-                    fecha_registro = datetime.now().isoformat()
-                    
+                    fecha_reg = datetime.now().isoformat()
                     for p_num, p_val in puntos_a_guardar.items():
-                        estatus_punto = "PASA" if p_val < 1.0e9 else "FALLA"
-                        if estatus_punto == "FALLA":
-                            fallas += 1
-                            
+                        estatus = "PASA" if p_val < 1.0e9 else "FALLA"
                         registros_db.append({
-                            "cuarto": cuarto_sel,
-                            "punto": p_num,
-                            "medicion_ohms": p_val,
-                            "temperatura": temp_piso,
-                            "humedad": hum_piso,
-                            "equipo_medicion": equipo_piso_sel,
-                            "estatus": estatus_punto,
-                            "auditor": st.session_state.usuario_nombre,
-                            "fecha_medicion": fecha_registro
+                            "cuarto": cuarto_sel, "punto": p_num, "medicion_ohms": p_val,
+                            "temperatura": temp_piso, "humedad": hum_piso, "equipo_medicion": equipo_piso_sel,
+                            "estatus": estatus, "auditor": st.session_state.usuario_nombre, "fecha_medicion": fecha_reg
                         })
-                        
                     try:
                         supabase.table("validacion_piso").insert(registros_db).execute()
-                        
-                        # LIMPIEZA: Si se guardó con éxito en SQL, borramos el caché temporal de ese cuarto
-                        for p_num in range(1, 16):
-                            st.session_state.borrador_piso.pop(f"{cuarto_sel}_{p_num}", None)
-                        
-                        if fallas == 0:
-                            st.success(f"✅ ¡Cuarto validado con éxito! Se registraron {len(puntos_a_guardar)} puntos dentro de especificación (< 1.0x10^9 Ω).")
-                        else:
-                            st.error(f"🚨 ¡Atención! Se registraron {fallas} puntos fuera de especificación. Requiere acción de limpieza o mantenimiento.")
-                            
+                        for p_num in range(1, 16): st.session_state.borrador_piso.pop(f"{cuarto_sel}_{p_num}", None)
+                        st.success(f"✅ ¡Datos guardados!")
                         st.balloons()
-                        time.sleep(2.5)
+                        time.sleep(1.5)
                         st.rerun()
-                    except Exception as e:
-                        st.error(f"Error al guardar los puntos en SQL: {e}")
+                    except Exception as e: st.error(f"Error SQL: {e}")
 
         # --- SECCIÓN C: TABLA HISTÓRICA COMPLETA ---
         st.divider()
-        st.markdown("#### 📂 Historial Tabular de Pisos")
+        st.markdown("#### 📂 Historial de Mediciones (Tabla)")
         if 'df_piso_hist' in locals() and not df_piso_hist.empty:
-            df_mostrar = df_piso_hist[['fecha_medicion', 'cuarto', 'punto', 'medicion_ohms', 'estatus', 'auditor']].copy()
-            # Formateo
-            df_mostrar['fecha_medicion'] = pd.to_datetime(df_mostrar['fecha_medicion']).dt.strftime('%d-%b-%Y')
+            df_mostrar = df_piso_hist[['fecha_medicion', 'cuarto', 'punto', 'medicion_ohms', 'estatus']].copy()
             df_mostrar['medicion_ohms'] = df_mostrar['medicion_ohms'].apply(lambda x: f"{float(x):.2e} Ω")
-            df_mostrar.columns = ['Fecha', 'Cuarto', 'Punto', 'Resistencia', 'Estatus', 'Auditor']
-            
             st.dataframe(df_mostrar, use_container_width=True, hide_index=True)
-        else:
-            st.info("Aún no hay mediciones registradas en el historial global.")
     # --- PESTAÑA 4: CHECADORES INTEGRADOS (NUEVO) ---
     with tab_checadores:
         st.markdown("#### 🛂 Verificación Mensual de Checadores Integrados")
