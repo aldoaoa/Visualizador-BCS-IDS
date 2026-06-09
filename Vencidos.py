@@ -4990,12 +4990,12 @@ elif st.session_state.vista_actual == "Tierras" and not st.session_state.modo_le
         except Exception as e:
             st.error(f"Error al cargar el historial: {e}")
 
-    # --- PESTAÑA 3: VALIDACIÓN DE PISO (NUEVO) ---
+    # --- PESTAÑA 3: VALIDACIÓN DE PISO Y MAPA DE CALOR ---
     with tab_piso:
         st.markdown("#### 🗺️ Validación Semestral de Piso ESD")
         st.info("Medición de Resistencia a Tierra (RTG). Límite de aprobación: < 1.0x10^9 Ω.")
         
-        # Diccionario con las URLs de los diagramas de los 6 cuartos (Reemplaza con tus URLs reales en Github/Supabase)
+        # Diccionario con las URLs de los diagramas
         diagramas_cuartos = {
             "Cuarto 1": "https://raw.githubusercontent.com/aldoaoa/Visualizador-BCS-IDS/refs/heads/testing/1.png?text=Diagrama+Cuarto+1",
             "Cuarto 2": "https://raw.githubusercontent.com/aldoaoa/Visualizador-BCS-IDS/refs/heads/testing/2.png?text=Diagrama+Cuarto+2",
@@ -5003,6 +5003,16 @@ elif st.session_state.vista_actual == "Tierras" and not st.session_state.modo_le
             "Cuarto 4": "https://raw.githubusercontent.com/aldoaoa/Visualizador-BCS-IDS/refs/heads/testing/4.png?text=Diagrama+Cuarto+4",
             "Cuarto 5": "https://raw.githubusercontent.com/aldoaoa/Visualizador-BCS-IDS/refs/heads/testing/5.png?text=Diagrama+Cuarto+5",
             "Cuarto 6": "https://raw.githubusercontent.com/aldoaoa/Visualizador-BCS-IDS/refs/heads/testing/6.png?text=Diagrama+Cuarto+6"
+        }
+
+        # Coordenadas exactas mapeadas para el Heatmap
+        COORDENADAS_PISOS = {
+            "Cuarto 1": {1: (53, 649), 2: (241, 656), 3: (508, 651), 4: (576, 568), 5: (484, 567), 6: (242, 567), 7: (56, 472), 8: (241, 466), 9: (471, 466), 10: (533, 381), 11: (243, 384), 12: (242, 259), 13: (593, 258), 14: (205, 173), 15: (561, 66)},
+            "Cuarto 2": {1: (38, 404), 2: (174, 365), 3: (154, 277), 4: (255, 222), 5: (109, 65), 6: (346, 85), 7: (523, 90), 8: (579, 211), 9: (334, 201), 10: (330, 380), 11: (253, 461), 12: (251, 585), 13: (588, 385), 14: (590, 511), 15: (482, 595)},
+            "Cuarto 3": {1: (74, 585), 2: (128, 422), 3: (126, 199), 4: (263, 93), 5: (329, 37), 6: (614, 71), 7: (545, 180), 8: (341, 259), 9: (233, 338), 10: (280, 474), 11: (225, 586), 12: (424, 394), 13: (424, 543), 14: (549, 472), 15: (633, 380)},
+            "Cuarto 4": {1: (71, 425), 2: (84, 271), 3: (117, 59), 4: (375, 60), 5: (503, 65), 6: (581, 205), 7: (547, 328), 8: (175, 335), 9: (274, 381), 10: (434, 375), 11: (415, 466), 12: (174, 557), 13: (598, 517), 14: (293, 629), 15: (568, 629)},
+            "Cuarto 5": {1: (50, 81), 2: (107, 309), 3: (176, 569), 4: (293, 487), 5: (523, 563), 6: (826, 488), 7: (923, 376), 8: (682, 369), 9: (391, 276), 10: (733, 239), 11: (389, 145), 12: (718, 128), 13: (905, 215), 14: (860, 89), 15: (963, 547)},
+            "Cuarto 6": {1: (92, 567), 2: (135, 466), 3: (112, 313), 4: (147, 167), 5: (185, 40), 6: (370, 42), 7: (708, 46), 8: (702, 196), 9: (368, 197), 10: (705, 295), 11: (370, 297), 12: (602, 387), 13: (707, 587), 14: (437, 587), 15: (247, 596)}
         }
 
         # Obtenemos equipos
@@ -5015,43 +5025,85 @@ elif st.session_state.vista_actual == "Tierras" and not st.session_state.modo_le
         if not equipos_piso:
             equipos_piso = ["Sin equipos registrados"]
 
-        cuarto_sel = st.selectbox("1. Selecciona el Cuarto a Validar:", options=list(diagramas_cuartos.keys()))
-
-        # --- NUEVA SECCIÓN: VISOR DE HISTORIAL DE PISOS ---
-        st.divider()
-        st.markdown("#### 📂 Historial de Validaciones de Piso")
+        cuarto_sel = st.selectbox("1. Selecciona el Cuarto a Validar / Consultar:", options=list(diagramas_cuartos.keys()))
         
-        if st.button("🔄 Actualizar Historial de Pisos"):
-            st.rerun()
-            
-        try:
-            # Consultamos la tabla de validación de pisos
-            resp_piso_hist = supabase.table("validacion_piso").select("*").order("fecha_medicion", desc=True).limit(500).execute()
-            df_piso_hist = pd.DataFrame(resp_piso_hist.data)
-            
-            if not df_piso_hist.empty:
-                # Formateo visual
-                df_piso_hist['fecha_medicion'] = pd.to_datetime(df_piso_hist['fecha_medicion']).dt.strftime('%d-%b-%Y')
-                df_piso_hist['medicion_ohms'] = df_piso_hist['medicion_ohms'].apply(lambda x: f"{float(x):.2e} Ω")
-                
-                # Columnas amigables
-                df_mostrar = df_piso_hist[['fecha_medicion', 'cuarto', 'punto', 'medicion_ohms', 'estatus', 'auditor']].copy()
-                df_mostrar.columns = ['Fecha', 'Cuarto', 'Punto', 'Resistencia', 'Estatus', 'Auditor']
-                
-                st.dataframe(df_mostrar, use_container_width=True, hide_index=True)
-            else:
-                st.info("Aún no hay mediciones de piso registradas.")
-        except Exception as e:
-            st.error(f"Error al cargar historial de pisos: {e}")
-            
-        # Mostrar el diagrama del cuarto seleccionado
-        st.markdown(f"**Diagrama de Puntos: {cuarto_sel}**")
-        st.image(diagramas_cuartos[cuarto_sel], use_container_width=True)
-        st.divider()
         # 1. Inicializar el caché persistente para los borradores si no existe
         if "borrador_piso" not in st.session_state:
             st.session_state.borrador_piso = {}
 
+        # --- SECCIÓN A: MAPA DE CALOR (HISTÓRICO MÁS RECIENTE) ---
+        st.divider()
+        st.markdown(f"#### 🌡️ Mapa de Calor de Resistencia - {cuarto_sel}")
+        
+        try:
+            # Consultamos la tabla de validación de pisos
+            resp_piso_hist = supabase.table("validacion_piso").select("*").eq("cuarto", cuarto_sel).order("fecha_medicion", desc=True).limit(500).execute()
+            df_piso_hist = pd.DataFrame(resp_piso_hist.data)
+            
+            if not df_piso_hist.empty:
+                # Extraemos solo la última auditoría (usando la fecha máxima)
+                ultima_fecha = df_piso_hist['fecha_medicion'].max()
+                df_latest = df_piso_hist[df_piso_hist['fecha_medicion'] == ultima_fecha].copy()
+                
+                # Preparar datos para Plotly
+                coords = COORDENADAS_PISOS.get(cuarto_sel, {})
+                plot_data = []
+                for _, row in df_latest.iterrows():
+                    pt = int(row['punto'])
+                    if pt in coords:
+                        val = float(row['medicion_ohms'])
+                        # Usamos logaritmo base 10 (1e7 -> 7, 1e8 -> 8, 1e9 -> 9) para crear un degradado perfecto
+                        log_val = math.log10(val) if val > 0 else 0
+                        plot_data.append({
+                            "Punto": pt, "X": coords[pt][0], "Y": coords[pt][1], 
+                            "Resistencia": val, "LogRes": log_val, "Estatus": row['estatus']
+                        })
+                
+                if plot_data:
+                    df_plot = pd.DataFrame(plot_data)
+                    
+                    # Rango de colores dinámico: <10^7 (Verde), 10^8 (Amarillo), >=10^9 (Rojo)
+                    fig = px.scatter(
+                        df_plot, x="X", y="Y", color="LogRes", text="Punto",
+                        color_continuous_scale=["#28a745", "#ffc107", "#dc3545"], # Verde -> Amarillo -> Rojo
+                        range_color=[7, 9], # Fija el degradado entre 10M y 1G
+                        hover_data={"X": False, "Y": False, "LogRes": False, "Resistencia": True, "Estatus": True}
+                    )
+                    
+                    # Estilo de las "burbujas" del mapa de calor
+                    fig.update_traces(
+                        marker=dict(size=45, opacity=0.9, line=dict(width=2, color='black')),
+                        textfont=dict(color='white', size=16, weight='bold')
+                    )
+                    
+                    # Dibujar imagen de fondo y bloquear ejes para evitar distorsión
+                    # Asumimos un área de dibujo holgada (1050x750) para que quepan todos los cuartos
+                    fig.update_layout(
+                        xaxis=dict(visible=False, range=[0, 1050]),
+                        yaxis=dict(visible=False, range=[750, 0]), # Eje Y invertido (imágenes se leen de arriba a abajo)
+                        images=[dict(
+                            source=diagramas_cuartos[cuarto_sel], xref="x", yref="y",
+                            x=0, y=0, sizex=1050, sizey=750, sizing="stretch", layer="below"
+                        )],
+                        margin=dict(l=0, r=0, t=0, b=0), height=550,
+                        coloraxis_colorbar=dict(
+                            title="Desgaste", tickvals=[7, 8, 9],
+                            ticktext=["Óptimo (<10M)", "Alerta (100M)", "Falla (≥1G)"]
+                        )
+                    )
+                    
+                    st.plotly_chart(fig, use_container_width=True)
+                    st.caption(f"Visualizando la auditoría más reciente realizada el: {str(ultima_fecha)[:10]}")
+            else:
+                st.info(f"No hay mediciones históricas para proyectar el mapa de calor del {cuarto_sel}.")
+                st.image(diagramas_cuartos[cuarto_sel], use_container_width=True)
+                
+        except Exception as e:
+            st.error(f"Error generando el mapa de calor: {e}")
+
+        # --- SECCIÓN B: FORMULARIO DE CAPTURA CON BORRADOR ---
+        st.divider()
+        st.markdown("#### 📝 Captura de Nueva Auditoría")
         with st.form("form_validacion_piso"):
             c_met1, c_met2, c_met3 = st.columns(3)
             equipo_piso_sel = c_met1.selectbox("Equipo de Medición:", options=equipos_piso)
@@ -5068,19 +5120,15 @@ elif st.session_state.vista_actual == "Tierras" and not st.session_state.modo_le
                     punto_num = (fila * 5) + col_idx + 1
                     
                     # --- MAGIA DEL BORRADOR ---
-                    # Buscamos si este punto específico ya fue guardado en el borrador de este cuarto
+                    # Buscamos si este punto específico ya fue guardado en el borrador
                     llave_unica = f"{cuarto_sel}_{punto_num}"
                     valor_previo = st.session_state.borrador_piso.get(llave_unica, None)
                     
                     with cols[col_idx]:
-                        # Inyectamos el valor_previo y quitamos el parámetro 'key' para que no compita
                         val = st.number_input(
                             f"Punto {punto_num}", 
-                            min_value=0.0, 
-                            format="%.2e", 
-                            step=1e6, 
-                            value=valor_previo, 
-                            placeholder="0.0"
+                            min_value=0.0, format="%.2e", step=1e6, 
+                            value=valor_previo, placeholder="0.0"
                         )
                         puntos_rtg[punto_num] = val
 
@@ -5091,16 +5139,12 @@ elif st.session_state.vista_actual == "Tierras" and not st.session_state.modo_le
             btn_borrador = c_btn1.form_submit_button("📝 Guardar Borrador (No envía a BD)", use_container_width=True)
             submit_piso = c_btn2.form_submit_button("💾 Guardar Validación del Cuarto", type="primary", use_container_width=True)
 
-        # =======================================================
-        # LÓGICA DE PROCESAMIENTO (FUERA DEL FORMULARIO)
-        # =======================================================
-        
+        # Lógica de procesamiento de botones
         if btn_borrador:
-            # Guardamos todo lo que escribió en el diccionario persistente del servidor
             for p_num, p_val in puntos_rtg.items():
                 if p_val > 0:
                     st.session_state.borrador_piso[f"{cuarto_sel}_{p_num}"] = p_val
-            st.success("✅ Progreso guardado temporalmente. Puedes apagar la tablet o cambiar de pestaña sin perder los datos.")
+            st.success("✅ Progreso guardado temporalmente. Puedes cambiar de cuarto o apagar la pantalla sin perder los datos.")
 
         if submit_piso:
             puntos_a_guardar = {k: v for k, v in puntos_rtg.items() if v > 0}
@@ -5147,6 +5191,20 @@ elif st.session_state.vista_actual == "Tierras" and not st.session_state.modo_le
                         st.rerun()
                     except Exception as e:
                         st.error(f"Error al guardar los puntos en SQL: {e}")
+
+        # --- SECCIÓN C: TABLA HISTÓRICA COMPLETA ---
+        st.divider()
+        st.markdown("#### 📂 Historial Tabular de Pisos")
+        if 'df_piso_hist' in locals() and not df_piso_hist.empty:
+            df_mostrar = df_piso_hist[['fecha_medicion', 'cuarto', 'punto', 'medicion_ohms', 'estatus', 'auditor']].copy()
+            # Formateo
+            df_mostrar['fecha_medicion'] = pd.to_datetime(df_mostrar['fecha_medicion']).dt.strftime('%d-%b-%Y')
+            df_mostrar['medicion_ohms'] = df_mostrar['medicion_ohms'].apply(lambda x: f"{float(x):.2e} Ω")
+            df_mostrar.columns = ['Fecha', 'Cuarto', 'Punto', 'Resistencia', 'Estatus', 'Auditor']
+            
+            st.dataframe(df_mostrar, use_container_width=True, hide_index=True)
+        else:
+            st.info("Aún no hay mediciones registradas en el historial global.")
     # --- PESTAÑA 4: CHECADORES INTEGRADOS (NUEVO) ---
     with tab_checadores:
         st.markdown("#### 🛂 Verificación Mensual de Checadores Integrados")
