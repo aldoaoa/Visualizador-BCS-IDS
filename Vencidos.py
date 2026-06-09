@@ -1423,7 +1423,117 @@ elif st.session_state.vista_actual == "Mapa" and not st.session_state.modo_lectu
         elif tipo_mapa == "Ionizadores":
             df_total = df_ion_local.copy()
         elif tipo_mapa == "Pisos":
-            df_total = df_piso_local.copy() # <-- Usamos el DataFrame de pisos que ya descargas al inicio
+            # --- CONFIGURACIÓN DE RECURSOS PARA PISOS ---
+            diagramas_cuartos = {
+                "Cuarto 1": "https://raw.githubusercontent.com/aldoaoa/Visualizador-BCS-IDS/refs/heads/testing/1.png",
+                "Cuarto 2": "https://raw.githubusercontent.com/aldoaoa/Visualizador-BCS-IDS/refs/heads/testing/2.png",
+                "Cuarto 3": "https://raw.githubusercontent.com/aldoaoa/Visualizador-BCS-IDS/refs/heads/testing/3.png",
+                "Cuarto 4": "https://raw.githubusercontent.com/aldoaoa/Visualizador-BCS-IDS/refs/heads/testing/4.png",
+                "Cuarto 5": "https://raw.githubusercontent.com/aldoaoa/Visualizador-BCS-IDS/refs/heads/testing/5.png",
+                "Cuarto 6": "https://raw.githubusercontent.com/aldoaoa/Visualizador-BCS-IDS/refs/heads/testing/6.png"
+            }
+
+            COORDENADAS_PISOS = {
+                "Cuarto 1": {1: (53, 649), 2: (241, 656), 3: (508, 651), 4: (576, 568), 5: (484, 567), 6: (242, 567), 7: (56, 472), 8: (241, 466), 9: (471, 466), 10: (533, 381), 11: (243, 384), 12: (242, 259), 13: (593, 258), 14: (205, 173), 15: (561, 66)},
+                "Cuarto 2": {1: (38, 404), 2: (174, 365), 3: (154, 277), 4: (255, 222), 5: (109, 65), 6: (346, 85), 7: (523, 90), 8: (579, 211), 9: (334, 201), 10: (330, 380), 11: (253, 461), 12: (251, 585), 13: (588, 385), 14: (590, 511), 15: (482, 595)},
+                "Cuarto 3": {1: (74, 585), 2: (128, 422), 3: (126, 199), 4: (263, 93), 5: (329, 37), 6: (614, 71), 7: (545, 180), 8: (341, 259), 9: (233, 338), 10: (280, 474), 11: (225, 586), 12: (424, 394), 13: (424, 543), 14: (549, 472), 15: (633, 380)},
+                "Cuarto 4": {1: (71, 425), 2: (84, 271), 3: (117, 59), 4: (375, 60), 5: (503, 65), 6: (581, 205), 7: (547, 328), 8: (175, 335), 9: (274, 381), 10: (434, 375), 11: (415, 466), 12: (174, 557), 13: (598, 517), 14: (293, 629), 15: (568, 629)},
+                "Cuarto 5": {1: (50, 81), 2: (107, 309), 3: (176, 569), 4: (293, 487), 5: (523, 563), 6: (826, 488), 7: (923, 376), 8: (682, 369), 9: (391, 276), 10: (733, 239), 11: (389, 145), 12: (718, 128), 13: (905, 215), 14: (860, 89), 15: (963, 547)},
+                "Cuarto 6": {1: (92, 567), 2: (135, 466), 3: (112, 313), 4: (147, 167), 5: (185, 40), 6: (370, 42), 7: (708, 46), 8: (702, 196), 9: (368, 197), 10: (705, 295), 11: (370, 297), 12: (602, 387), 13: (707, 587), 14: (437, 587), 15: (247, 596)}
+            }
+
+            c_p1, c_p2 = st.columns([1, 2])
+            cuarto_visualizar = c_p1.selectbox("📍 Selecciona el Cuarto para visualización física:", list(diagramas_cuartos.keys()))
+            
+            with st.spinner(f"Generando mapa de calor radial para {cuarto_visualizar}..."):
+                try:
+                    import numpy as np
+                    from scipy.spatial.distance import cdist
+                    import plotly.graph_objects as go
+                    import requests
+                    from PIL import Image
+                    from io import BytesIO
+
+                    url_img = diagramas_cuartos[cuarto_visualizar]
+                    response = requests.get(url_img)
+                    img_pil = Image.open(BytesIO(response.content))
+                    img_w, img_h = img_pil.size
+
+                    # Obtener última auditoría del cuarto seleccionado
+                    resp_db = supabase.table("validacion_piso").select("*").eq("cuarto", cuarto_visualizar).order("fecha_medicion", desc=True).limit(20).execute()
+                    df_latest = pd.DataFrame(resp_db.data)
+
+                    if not df_latest.empty:
+                        # Filtrar solo registros de la auditoría más reciente
+                        ultima_fecha = df_latest['fecha_medicion'].max()
+                        df_mapa = df_latest[df_latest['fecha_medicion'] == ultima_fecha].copy()
+                        
+                        coords_map = COORDENADAS_PISOS[cuarto_visualizar]
+                        pts_x, pts_y, vals_log, info_reales = [], [], [], []
+
+                        for _, r in df_mapa.iterrows():
+                            p = int(r['punto'])
+                            if p in coords_map:
+                                v = float(r['medicion_ohms'])
+                                lx = coords_map[p][0]
+                                ly = img_h - coords_map[p][1] # Corrección eje Y
+                                pts_x.append(lx); pts_y.append(ly)
+                                vals_log.append(max(7.0, min(9.0, math.log10(v))))
+                                info_reales.append({"X": lx, "Y": ly, "P": p, "R": f"{v:.2e}"})
+
+                        if len(pts_x) >= 2:
+                            # 1. Malla IDW
+                            rx = 200
+                            ry = int(200 * (img_h / img_w))
+                            gx, gy = np.mgrid[0:img_w:complex(0, rx), 0:img_h:complex(0, ry)]
+                            g_coords = np.vstack([gx.ravel(), gy.ravel()]).T
+                            k_coords = np.array([pts_x, pts_y]).T
+                            
+                            dists = cdist(g_coords, k_coords)
+                            dists = np.where(dists == 0, 1e-10, dists)
+                            weights = 1.0 / (dists ** 2.5)
+                            gz = (np.sum(weights * np.array(vals_log), axis=1) / np.sum(weights, axis=1)).reshape(rx, ry)
+
+                            # 2. Construcción de Figura
+                            fig_piso = go.Figure()
+                            
+                            # Capa Heatmap
+                            fig_piso.add_trace(go.Heatmap(
+                                z=gz.T, x=np.linspace(0, img_w, rx), y=np.linspace(0, img_h, ry),
+                                colorscale=[
+                                    [0.0, "rgba(40, 167, 69, 0.45)"], [0.25, "rgba(139, 195, 74, 0.5)"],
+                                    [0.5, "rgba(255, 193, 7, 0.55)"], [0.75, "rgba(253, 126, 20, 0.65)"],
+                                    [1.0, "rgba(220, 53, 69, 0.75)"]
+                                ],
+                                zmin=7, zmax=9, showscale=False, hoverinfo='skip'
+                            ))
+
+                            # Capa Puntos
+                            df_pts = pd.DataFrame(info_reales)
+                            fig_piso.add_trace(go.Scatter(
+                                x=df_pts['X'], y=df_pts['Y'], mode='markers+text', text=df_pts['P'],
+                                marker=dict(size=20, color='black', line=dict(width=1, color='white')),
+                                textposition="middle center", textfont=dict(color='white', size=10, weight='bold'),
+                                hovertemplate="Punto %{text}<br>Resistencia: %{customdata} Ω<extra></extra>",
+                                customdata=df_pts['R']
+                            ))
+
+                            # Layout
+                            fig_piso.update_layout(
+                                xaxis=dict(visible=False, range=[0, img_w]),
+                                yaxis=dict(visible=False, range=[0, img_h], scaleanchor="x", scaleratio=1),
+                                images=[dict(source=img_pil, xref="x", yref="y", x=0, y=img_h, sizex=img_w, sizey=img_h, sizing="stretch", layer="below")],
+                                margin=dict(l=0, r=0, t=0, b=0), height=600, showlegend=False
+                            )
+                            st.plotly_chart(fig_piso, use_container_width=True)
+                            st.caption(f"📅 Auditoría del {str(ultima_fecha)[:10]}")
+                        else:
+                            st.warning("Se requieren al menos 2 puntos para el renderizado radial.")
+                    else:
+                        st.info("No hay datos históricos para este cuarto.")
+                        st.image(url_img, use_container_width=True)
+                except Exception as e:
+                    st.error(f"Error en renderizado: {e}")
         else:
             # Lógica existente de Maquinaria...
             # --- NUEVA LÓGICA: EXTRAER MAQUINARIA ---
