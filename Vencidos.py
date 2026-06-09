@@ -5006,7 +5006,7 @@ elif st.session_state.vista_actual == "Tierras" and not st.session_state.modo_le
             "Cuarto 6": "https://raw.githubusercontent.com/aldoaoa/Visualizador-BCS-IDS/refs/heads/testing/6.png"
         }
 
-        # Tus coordenadas mapeadas
+        # Coordenadas exactas proporcionadas
         COORDENADAS_PISOS = {
             "Cuarto 1": {1: (53, 649), 2: (241, 656), 3: (508, 651), 4: (576, 568), 5: (484, 567), 6: (242, 567), 7: (56, 472), 8: (241, 466), 9: (471, 466), 10: (533, 381), 11: (243, 384), 12: (242, 259), 13: (593, 258), 14: (205, 173), 15: (561, 66)},
             "Cuarto 2": {1: (38, 404), 2: (174, 365), 3: (154, 277), 4: (255, 222), 5: (109, 65), 6: (346, 85), 7: (523, 90), 8: (579, 211), 9: (334, 201), 10: (330, 380), 11: (253, 461), 12: (251, 585), 13: (588, 385), 14: (590, 511), 15: (482, 595)},
@@ -5032,19 +5032,32 @@ elif st.session_state.vista_actual == "Tierras" and not st.session_state.modo_le
         if "borrador_piso" not in st.session_state:
             st.session_state.borrador_piso = {}
 
-        # --- SECCIÓN A: MAPA DE CALOR VERDADERO (CONTINUO) ---
+        # --- SECCIÓN A: MAPA DE CALOR VERDADERO (CONTINUO Y PROPORCIONAL) ---
         st.divider()
-        st.markdown(f"#### 🌡️ Estado del Piso (Mapa de Calor) - {cuarto_sel}")
+        st.markdown(f"#### 🌡️ Estado del Piso (Mapa Calor Interpolado) - {cuarto_sel}")
         
-        # Dimensiones estimadas para contener el plano sin estirarse
-        img_width = 1050
-        img_height = 750
-        coords_map = COORDENADAS_PISOS.get(cuarto_sel, {})
-
         try:
             import numpy as np
             from scipy.interpolate import griddata
-            import plotly.graph_objects as go  # Librería fundamental para capas
+            import plotly.graph_objects as go
+            import math
+            import requests
+            from PIL import Image
+            from io import BytesIO
+            
+            url_img = diagramas_cuartos[cuarto_sel]
+            
+            # --- 1. LECTURA DINÁMICA DE LA IMAGEN PARA PROPORCIONES PERFECTAS ---
+            try:
+                response = requests.get(url_img)
+                img_pil = Image.open(BytesIO(response.content))
+                img_width, img_height = img_pil.size
+            except Exception as e:
+                st.warning("No se pudo cargar la imagen para extraer dimensiones. Usando medidas estándar.")
+                img_width, img_height = 1000, 700
+                img_pil = url_img # Fallback al link
+
+            coords_map = COORDENADAS_PISOS.get(cuarto_sel, {})
             
             resp_piso_hist = supabase.table("validacion_piso").select("*").eq("cuarto", cuarto_sel).order("fecha_medicion", desc=True).limit(500).execute()
             df_piso_hist = pd.DataFrame(resp_piso_hist.data)
@@ -5053,7 +5066,7 @@ elif st.session_state.vista_actual == "Tierras" and not st.session_state.modo_le
                 ultima_fecha = df_piso_hist['fecha_medicion'].max()
                 df_latest = df_piso_hist[df_piso_hist['fecha_medicion'] == ultima_fecha].copy()
                 
-                # 1. Preparar datos para interpolación (Resolviendo la inversión del Eje Y)
+                # 2. Preparar datos para interpolación (Resolviendo la inversión del Eje Y)
                 know_points_x = []
                 know_points_y = []
                 values_log = []
@@ -5064,15 +5077,13 @@ elif st.session_state.vista_actual == "Tierras" and not st.session_state.modo_le
                     if pt in coords_map:
                         val = float(row['medicion_ohms'])
                         
-                        # A) Fija los valores logarítmicos entre 7 y 9 para asegurar colores consistentes
+                        # Fija los valores logarítmicos entre 7 y 9
                         log_val = math.log10(val) if val > 0 else 7.0
                         log_val_clamped = max(7.0, min(9.0, log_val))
                         
-                        # B) Traducción de Coordenadas de Paint a Plano Cartesiano
-                        x_paint = coords_map[pt][0]
-                        y_paint = coords_map[pt][1]
-                        x_plot = x_paint
-                        y_plot = img_height - y_paint # <--- AQUÍ OCURRE LA MAGIA PARA DESVOLTEAR LOS PUNTOS
+                        # Traducción de Coordenadas de Paint a Plano Cartesiano
+                        x_plot = coords_map[pt][0]
+                        y_plot = img_height - coords_map[pt][1] # Desinversión dinámica usando la altura real
                         
                         know_points_x.append(x_plot)
                         know_points_y.append(y_plot)
@@ -5083,33 +5094,33 @@ elif st.session_state.vista_actual == "Tierras" and not st.session_state.modo_le
                         })
 
                 if len(know_points_x) >= 4:
-                    # 2. Crear rejilla densa (100x100) sobre todo el plano
-                    grid_x, grid_y = np.mgrid[0:img_width:100j, 0:img_height:100j]
+                    # 3. Crear rejilla densa adaptada al tamaño real de la imagen
+                    grid_x, grid_y = np.mgrid[0:img_width:150j, 0:img_height:150j]
                     points = np.array([know_points_x, know_points_y]).T
                     
-                    # 3. Interpolación matemática (crea el degradado continuo)
+                    # 4. Interpolación matemática (crea el degradado continuo)
                     grid_z = griddata(points, values_log, (grid_x, grid_y), method='linear')
                     grid_z_filled = griddata(points, values_log, (grid_x, grid_y), method='nearest')
                     grid_z = np.where(np.isnan(grid_z), grid_z_filled, grid_z)
 
                     fig = go.Figure()
 
-                    # 4. CAPA DE CALOR: Capa semitransparente con los colores normativos
+                    # 5. CAPA DE CALOR: Capa semitransparente con los colores normativos
                     fig.add_trace(go.Heatmap(
-                        z=grid_z.T, # .T para alinear la matriz con los ejes X,Y
-                        x=np.linspace(0, img_width, 100),
-                        y=np.linspace(0, img_height, 100),
+                        z=grid_z.T, 
+                        x=np.linspace(0, img_width, 150),
+                        y=np.linspace(0, img_height, 150),
                         colorscale=[
-                            [0.0, "rgba(40, 167, 69, 0.65)"],  # VERDE: < 10^8
-                            [0.5, "rgba(255, 193, 7, 0.65)"],  # AMARILLO ALERTA: ~ 10^8
-                            [1.0, "rgba(220, 53, 69, 0.70)"]   # ROJO FALLA: >= 10^9
+                            [0.0, "rgba(40, 167, 69, 0.65)"],  # VERDE (10^7)
+                            [0.5, "rgba(255, 193, 7, 0.65)"],  # AMARILLO (10^8)
+                            [1.0, "rgba(220, 53, 69, 0.70)"]   # ROJO (10^9)
                         ],
-                        zmin=7.0, zmax=9.0, # Fija la escala rígidamente
+                        zmin=7.0, zmax=9.0, 
                         showscale=False,
                         hoverinfo='skip'
                     ))
 
-                    # 5. CAPA DE PUNTOS: Dibujamos los números exactos
+                    # 6. CAPA DE PUNTOS: Dibujamos los números exactos
                     df_reales = pd.DataFrame(puntos_reales)
                     fig.add_trace(go.Scatter(
                         x=df_reales['X'], y=df_reales['Y'],
@@ -5122,20 +5133,19 @@ elif st.session_state.vista_actual == "Tierras" and not st.session_state.modo_le
                         customdata=df_reales['R']
                     ))
 
-                    # 6. CONFIGURACIÓN DEL PLANO: Imagen de fondo y proporciones bloqueadas
+                    # 7. CONFIGURACIÓN DEL PLANO: Bloqueo estricto de proporción
                     fig.update_layout(
                         xaxis=dict(visible=False, range=[0, img_width]),
                         yaxis=dict(visible=False, range=[0, img_height], scaleanchor="x", scaleratio=1), 
                         images=[dict(
-                            source=diagramas_cuartos[cuarto_sel],
+                            source=img_pil,
                             xref="x", yref="y",
-                            x=0, y=img_height, # Esquina superior izquierda
+                            x=0, y=img_height, 
                             sizex=img_width, sizey=img_height,
-                            sizing="stretch",
+                            sizing="stretch", # Como los ejes y la imagen miden lo mismo, stretch es perfecto
                             layer="below"
                         )],
                         margin=dict(l=0, r=0, t=0, b=0),
-                        height=600,
                         showlegend=False
                     )
                     
@@ -5216,8 +5226,10 @@ elif st.session_state.vista_actual == "Tierras" and not st.session_state.modo_le
         st.divider()
         st.markdown("#### 📂 Historial de Mediciones (Tabla)")
         if 'df_piso_hist' in locals() and not df_piso_hist.empty:
-            df_mostrar = df_piso_hist[['fecha_medicion', 'cuarto', 'punto', 'medicion_ohms', 'estatus']].copy()
+            df_mostrar = df_piso_hist[['fecha_medicion', 'cuarto', 'punto', 'medicion_ohms', 'estatus', 'auditor']].copy()
+            df_mostrar['fecha_medicion'] = pd.to_datetime(df_mostrar['fecha_medicion']).dt.strftime('%d-%b-%Y')
             df_mostrar['medicion_ohms'] = df_mostrar['medicion_ohms'].apply(lambda x: f"{float(x):.2e} Ω")
+            df_mostrar.columns = ['Fecha', 'Cuarto', 'Punto', 'Resistencia', 'Estatus', 'Auditor']
             st.dataframe(df_mostrar, use_container_width=True, hide_index=True)
     # --- PESTAÑA 4: CHECADORES INTEGRADOS (NUEVO) ---
     with tab_checadores:
