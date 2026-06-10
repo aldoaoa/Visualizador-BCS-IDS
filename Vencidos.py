@@ -4639,7 +4639,7 @@ elif st.session_state.vista_actual == "Schedule" and not st.session_state.modo_l
     # --- SUB-PESTAÑA 2: ACCIONES URGENTES (TABLA INTEGRAL EDITABLE EN VIVO) ---
     with tab_urgentes:
         st.markdown("#### 🚨 Mesa de Control y Actualización")
-        st.caption("Modifica las celdas necesarias. Cuando termines, presiona el botón **Guardar Cambios** al final de la tabla para enviar la actualización a la base de datos.")
+        st.caption("Escribe el nuevo valor de resistencia (puedes usar **1e9**). Al guardar, el sistema evaluará el límite, cambiará el estatus y actualizará las fechas automáticamente.")
 
         with st.spinner("Compilando activos fuera de especificación o pendientes..."):
             # 1. Extraer Inventario Completo Operativo
@@ -4666,6 +4666,10 @@ elif st.session_state.vista_actual == "Schedule" and not st.session_state.modo_l
                 for _, r in df_inv_u.iterrows():
                     est = str(r.get('estatus_verificacion', '')).upper()
                     if 'VENCIDO' in est or 'PENDIENTE' in est or 'FALLA' in est or est == '':
+                        # Formatear el valor previo si existe para que se muestre en notación científica
+                        val_previo = r.get('valor_actual')
+                        val_str = f"{val_previo:.2e}" if pd.notna(val_previo) else ""
+                        
                         lista_urgentes.append({
                             "Tabla Origen": "inventario_esd",
                             "Columna_Llave": "id_producto",
@@ -4675,7 +4679,7 @@ elif st.session_state.vista_actual == "Schedule" and not st.session_state.modo_l
                             "Ubicación / Línea": r.get('linea_ubicacion', 'N/D'),
                             "Estatus": est if est else "PENDIENTE",
                             "Fecha Medición": str(r.get('fecha_ultima_verif', ''))[:10] if r.get('fecha_ultima_verif') else "",
-                            "Resistencia / Descarga (Ω/s)": r.get('valor_actual'),
+                            "Resistencia / Descarga (Ω/s)": val_str,
                             "Balance (V)": r.get('balance_ionizador'),
                             "Campo Estático (V)": None,
                             "Tomacorriente": None,
@@ -4689,6 +4693,9 @@ elif st.session_state.vista_actual == "Schedule" and not st.session_state.modo_l
                 for _, r in df_maq_u.iterrows():
                     est = str(r.get('resultado_estatus', '')).upper()
                     if 'VENCIDO' in est or 'PENDIENTE' in est or 'FALLA' in est or 'RECHAZADO' in est or est == '':
+                        val_previo = r.get('resistencia_tierra')
+                        val_str = f"{val_previo:.2e}" if pd.notna(val_previo) else ""
+                        
                         lista_urgentes.append({
                             "Tabla Origen": "mediciones_maquinaria",
                             "Columna_Llave": "id_maquinaria",
@@ -4698,7 +4705,7 @@ elif st.session_state.vista_actual == "Schedule" and not st.session_state.modo_l
                             "Ubicación / Línea": r.get('linea_ubicacion', 'N/D'),
                             "Estatus": est if est else "PENDIENTE",
                             "Fecha Medición": str(r.get('fecha_medicion', ''))[:10] if r.get('fecha_medicion') else "",
-                            "Resistencia / Descarga (Ω/s)": r.get('resistencia_tierra'),
+                            "Resistencia / Descarga (Ω/s)": val_str,
                             "Balance (V)": None,
                             "Campo Estático (V)": r.get('campo_estatico_voltaje'),
                             "Tomacorriente": r.get('tomacorriente_estatus', 'N/A'),
@@ -4723,7 +4730,8 @@ elif st.session_state.vista_actual == "Schedule" and not st.session_state.modo_l
                         "Clasificación": st.column_config.TextColumn("Clasificación", disabled=True),
                         "Estatus": st.column_config.SelectboxColumn("Estatus", options=["PENDIENTE", "VENCIDO", "VIGENTE", "FALLA", "APROBADO", "RECHAZADO"], required=True),
                         "Tomacorriente": st.column_config.SelectboxColumn("Tomacorriente", options=["PASA", "FALLA", "N/A"]),
-                        "Resistencia / Descarga (Ω/s)": st.column_config.NumberColumn("Resistencia/Descarga", format="%.2e"),
+                        # Cambiado a TextColumn para admitir "1e9" sin problemas de formato del navegador
+                        "Resistencia / Descarga (Ω/s)": st.column_config.TextColumn("Resistencia (Ω) [Ej: 1e9]", help="Admite notación científica. Ej: 1e9 o 5.5e8"),
                         "Campo Estático (V)": st.column_config.NumberColumn("Campo Estático (V)", format="%.1f"),
                         "Balance (V)": st.column_config.NumberColumn("Balance (V)", format="%.1f"),
                         "Fecha Medición": st.column_config.TextColumn("Fecha (YYYY-MM-DD)")
@@ -4740,13 +4748,12 @@ elif st.session_state.vista_actual == "Schedule" and not st.session_state.modo_l
                 btn_guardar_urgentes = c_btn_guardar.button("💾 Guardar Cambios", type="primary", use_container_width=True)
 
                 if btn_guardar_urgentes:
-                    # Capturamos todos los cambios acumulados en la sesión del editor
                     cambios_detectados = st.session_state.live_editor_urgentes.get("edited_rows", {})
                     
                     if not cambios_detectados:
                         st.info("No se ha modificado ninguna celda. No hay cambios por guardar.")
                     else:
-                        with st.spinner("Sincronizando actualizaciones con la base de datos..."):
+                        with st.spinner("Evaluando normativas y sincronizando con la base de datos..."):
                             errores = 0
                             activos_actualizados = []
                             
@@ -4760,10 +4767,36 @@ elif st.session_state.vista_actual == "Schedule" and not st.session_state.modo_l
                                 
                                 payload_update = {}
                                 
-                                # Mapeo de columnas Front-End -> Back-End (Supabase)
-                                if "Ubicación / Línea" in c_celdas:
-                                    payload_update["linea_ubicacion"] = str(c_celdas["Ubicación / Línea"]).strip().upper()
-                                    
+                                # --- MAGIA: AUTO-EVALUACIÓN DE RESISTENCIA ---
+                                if "Resistencia / Descarga (Ω/s)" in c_celdas:
+                                    val_r_raw = c_celdas["Resistencia / Descarga (Ω/s)"]
+                                    if val_r_raw is not None and str(val_r_raw).strip() != "":
+                                        try:
+                                            # Parseamos el string a float matemático (soporta "1e9")
+                                            val_r_float = float(val_r_raw)
+                                            payload_update["valor_actual" if tabla_destino == "inventario_esd" else "resistencia_tierra"] = val_r_float
+                                            
+                                            # Evaluación contra límites normativos
+                                            if tabla_destino == "mediciones_maquinaria":
+                                                # Maquinaria: Máximo 1 ohm
+                                                estatus_calc = "APROBADO" if val_r_float <= 1.0 else "FALLA"
+                                            else:
+                                                # Mobiliario: Máximo 1e9 ohms
+                                                estatus_calc = "VIGENTE" if val_r_float < 1.0e9 else "FALLA"
+                                            
+                                            # Sobrescribimos el estatus en la cola de guardado para automatizarlo
+                                            c_celdas["Estatus"] = estatus_calc
+                                            
+                                            # Estampamos la fecha actual automáticamente si no la escribieron
+                                            if "Fecha Medición" not in c_celdas:
+                                                c_celdas["Fecha Medición"] = datetime.today().strftime("%Y-%m-%d")
+                                                
+                                        except ValueError:
+                                            st.error(f"❌ Valor inválido en {id_activo_txt}: '{val_r_raw}'. Usa formato numérico.")
+                                            errores += 1
+                                            continue
+
+                                # Mapeo del resto de columnas (procesando lo autocalculado o manual)
                                 if "Estatus" in c_celdas:
                                     nuevo_est = c_celdas["Estatus"]
                                     if tabla_destino == "inventario_esd":
@@ -4772,15 +4805,17 @@ elif st.session_state.vista_actual == "Schedule" and not st.session_state.modo_l
                                         payload_update["resultado_estatus"] = nuevo_est
                                         
                                     if nuevo_est in ["VIGENTE", "APROBADO"]:
-                                        f_base = datetime.today().date()
+                                        # Base de cálculo: Fecha que se captura o Fecha de hoy
+                                        fecha_str = c_celdas.get("Fecha Medición", datetime.today().strftime("%Y-%m-%d"))
+                                        try:
+                                            f_base = datetime.strptime(fecha_str, "%Y-%m-%d").date()
+                                        except:
+                                            f_base = datetime.today().date()
+                                            
                                         payload_update["fecha_proxima" if tabla_destino == "mediciones_maquinaria" else "fecha_proxima_verif"] = (f_base + relativedelta(years=1)).isoformat()
                                 
                                 if "Fecha Medición" in c_celdas:
                                     payload_update["fecha_ultima_verif" if tabla_destino == "inventario_esd" else "fecha_medicion"] = c_celdas["Fecha Medición"]
-                                    
-                                if "Resistencia / Descarga (Ω/s)" in c_celdas:
-                                    val_r = c_celdas["Resistencia / Descarga (Ω/s)"]
-                                    payload_update["valor_actual" if tabla_destino == "inventario_esd" else "resistencia_tierra"] = float(val_r) if val_r else None
                                     
                                 if "Balance (V)" in c_celdas and tabla_destino == "inventario_esd":
                                     val_b = c_celdas["Balance (V)"]
@@ -4793,6 +4828,9 @@ elif st.session_state.vista_actual == "Schedule" and not st.session_state.modo_l
                                 if "Tomacorriente" in c_celdas and tabla_destino == "mediciones_maquinaria":
                                     payload_update["tomacorriente_estatus"] = c_celdas["Tomacorriente"]
                                     
+                                if "Ubicación / Línea" in c_celdas:
+                                    payload_update["linea_ubicacion"] = str(c_celdas["Ubicación / Línea"]).strip().upper()
+                                    
                                 if "Temp (°C)" in c_celdas:
                                     payload_update["temperatura"] = str(c_celdas["Temp (°C)"])
                                     
@@ -4802,6 +4840,7 @@ elif st.session_state.vista_actual == "Schedule" and not st.session_state.modo_l
                                 if "Notas / Observaciones" in c_celdas:
                                     payload_update["comentarios" if tabla_destino == "inventario_esd" else "observaciones"] = c_celdas["Notas / Observaciones"]
 
+                                # Inyección en la BD
                                 if payload_update:
                                     try:
                                         supabase.table(tabla_destino).update(payload_update).eq(columna_pk, id_activo_txt).execute()
@@ -4811,13 +4850,13 @@ elif st.session_state.vista_actual == "Schedule" and not st.session_state.modo_l
                                         errores += 1
                                         
                             if errores == 0 and activos_actualizados:
-                                st.success(f"✅ ¡Se han actualizado exitosamente {len(activos_actualizados)} registros!")
+                                st.success(f"✅ ¡Se han validado y actualizado exitosamente {len(activos_actualizados)} registros!")
                                 st.balloons()
                                 st.cache_data.clear()
                                 time.sleep(1.5)
                                 st.rerun()
                             elif errores > 0:
-                                st.warning("Se guardaron algunos cambios, pero hubo errores en otros. Revisa los mensajes arriba.")
+                                st.warning("Se guardaron algunos cambios, pero hubo errores. Revisa los mensajes arriba.")
 
 # ==========================================
 # VISTA 9: SENSIBILIDAD DE COMPONENTES (ESDS)
