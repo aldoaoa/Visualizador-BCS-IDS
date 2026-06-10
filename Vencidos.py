@@ -37,18 +37,26 @@ if "val_form_key" not in st.session_state:
 st.set_page_config(page_title="Control ESD BCS-AIS", layout="wide")
 
 # ==========================================
-# OPTIMIZACIÓN DE INTERFAZ (OCULTAR OVERLAY)
+# OPTIMIZACIÓN DE INTERFAZ (OCULTAR OVERLAY SIN DAÑAR SIDEBAR)
 # ==========================================
 ocultar_menu_streamlit = """
     <style>
-    #MainMenu {visibility: hidden;}
-    header {visibility: hidden;}
-    footer {visibility: hidden;}
-    div[data-testid="stDecoration"] {display: none;}
-    .stAppDeployButton {display: none;}
-    /* Ajuste extra para ganar espacio vertical en móviles */
+    /* Ocultar la línea de color degradado del tope */
+    div[data-testid="stDecoration"] { display: none; }
+    
+    /* Ocultar el botón de Deploy */
+    .stAppDeployButton { display: none; }
+    
+    /* Ocultar el menú de opciones (tres puntos / hamburguesa de la derecha) */
+    #MainMenu { visibility: hidden; }
+    div[data-testid="stToolbar"] { visibility: hidden; }
+    
+    /* Ocultar el pie de página */
+    footer { visibility: hidden; }
+    
+    /* Ajuste de margen superior para ganar espacio en pantallas pequeñas */
     .block-container {
-        padding-top: 1.5rem;
+        padding-top: 2rem;
         padding-bottom: 1rem;
     }
     </style>
