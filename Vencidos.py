@@ -4638,8 +4638,8 @@ elif st.session_state.vista_actual == "Schedule" and not st.session_state.modo_l
 
     # --- SUB-PESTAÑA 2: ACCIONES URGENTES (TABLA INTEGRAL EDITABLE EN VIVO) ---
     with tab_urgentes:
-        st.markdown("#### 🚨 Mesa de Control y Actualización en Vivo")
-        st.caption("Modifica cualquier celda y presiona **Enter**. Los cambios impactarán directamente la tabla origen en Supabase de forma inmediata.")
+        st.markdown("#### 🚨 Mesa de Control y Actualización")
+        st.caption("Modifica las celdas necesarias. Cuando termines, presiona el botón **Guardar Cambios** al final de la tabla para enviar la actualización a la base de datos.")
 
         with st.spinner("Compilando activos fuera de especificación o pendientes..."):
             # 1. Extraer Inventario Completo Operativo
@@ -4661,14 +4661,14 @@ elif st.session_state.vista_actual == "Schedule" and not st.session_state.modo_l
             # 3. Consolidar registros que requieren atención
             lista_urgentes = []
 
-            # Mapeo desde Inventario (Mobiliario, Ionizadores, Monitores, Pisos)
+            # Mapeo desde Inventario
             if not df_inv_u.empty:
                 for _, r in df_inv_u.iterrows():
                     est = str(r.get('estatus_verificacion', '')).upper()
                     if 'VENCIDO' in est or 'PENDIENTE' in est or 'FALLA' in est or est == '':
                         lista_urgentes.append({
                             "Tabla Origen": "inventario_esd",
-                            "Columna_Llave": "id_producto", # <-- Asignación automática del nombre de la columna PK
+                            "Columna_Llave": "id_producto",
                             "ID Activo": r.get('id_producto'),
                             "Categoría": r.get('categoria', 'Inventario'),
                             "Clasificación": r.get('clasificacion', 'N/D'),
@@ -4691,7 +4691,7 @@ elif st.session_state.vista_actual == "Schedule" and not st.session_state.modo_l
                     if 'VENCIDO' in est or 'PENDIENTE' in est or 'FALLA' in est or 'RECHAZADO' in est or est == '':
                         lista_urgentes.append({
                             "Tabla Origen": "mediciones_maquinaria",
-                            "Columna_Llave": "id_maquinaria", # <-- Asignación automática del nombre de la columna PK
+                            "Columna_Llave": "id_maquinaria",
                             "ID Activo": r.get('id_maquinaria'),
                             "Categoría": "Maquinaria",
                             "Clasificación": r.get('clasificacion', 'Maquinaria'),
@@ -4716,8 +4716,8 @@ elif st.session_state.vista_actual == "Schedule" and not st.session_state.modo_l
                 df_editor = st.data_editor(
                     df_urg_source,
                     column_config={
-                        "Tabla Origen": None,    # Oculto
-                        "Columna_Llave": None,   # Oculto: El motor usará esto para saber a qué columna apuntar
+                        "Tabla Origen": None,
+                        "Columna_Llave": None,
                         "ID Activo": st.column_config.TextColumn("ID Activo", disabled=True),
                         "Categoría": st.column_config.TextColumn("Categoría", disabled=True),
                         "Clasificación": st.column_config.TextColumn("Clasificación", disabled=True),
@@ -4733,77 +4733,91 @@ elif st.session_state.vista_actual == "Schedule" and not st.session_state.modo_l
                     key="live_editor_urgentes"
                 )
 
-                # 5. DETECTOR TRANSACCIONAL DINÁMICO
-                if "live_editor_urgentes" in st.session_state and st.session_state.live_editor_urgentes.get("edited_rows"):
-                    cambios_detectados = st.session_state.live_editor_urgentes["edited_rows"]
-                    
-                    for idx_str, c_celdas in cambios_detectados.items():
-                        idx = int(idx_str)
-                        fila_original = df_urg_source.iloc[idx]
-                        
-                        # Variables dinámicas de enrutamiento
-                        tabla_destino = fila_original["Tabla Origen"]
-                        columna_pk = fila_original["Columna_Llave"]
-                        id_activo_txt = fila_original["ID Activo"]
-                        
-                        payload_update = {}
-                        
-                        # Mapeo de columnas Front-End -> Back-End (Supabase)
-                        if "Ubicación / Línea" in c_celdas:
-                            payload_update["linea_ubicacion"] = str(c_celdas["Ubicación / Línea"]).strip().upper()
-                            
-                        if "Estatus" in c_celdas:
-                            nuevo_est = c_celdas["Estatus"]
-                            if tabla_destino == "inventario_esd":
-                                payload_update["estatus_verificacion"] = nuevo_est
-                            else:
-                                payload_update["resultado_estatus"] = nuevo_est
-                                
-                            # Autocalcular vencimiento
-                            if nuevo_est in ["VIGENTE", "APROBADO"]:
-                                f_base = datetime.today().date()
-                                payload_update["fecha_proxima" if tabla_destino == "mediciones_maquinaria" else "fecha_proxima_verif"] = (f_base + relativedelta(years=1)).isoformat()
-                        
-                        if "Fecha Medición" in c_celdas:
-                            payload_update["fecha_ultima_verif" if tabla_destino == "inventario_esd" else "fecha_medicion"] = c_celdas["Fecha Medición"]
-                            
-                        if "Resistencia / Descarga (Ω/s)" in c_celdas:
-                            val_r = c_celdas["Resistencia / Descarga (Ω/s)"]
-                            payload_update["valor_actual" if tabla_destino == "inventario_esd" else "resistencia_tierra"] = float(val_r) if val_r else None
-                            
-                        if "Balance (V)" in c_celdas and tabla_destino == "inventario_esd":
-                            val_b = c_celdas["Balance (V)"]
-                            payload_update["balance_ionizador"] = float(val_b) if val_b else None
-                            
-                        if "Campo Estático (V)" in c_celdas and tabla_destino == "mediciones_maquinaria":
-                            val_c = c_celdas["Campo Estático (V)"]
-                            payload_update["campo_estatico_voltaje"] = float(val_c) if val_c else None
-                            
-                        if "Tomacorriente" in c_celdas and tabla_destino == "mediciones_maquinaria":
-                            payload_update["tomacorriente_estatus"] = c_celdas["Tomacorriente"]
-                            
-                        if "Temp (°C)" in c_celdas:
-                            payload_update["temperatura"] = str(c_celdas["Temp (°C)"])
-                            
-                        if "Humedad (%)" in c_celdas:
-                            payload_update["humedad"] = str(c_celdas["Humedad (%)"])
-                                
-                        if "Notas / Observaciones" in c_celdas:
-                            payload_update["comentarios" if tabla_destino == "inventario_esd" else "observaciones"] = c_celdas["Notas / Observaciones"]
+                st.divider()
+                
+                # 5. BOTÓN DE GUARDADO MASIVO (BATCH UPDATE)
+                c_btn_vacio, c_btn_guardar = st.columns([3, 1])
+                btn_guardar_urgentes = c_btn_guardar.button("💾 Guardar Cambios", type="primary", use_container_width=True)
 
-                        # Inyección SQL Dinámica
-                        if payload_update:
-                            try:
-                                # Magia automática: Apunta a la tabla correcta y a la columna llave correcta
-                                supabase.table(tabla_destino).update(payload_update).eq(columna_pk, id_activo_txt).execute()
-                                st.toast(f"⚡ ¡{id_activo_txt} actualizado correctamente!")
-                            except Exception as sql_err:
-                                st.error(f"Error actualizando {id_activo_txt}: {sql_err}")
+                if btn_guardar_urgentes:
+                    # Capturamos todos los cambios acumulados en la sesión del editor
+                    cambios_detectados = st.session_state.live_editor_urgentes.get("edited_rows", {})
+                    
+                    if not cambios_detectados:
+                        st.info("No se ha modificado ninguna celda. No hay cambios por guardar.")
+                    else:
+                        with st.spinner("Sincronizando actualizaciones con la base de datos..."):
+                            errores = 0
+                            activos_actualizados = []
+                            
+                            for idx_str, c_celdas in cambios_detectados.items():
+                                idx = int(idx_str)
+                                fila_original = df_urg_source.iloc[idx]
                                 
-                    # Refrescar aplicación
-                    st.cache_data.clear()
-                    time.sleep(0.5)
-                    st.rerun()
+                                tabla_destino = fila_original["Tabla Origen"]
+                                columna_pk = fila_original["Columna_Llave"]
+                                id_activo_txt = fila_original["ID Activo"]
+                                
+                                payload_update = {}
+                                
+                                # Mapeo de columnas Front-End -> Back-End (Supabase)
+                                if "Ubicación / Línea" in c_celdas:
+                                    payload_update["linea_ubicacion"] = str(c_celdas["Ubicación / Línea"]).strip().upper()
+                                    
+                                if "Estatus" in c_celdas:
+                                    nuevo_est = c_celdas["Estatus"]
+                                    if tabla_destino == "inventario_esd":
+                                        payload_update["estatus_verificacion"] = nuevo_est
+                                    else:
+                                        payload_update["resultado_estatus"] = nuevo_est
+                                        
+                                    if nuevo_est in ["VIGENTE", "APROBADO"]:
+                                        f_base = datetime.today().date()
+                                        payload_update["fecha_proxima" if tabla_destino == "mediciones_maquinaria" else "fecha_proxima_verif"] = (f_base + relativedelta(years=1)).isoformat()
+                                
+                                if "Fecha Medición" in c_celdas:
+                                    payload_update["fecha_ultima_verif" if tabla_destino == "inventario_esd" else "fecha_medicion"] = c_celdas["Fecha Medición"]
+                                    
+                                if "Resistencia / Descarga (Ω/s)" in c_celdas:
+                                    val_r = c_celdas["Resistencia / Descarga (Ω/s)"]
+                                    payload_update["valor_actual" if tabla_destino == "inventario_esd" else "resistencia_tierra"] = float(val_r) if val_r else None
+                                    
+                                if "Balance (V)" in c_celdas and tabla_destino == "inventario_esd":
+                                    val_b = c_celdas["Balance (V)"]
+                                    payload_update["balance_ionizador"] = float(val_b) if val_b else None
+                                    
+                                if "Campo Estático (V)" in c_celdas and tabla_destino == "mediciones_maquinaria":
+                                    val_c = c_celdas["Campo Estático (V)"]
+                                    payload_update["campo_estatico_voltaje"] = float(val_c) if val_c else None
+                                    
+                                if "Tomacorriente" in c_celdas and tabla_destino == "mediciones_maquinaria":
+                                    payload_update["tomacorriente_estatus"] = c_celdas["Tomacorriente"]
+                                    
+                                if "Temp (°C)" in c_celdas:
+                                    payload_update["temperatura"] = str(c_celdas["Temp (°C)"])
+                                    
+                                if "Humedad (%)" in c_celdas:
+                                    payload_update["humedad"] = str(c_celdas["Humedad (%)"])
+                                        
+                                if "Notas / Observaciones" in c_celdas:
+                                    payload_update["comentarios" if tabla_destino == "inventario_esd" else "observaciones"] = c_celdas["Notas / Observaciones"]
+
+                                if payload_update:
+                                    try:
+                                        supabase.table(tabla_destino).update(payload_update).eq(columna_pk, id_activo_txt).execute()
+                                        activos_actualizados.append(id_activo_txt)
+                                    except Exception as sql_err:
+                                        st.error(f"Error actualizando {id_activo_txt}: {sql_err}")
+                                        errores += 1
+                                        
+                            if errores == 0 and activos_actualizados:
+                                st.success(f"✅ ¡Se han actualizado exitosamente {len(activos_actualizados)} registros!")
+                                st.balloons()
+                                st.cache_data.clear()
+                                time.sleep(1.5)
+                                st.rerun()
+                            elif errores > 0:
+                                st.warning("Se guardaron algunos cambios, pero hubo errores en otros. Revisa los mensajes arriba.")
 
 # ==========================================
 # VISTA 9: SENSIBILIDAD DE COMPONENTES (ESDS)
