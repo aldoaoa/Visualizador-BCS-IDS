@@ -4514,8 +4514,9 @@ elif st.session_state.vista_actual == "Schedule" and not st.session_state.modo_l
     with tab_cronograma:
         st.info("Visualiza las fechas de medición y vencimiento de Equipos, Mobiliarios e Ionizadores combinados en la planta.")
         
+        # Obtener datos frescos de maquinaria para consolidar (AHORA INCLUYE status_operativo)
         try:
-            resp_maq = supabase.table("mediciones_maquinaria").select("linea_ubicacion, id_maquinaria, clasificacion, fecha_medicion, fecha_proxima, resultado_estatus").execute()
+            resp_maq = supabase.table("mediciones_maquinaria").select("linea_ubicacion, id_maquinaria, clasificacion, fecha_medicion, fecha_proxima, resultado_estatus, status_operativo").execute()
             df_maq_sched = pd.DataFrame(resp_maq.data)
         except Exception as e:
             df_maq_sched = pd.DataFrame()
