@@ -37,32 +37,36 @@ if "val_form_key" not in st.session_state:
 st.set_page_config(page_title="Control ESD BCS-AIS", layout="wide")
 
 # ==========================================
-# OPTIMIZACIÓN DE INTERFAZ (OCULTAR OVERLAY SIN DAÑAR SIDEBAR)
+# OPTIMIZACIÓN DE INTERFAZ (BLINDAJE DE SIDEBAR)
 # ==========================================
 ocultar_menu_streamlit = """
     <style>
-    /* Ocultar la línea de color degradado del tope */
-    div[data-testid="stDecoration"] { display: none; }
+    /* 1. Ocultar la línea decorativa de color del tope */
+    [data-testid="stDecoration"] { display: none !important; }
     
-    /* Ocultar el botón de Deploy */
-    .stAppDeployButton { display: none; }
+    /* 2. Ocultar el botón de Deploy de Streamlit Cloud */
+    [data-testid="stAppDeployButton"] { display: none !important; }
     
-    /* Ocultar el menú de opciones (tres puntos / hamburguesa de la derecha) */
-    #MainMenu { visibility: hidden; }
-    div[data-testid="stToolbar"] { visibility: hidden; }
+    /* 3. Ocultar el menú de los tres puntos (derecha) */
+    #MainMenu { visibility: hidden !important; }
     
-    /* Ocultar el pie de página */
-    footer { visibility: hidden; }
+    /* 4. Ocultar el pie de página institucional */
+    footer { visibility: hidden !important; }
     
-    /* Ajuste de margen superior para ganar espacio en pantallas pequeñas */
+    /* 5. BLINDAJE CRÍTICO: Forzar a que el botón de la Sidebar (izquierda) SIEMPRE exista y se muestre */
+    [data-testid="stSidebarCollapseButton"] {
+        visibility: visible !important;
+        display: flex !important;
+    }
+    
+    /* Ajuste de margen superior para balancear el espacio del botón */
     .block-container {
-        padding-top: 2rem;
+        padding-top: 2.5rem;
         padding-bottom: 1rem;
     }
     </style>
 """
 st.markdown(ocultar_menu_streamlit, unsafe_allow_html=True)
-
 # ==========================================
 # DICCIONARIOS GLOBALES DE REFERENCIA
 # ==========================================
