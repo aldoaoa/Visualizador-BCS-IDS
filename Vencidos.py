@@ -4661,12 +4661,17 @@ elif st.session_state.vista_actual == "Schedule" and not st.session_state.modo_l
             # 3. Consolidar registros que requieren atención
             lista_urgentes = []
 
-            # Mapeo desde Inventario
+            # --- MAPEO DESDE INVENTARIO ---
             if not df_inv_u.empty:
                 for _, r in df_inv_u.iterrows():
-                    est = str(r.get('estatus_verificacion', '')).upper()
-                    if 'VENCIDO' in est or 'PENDIENTE' in est or 'FALLA' in est or est == '':
-                        # Formatear el valor previo si existe para que se muestre en notación científica
+                    # Blindaje contra nulos de Pandas/Supabase
+                    valor_original = r.get('estatus_verificacion')
+                    est = str(valor_original).strip().upper()
+                    
+                    # Verificamos si es realmente nulo o una palabra clave de falla/pendiente
+                    es_nulo = pd.isna(valor_original) or est in ['', 'NONE', 'NAN', 'NULL', 'N/A', 'N/D']
+                    
+                    if 'VENCIDO' in est or 'PENDIENTE' in est or 'FALLA' in est or es_nulo:
                         val_previo = r.get('valor_actual')
                         val_str = f"{val_previo:.2e}" if pd.notna(val_previo) else ""
                         
@@ -4677,7 +4682,7 @@ elif st.session_state.vista_actual == "Schedule" and not st.session_state.modo_l
                             "Categoría": r.get('categoria', 'Inventario'),
                             "Clasificación": r.get('clasificacion', 'N/D'),
                             "Ubicación / Línea": r.get('linea_ubicacion', 'N/D'),
-                            "Estatus": est if est else "PENDIENTE",
+                            "Estatus": "PENDIENTE" if es_nulo else est, # Forzamos a que diga PENDIENTE si estaba vacío
                             "Fecha Medición": str(r.get('fecha_ultima_verif', ''))[:10] if r.get('fecha_ultima_verif') else "",
                             "Resistencia / Descarga (Ω/s)": val_str,
                             "Balance (V)": r.get('balance_ionizador'),
@@ -4688,11 +4693,16 @@ elif st.session_state.vista_actual == "Schedule" and not st.session_state.modo_l
                             "Notas / Observaciones": r.get('comentarios', '')
                         })
 
-            # Mapeo desde Maquinaria
+            # --- MAPEO DESDE MAQUINARIA ---
             if not df_maq_u.empty:
                 for _, r in df_maq_u.iterrows():
-                    est = str(r.get('resultado_estatus', '')).upper()
-                    if 'VENCIDO' in est or 'PENDIENTE' in est or 'FALLA' in est or 'RECHAZADO' in est or est == '':
+                    # Blindaje contra nulos de Pandas/Supabase
+                    valor_original = r.get('resultado_estatus')
+                    est = str(valor_original).strip().upper()
+                    
+                    es_nulo = pd.isna(valor_original) or est in ['', 'NONE', 'NAN', 'NULL', 'N/A', 'N/D']
+                    
+                    if 'VENCIDO' in est or 'PENDIENTE' in est or 'FALLA' in est or 'RECHAZADO' in est or es_nulo:
                         val_previo = r.get('resistencia_tierra')
                         val_str = f"{val_previo:.2e}" if pd.notna(val_previo) else ""
                         
@@ -4703,7 +4713,7 @@ elif st.session_state.vista_actual == "Schedule" and not st.session_state.modo_l
                             "Categoría": "Maquinaria",
                             "Clasificación": r.get('clasificacion', 'Maquinaria'),
                             "Ubicación / Línea": r.get('linea_ubicacion', 'N/D'),
-                            "Estatus": est if est else "PENDIENTE",
+                            "Estatus": "PENDIENTE" if es_nulo else est,
                             "Fecha Medición": str(r.get('fecha_medicion', ''))[:10] if r.get('fecha_medicion') else "",
                             "Resistencia / Descarga (Ω/s)": val_str,
                             "Balance (V)": None,
@@ -4715,7 +4725,8 @@ elif st.session_state.vista_actual == "Schedule" and not st.session_state.modo_l
                         })
 
             df_urg_source = pd.DataFrame(lista_urgentes)
-
+            
+            # (A partir de aquí se mantiene igual tu código original que renderiza st.data_editor)
             if df_urg_source.empty:
                 st.success("🎉 ¡Excelente! No se encontraron activos pendientes o vencidos.")
             else:
