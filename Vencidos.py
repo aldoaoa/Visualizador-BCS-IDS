@@ -1758,13 +1758,18 @@ elif st.session_state.vista_actual == "Mapa" and not st.session_state.modo_lectu
             def contar_estatus(df, col_estatus, val_vigente, val_vencido):
                 if df.empty or col_estatus not in df.columns: return 0, 0, 0
                 estatus_series = df[col_estatus].astype(str).str.upper()
-                vig = estatus_series.str.contains(val_vigente).sum()
-                ven = estatus_series.str.contains(val_vencido).sum()
+                
+                # Al encender regex=True, Pandas puede buscar múltiples palabras separadas por |
+                vig = estatus_series.str.contains(val_vigente, regex=True).sum()
+                ven = estatus_series.str.contains(val_vencido, regex=True).sum()
+                
+                # Solo los nulos o que de verdad digan PENDIENTE quedan aquí
                 pen = len(df) - (vig + ven)
                 return vig, ven, pen
 
-            vig_inv, ven_inv, pen_inv = contar_estatus(df_inv_ov, 'Estatus de verificación', 'VIGENTE', 'VENCIDO')
-            vig_maq, ven_maq, pen_maq = contar_estatus(df_maq_ov, 'resultado_estatus', 'VIGENTE', 'VENCIDO')
+            # Le pasamos el diccionario completo de palabras aceptadas y reprobadas
+            vig_inv, ven_inv, pen_inv = contar_estatus(df_inv_ov, 'Estatus de verificación', 'VIGENTE|APROBADO|PASA', 'VENCIDO|FALLA|RECHAZADO')
+            vig_maq, ven_maq, pen_maq = contar_estatus(df_maq_ov, 'resultado_estatus', 'VIGENTE|APROBADO|PASA', 'VENCIDO|FALLA|RECHAZADO')
 
             pasa_t, falla_t, _ = contar_estatus(df_tierras_ov, 'estatus', 'PASA', 'FALLA')
             pasa_em, falla_em, _ = contar_estatus(df_em_ov, 'estatus_verificacion', 'APROBADO', 'RECHAZADO')
@@ -1847,13 +1852,14 @@ elif st.session_state.vista_actual == "Mapa" and not st.session_state.modo_lectu
         
         alertas = []
         if not df_inv_ov.empty:
-            ven_df = df_inv_ov[df_inv_ov['Estatus de verificación'].astype(str).str.upper().str.contains('VENCIDO')]
+            # En la sección de Inventario:
+            ven_df = df_inv_ov[df_inv_ov['Estatus de verificación'].astype(str).str.upper().str.contains('VENCIDO|FALLA|RECHAZADO', regex=True)]
             for _, r in ven_df.iterrows():
                 cat = str(r.get('Categoría', 'Inventario'))
                 alertas.append({"Área": cat, "ID / Ubicación": f"{r.get('Id de producto')} ({r.get('Línea')})", "Problema": "Verificación Vencida"})
                 
         if not df_maq_ov.empty:
-            ven_m_df = df_maq_ov[df_maq_ov['resultado_estatus'].astype(str).str.upper().str.contains('VENCIDO')]
+            ven_m_df = df_maq_ov[df_maq_ov['resultado_estatus'].astype(str).str.upper().str.contains('VENCIDO|FALLA|RECHAZADO', regex=True)]
             for _, r in ven_m_df.iterrows():
                 alertas.append({"Área": "Maquinaria", "ID / Ubicación": str(r.get('id_maquinaria')), "Problema": "Verificación Vencida"})
                 
