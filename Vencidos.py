@@ -1572,59 +1572,57 @@ elif st.session_state.vista_actual == "Mapa" and not st.session_state.modo_lectu
             else:
                 porcentaje = 100.0
 
-            if not vencidos.empty:
-                st.error(f"🚨 **Cumplimiento:** {porcentaje:.1f}% | **Vencidos:** {total_vencidos} de {total_equipos} activos.")
-                conteo_tipos = vencidos.groupby(['Línea']).size().reset_index(name='Total Vencidos')
+            # --- NUEVA LÓGICA: INCLUIR VENCIDOS Y PENDIENTES ---
+            # Identificar tanto Vencidos como Pendientes/Nulos
+            estatus_ser = equipos_activos['Estatus de verificación'].astype(str).str.strip().str.upper()
+            es_nulo = equipos_activos['Estatus de verificación'].isna() | estatus_ser.isin(['', 'NONE', 'NAN', 'NULL', 'N/A', 'N/D', 'PENDIENTE'])
+            
+            df_alertas = equipos_activos[estatus_ser.str.contains('VENCIDO') | es_nulo].copy()
+            total_alertas = len(df_alertas)
+            
+            if total_alertas > 0:
+                st.error(f"🚨 **Cumplimiento:** {porcentaje:.1f}% | **Requieren Atención:** {total_alertas} activos (🔴 Vencidos/🟡 Pendientes).")
                 
-                # Determinamos el prefijo para la etiqueta (M = Mobiliario, I = Ionizador, MQ = Maquinaria)
-                if tipo_mapa == "Mobiliario":
-                    prefijo = "M: "
-                elif tipo_mapa == "Ionizadores":
-                    prefijo = "I: "
-                else:
-                    prefijo = "MQ: "
-                    
-                conteo_tipos['Etiqueta'] = prefijo + conteo_tipos['Total Vencidos'].astype(str)
+                conteo_tipos = df_alertas.groupby(['Línea']).size().reset_index(name='Total Alertas')
+                
+                # Prefijos para el mapa
+                prefijo = {"Mobiliario": "M: ", "Ionizadores": "I: ", "Maquinaria": "MQ: "}.get(tipo_mapa, "A: ")
+                conteo_tipos['Etiqueta'] = prefijo + conteo_tipos['Total Alertas'].astype(str)
             
                 if os.path.exists(RUTA_MAPA) and os.path.exists(RUTA_COORDENADAS):
                     img = Image.open(RUTA_MAPA)
-                    width, height = img.size # Obtenemos el tamaño real de la imagen
+                    width, height = img.size
                     df_coords = pd.read_csv(RUTA_COORDENADAS)
                     mapa_data = pd.merge(conteo_tipos, df_coords, on='Línea', how='inner')
                     
                     if not mapa_data.empty:
                         fig = px.scatter(
-                            mapa_data, x="X", y="Y", color="Total Vencidos", text="Etiqueta",
-                            hover_data={"X": False, "Y": False, "Etiqueta": False, "Total Vencidos": True},
+                            mapa_data, x="X", y="Y", color="Total Alertas", text="Etiqueta",
+                            hover_data={"X": False, "Y": False, "Etiqueta": False, "Total Alertas": True},
                             color_continuous_scale="Reds"
                         )
                         
-                        # --- DISEÑO DE LOS PUNTOS ---
                         fig.update_traces(
                             textposition='middle center', 
                             textfont=dict(color='white', size=14, weight='bold'), 
                             marker=dict(symbol='circle', size=45, opacity=0.9, line=dict(width=2, color='black'))
                         )
                         
-                        # --- CÁLCULO DE PROPORCIÓN PARA EVITAR ESTIRAMIENTO ---
                         aspect_ratio = height / width
-                        plot_height = int(1000 * aspect_ratio) # 1000px es el ancho base de uso de Streamlit
+                        plot_height = int(1000 * aspect_ratio)
 
                         fig.update_layout(
                             height=plot_height,
-                            images=[dict(
-                                source=img, xref="x", yref="y", 
-                                x=0, y=0, sizex=width, sizey=height, 
-                                sizing="stretch", opacity=1, layer="below"
-                            )], 
+                            images=[dict(source=img, xref="x", yref="y", x=0, y=0, sizex=width, sizey=height, sizing="stretch", opacity=1, layer="below")], 
                             xaxis=dict(visible=False, range=[0, width]), 
-                            # scaleanchor="x" y scaleratio=1 son la magia que bloquea la proporción
                             yaxis=dict(visible=False, range=[height, 0], scaleanchor="x", scaleratio=1), 
                             margin=dict(l=0, r=0, t=0, b=0),
                             coloraxis_showscale=False
                         )
                         st.plotly_chart(fig, use_container_width=True)
-                st.dataframe(vencidos[['Línea', 'Id de producto', 'Clasificación', 'Estatus de verificación']], use_container_width=True, hide_index=True)
+                
+                # Tabla informativa abajo
+                st.dataframe(df_alertas[['Línea', 'Id de producto', 'Clasificación', 'Estatus de verificación']], use_container_width=True, hide_index=True)
             else:
                 st.success(f"✅ **100% Cumplimiento en {tipo_mapa}.**")
 
