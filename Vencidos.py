@@ -5102,12 +5102,12 @@ elif st.session_state.vista_actual == "Tierras" and not st.session_state.modo_le
         except Exception as e:
             st.error(f"Error al cargar el historial: {e}")
 
-    # --- PESTAÑA 3: VALIDACIÓN DE PISO Y MAPA DE CALOR CONTINUO ---
+# --- PESTAÑA 3: VALIDACIÓN DE PISO (CAPTURAS VISUALES) ---
     with tab_piso:
-        st.markdown("#### 🗺️ Visualización Avanzada de Piso ESD")
-        st.info("Límite de aprobación ANSI/ESD S20.20: < 1.0x10^9 Ω (1 Gigaohm).")
+        st.markdown("#### 🗺️ Validación Semestral de Piso ESD")
+        st.info("Medición de Resistencia a Tierra (RTG). Límite de aprobación: < 1.0x10^9 Ω.")
         
-        # Diccionario con las URLs de los diagramas
+        # 1. DICCIONARIOS DE RECURSOS
         diagramas_cuartos = {
             "Cuarto 1": "https://raw.githubusercontent.com/aldoaoa/Visualizador-BCS-IDS/refs/heads/testing/1.png",
             "Cuarto 2": "https://raw.githubusercontent.com/aldoaoa/Visualizador-BCS-IDS/refs/heads/testing/2.png",
@@ -5117,7 +5117,6 @@ elif st.session_state.vista_actual == "Tierras" and not st.session_state.modo_le
             "Cuarto 6": "https://raw.githubusercontent.com/aldoaoa/Visualizador-BCS-IDS/refs/heads/testing/6.png"
         }
 
-        # Coordenadas exactas proporcionadas
         COORDENADAS_PISOS = {
             "Cuarto 1": {1: (53, 649), 2: (241, 656), 3: (508, 651), 4: (576, 568), 5: (484, 567), 6: (242, 567), 7: (56, 472), 8: (241, 466), 9: (471, 466), 10: (533, 381), 11: (243, 384), 12: (242, 259), 13: (593, 258), 14: (205, 173), 15: (561, 66)},
             "Cuarto 2": {1: (38, 404), 2: (174, 365), 3: (154, 277), 4: (255, 222), 5: (109, 65), 6: (346, 85), 7: (523, 90), 8: (579, 211), 9: (334, 201), 10: (330, 380), 11: (253, 461), 12: (251, 585), 13: (588, 385), 14: (590, 511), 15: (482, 595)},
@@ -5137,160 +5136,34 @@ elif st.session_state.vista_actual == "Tierras" and not st.session_state.modo_le
         if not equipos_piso:
             equipos_piso = ["Sin equipos registrados"]
 
-        cuarto_sel = st.selectbox("1. Selecciona el Cuarto a Validar / Consultar:", options=list(diagramas_cuartos.keys()))
+        cuarto_sel = st.selectbox("1. Selecciona el Cuarto a Validar:", options=list(diagramas_cuartos.keys()))
         
         # Inicializar borrador
         if "borrador_piso" not in st.session_state:
             st.session_state.borrador_piso = {}
 
-        # --- SECCIÓN A: MAPA DE CALOR RADIAL (IDW) ---
-        st.divider()
-        st.markdown(f"#### 🌡️ Estado del Piso (Mapa de Calor Radial) - {cuarto_sel}")
+        # 2. DESCARGAR LA IMAGEN PARA RECORTES DINÁMICOS
+        import requests
+        from PIL import Image
+        from io import BytesIO
         
+        img_url = diagramas_cuartos[cuarto_sel]
+        img_pil = None
+        img_w, img_h = 0, 0
         try:
-            import numpy as np
-            from scipy.spatial.distance import cdist
-            import plotly.graph_objects as go
-            import math
-            import requests
-            from PIL import Image
-            from io import BytesIO
-            
-            url_img = diagramas_cuartos[cuarto_sel]
-            
-            # 1. LECTURA DINÁMICA DE LA IMAGEN PARA PROPORCIONES PERFECTAS
-            try:
-                response = requests.get(url_img)
-                img_pil = Image.open(BytesIO(response.content))
-                img_width, img_height = img_pil.size
-            except Exception as e:
-                st.warning("No se pudo cargar la imagen original. Usando formato estándar.")
-                img_width, img_height = 1000, 700
-                img_pil = url_img 
-
-            coords_map = COORDENADAS_PISOS.get(cuarto_sel, {})
-            
-            resp_piso_hist = supabase.table("validacion_piso").select("*").eq("cuarto", cuarto_sel).order("fecha_medicion", desc=True).limit(500).execute()
-            df_piso_hist = pd.DataFrame(resp_piso_hist.data)
-            
-            if not df_piso_hist.empty:
-                ultima_fecha = df_piso_hist['fecha_medicion'].max()
-                df_latest = df_piso_hist[df_piso_hist['fecha_medicion'] == ultima_fecha].copy()
-                
-                know_points_x = []
-                know_points_y = []
-                values_log = []
-                puntos_reales = []
-                
-                for _, row in df_latest.iterrows():
-                    pt = int(row['punto'])
-                    if pt in coords_map:
-                        val = float(row['medicion_ohms'])
-                        
-                        # Fija los valores logarítmicos entre 7 y 9 (1e7 a 1e9)
-                        log_val = math.log10(val) if val > 0 else 7.0
-                        log_val_clamped = max(7.0, min(9.0, log_val))
-                        
-                        x_plot = coords_map[pt][0]
-                        y_plot = img_height - coords_map[pt][1] 
-                        
-                        know_points_x.append(x_plot)
-                        know_points_y.append(y_plot)
-                        values_log.append(log_val_clamped)
-                        
-                        puntos_reales.append({
-                            "X": x_plot, "Y": y_plot, "P": pt, "R": f"{val:.2e}"
-                        })
-
-                if len(know_points_x) >= 2:
-                    # 2. RESOLUCIÓN PROPORCIONAL PARA EVITAR ÓVALOS
-                    # Forzamos que la cuadrícula matemática tenga la misma relación de aspecto que la imagen
-                    res_x = 250
-                    res_y = max(10, int(250 * (img_height / img_width)))
-                    
-                    grid_x, grid_y = np.mgrid[0:img_width:complex(0, res_x), 0:img_height:complex(0, res_y)]
-                    
-                    grid_coords = np.vstack([grid_x.ravel(), grid_y.ravel()]).T
-                    known_coords = np.array([know_points_x, know_points_y]).T
-                    known_values = np.array(values_log)
-
-                    # 3. INTERPOLACIÓN RADIAL (INVERSE DISTANCE WEIGHTING - IDW)
-                    # Calcula la distancia exacta en píxeles creando áreas de influencia circulares
-                    dists = cdist(grid_coords, known_coords)
-                    dists = np.where(dists == 0, 1e-10, dists) # Evitar división por cero
-                    
-                    # 'power' controla qué tan grandes son los círculos. 2.5 es ideal para disipación.
-                    power = 2.5 
-                    weights = 1.0 / (dists ** power)
-                    
-                    grid_z_flat = np.sum(weights * known_values, axis=1) / np.sum(weights, axis=1)
-                    grid_z = grid_z_flat.reshape(res_x, res_y)
-
-                    fig = go.Figure()
-
-                    # 4. CAPA DE CALOR: 5 colores de transición para degradado suave
-                    fig.add_trace(go.Heatmap(
-                        z=grid_z.T, 
-                        x=np.linspace(0, img_width, res_x),
-                        y=np.linspace(0, img_height, res_y),
-                        colorscale=[
-                            [0.00, "rgba(40, 167, 69, 0.45)"],   # 7.0: Verde 
-                            [0.25, "rgba(139, 195, 74, 0.50)"],  # 7.5: Verde Claro
-                            [0.50, "rgba(255, 193, 7, 0.55)"],   # 8.0: Amarillo
-                            [0.75, "rgba(253, 126, 20, 0.65)"],  # 8.5: Naranja
-                            [1.00, "rgba(220, 53, 69, 0.75)"]    # 9.0: Rojo (Falla)
-                        ],
-                        zmin=7.0, zmax=9.0, 
-                        showscale=False,
-                        hoverinfo='skip'
-                    ))
-
-                    # 5. CAPA DE PUNTOS
-                    df_reales = pd.DataFrame(puntos_reales)
-                    fig.add_trace(go.Scatter(
-                        x=df_reales['X'], y=df_reales['Y'],
-                        mode='markers+text',
-                        text=df_reales['P'],
-                        marker=dict(size=22, color='black', line=dict(width=2, color='white')),
-                        textposition="middle center",
-                        textfont=dict(color='white', size=11, weight='bold'),
-                        hovertemplate="<b>Punto %{text}</b><br>Resistencia Real: %{customdata} Ω<extra></extra>",
-                        customdata=df_reales['R']
-                    ))
-
-                    # 6. CONFIGURACIÓN DEL PLANO Y BLOQUEO DE PROPORCIÓN
-                    fig.update_layout(
-                        xaxis=dict(visible=False, range=[0, img_width]),
-                        yaxis=dict(visible=False, range=[0, img_height], scaleanchor="x", scaleratio=1), 
-                        images=[dict(
-                            source=img_pil,
-                            xref="x", yref="y",
-                            x=0, y=img_height, 
-                            sizex=img_width, sizey=img_height,
-                            sizing="stretch",
-                            layer="below"
-                        )],
-                        margin=dict(l=0, r=0, t=0, b=0),
-                        showlegend=False
-                    )
-                    
-                    st.plotly_chart(fig, use_container_width=True)
-                    st.caption(f"Visualizando estado actual basado en auditoría del: {str(ultima_fecha)[:10]}")
-                else:
-                    st.warning(f"Se necesitan al menos 2 puntos medidos para generar el mapa continuo.")
-                    st.image(diagramas_cuartos[cuarto_sel], use_container_width=True)
-            else:
-                st.info(f"No hay mediciones históricas para proyectar el mapa de calor.")
-                st.image(diagramas_cuartos[cuarto_sel], use_container_width=True)
-                
-        except ImportError:
-            st.error("Error: Faltan librerías. Ejecuta en tu terminal: pip install numpy scipy")
+            response = requests.get(img_url)
+            img_pil = Image.open(BytesIO(response.content))
+            img_w, img_h = img_pil.size
         except Exception as e:
-            st.error(f"Error generando el mapa de calor avanzado: {e}")
+            st.error("No se pudo cargar la imagen del cuarto de referencia.")
 
-        # --- SECCIÓN B: FORMULARIO DE CAPTURA CON BORRADOR ---
-        st.divider()
-        st.markdown("#### 📝 Captura de Nueva Auditoría")
+        # --- SECCIÓN A: MAPA GENERAL ESTÁTICO (REFERENCIA) ---
+        with st.expander("👁️ Ver Mapa General del Cuarto", expanded=False):
+            if img_pil:
+                st.image(img_pil, use_container_width=True)
+
+        # --- SECCIÓN B: FORMULARIO DE CAPTURA VISUAL ---
+        st.markdown("#### 📝 Captura Dinámica de Auditoría")
         with st.form("form_validacion_piso"):
             c_met1, c_met2, c_met3 = st.columns(3)
             equipo_piso_sel = c_met1.selectbox("Equipo de Medición:", options=equipos_piso)
@@ -5298,9 +5171,13 @@ elif st.session_state.vista_actual == "Tierras" and not st.session_state.modo_le
             hum_piso = c_met3.text_input("Humedad (% RH):", value="45")
             
             st.markdown("##### 📍 Captura de Puntos (Ohms)")
-            st.caption("Introduce la base y exponente (Ej: 5.2e7). Deja en 0 los puntos que no apliquen.")
+            st.caption("Si la medición está en formato científico, introdúcela como base y exponente (Ej: 5.2e7 -> 52000000). Deja en 0 los puntos que no apliquen.")
+            st.divider()
             
             puntos_rtg = {}
+            coords_map = COORDENADAS_PISOS.get(cuarto_sel, {})
+            
+            # Generamos las filas y columnas del formulario
             for fila in range(3):
                 cols = st.columns(5)
                 for col_idx in range(5):
@@ -5309,7 +5186,31 @@ elif st.session_state.vista_actual == "Tierras" and not st.session_state.modo_le
                     valor_previo = st.session_state.borrador_piso.get(llave_unica, None)
                     
                     with cols[col_idx]:
-                        val = st.number_input(f"Punto {punto_num}", min_value=0.0, format="%.2e", step=1e6, value=valor_previo, placeholder="0.0")
+                        # 3. RECORTAR LA IMAGEN PARA EL PUNTO ESPECÍFICO
+                        if img_pil and punto_num in coords_map:
+                            cx, cy = coords_map[punto_num]
+                            
+                            # Definimos una "caja de recorte" de 200x200 píxeles centrada en el punto
+                            box_size = 100 
+                            left = max(0, cx - box_size)
+                            upper = max(0, cy - box_size)
+                            right = min(img_w, cx + box_size)
+                            lower = min(img_h, cy + box_size)
+                            
+                            cropped_img = img_pil.crop((left, upper, right, lower))
+                            # Mostramos el recorte con el número del punto como título
+                            st.image(cropped_img, use_container_width=True, caption=f"📍 Punto {punto_num}")
+                        else:
+                            st.markdown(f"**📍 Punto {punto_num}**")
+                            
+                        # El input de captura justo debajo de la imagen
+                        val = st.number_input(
+                            "Ohms:", 
+                            min_value=0.0, format="%.2e", step=1e6, 
+                            value=valor_previo, placeholder="0.0",
+                            label_visibility="collapsed", # Ocultamos la etiqueta repetitiva para ahorrar espacio
+                            key=f"input_{cuarto_sel}_{punto_num}"
+                        )
                         puntos_rtg[punto_num] = val
 
             st.divider()
@@ -5350,12 +5251,20 @@ elif st.session_state.vista_actual == "Tierras" and not st.session_state.modo_le
         # --- SECCIÓN C: TABLA HISTÓRICA COMPLETA ---
         st.divider()
         st.markdown("#### 📂 Historial de Mediciones (Tabla)")
-        if 'df_piso_hist' in locals() and not df_piso_hist.empty:
-            df_mostrar = df_piso_hist[['fecha_medicion', 'cuarto', 'punto', 'medicion_ohms', 'estatus', 'auditor']].copy()
-            df_mostrar['fecha_medicion'] = pd.to_datetime(df_mostrar['fecha_medicion']).dt.strftime('%d-%b-%Y')
-            df_mostrar['medicion_ohms'] = df_mostrar['medicion_ohms'].apply(lambda x: f"{float(x):.2e} Ω")
-            df_mostrar.columns = ['Fecha', 'Cuarto', 'Punto', 'Resistencia', 'Estatus', 'Auditor']
-            st.dataframe(df_mostrar, use_container_width=True, hide_index=True)
+        try:
+            resp_piso_hist = supabase.table("validacion_piso").select("*").eq("cuarto", cuarto_sel).order("fecha_medicion", desc=True).limit(500).execute()
+            df_piso_hist = pd.DataFrame(resp_piso_hist.data)
+            
+            if not df_piso_hist.empty:
+                df_mostrar = df_piso_hist[['fecha_medicion', 'cuarto', 'punto', 'medicion_ohms', 'estatus', 'auditor']].copy()
+                df_mostrar['fecha_medicion'] = pd.to_datetime(df_mostrar['fecha_medicion']).dt.strftime('%d-%b-%Y')
+                df_mostrar['medicion_ohms'] = df_mostrar['medicion_ohms'].apply(lambda x: f"{float(x):.2e} Ω")
+                df_mostrar.columns = ['Fecha', 'Cuarto', 'Punto', 'Resistencia', 'Estatus', 'Auditor']
+                st.dataframe(df_mostrar, use_container_width=True, hide_index=True)
+            else:
+                st.info(f"No hay mediciones históricas registradas para el {cuarto_sel}.")
+        except Exception as e:
+            st.error(f"Error al cargar historial: {e}")
     # --- PESTAÑA 4: CHECADORES INTEGRADOS (NUEVO) ---
     with tab_checadores:
         st.markdown("#### 🛂 Verificación Mensual de Checadores Integrados")
