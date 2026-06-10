@@ -37,37 +37,6 @@ if "val_form_key" not in st.session_state:
 st.set_page_config(page_title="Control ESD BCS-AIS", layout="wide")
 
 # ==========================================
-# OPTIMIZACIÓN DE INTERFAZ (BLINDAJE DE SIDEBAR)
-# ==========================================
-ocultar_menu_streamlit = """
-    <style>
-    /* 1. Ocultar la línea decorativa de color del tope */
-    [data-testid="stDecoration"] { display: none !important; }
-    
-    /* 2. Ocultar el botón de Deploy de Streamlit Cloud */
-    [data-testid="stAppDeployButton"] { display: none !important; }
-    
-    /* 3. Ocultar el menú de los tres puntos (derecha) */
-    #MainMenu { visibility: hidden !important; }
-    
-    /* 4. Ocultar el pie de página institucional */
-    footer { visibility: hidden !important; }
-    
-    /* 5. BLINDAJE CRÍTICO: Forzar a que el botón de la Sidebar (izquierda) SIEMPRE exista y se muestre */
-    [data-testid="stSidebarCollapseButton"] {
-        visibility: visible !important;
-        display: flex !important;
-    }
-    
-    /* Ajuste de margen superior para balancear el espacio del botón */
-    .block-container {
-        padding-top: 2.5rem;
-        padding-bottom: 1rem;
-    }
-    </style>
-"""
-st.markdown(ocultar_menu_streamlit, unsafe_allow_html=True)
-# ==========================================
 # DICCIONARIOS GLOBALES DE REFERENCIA
 # ==========================================
 INFO_ELEMENTOS_ESD = {
