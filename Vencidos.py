@@ -4505,180 +4505,314 @@ Departamento de Calidad / Control ESD"""
         except Exception as e:
             st.error(f"Error al cargar el historial de conductores aislados: {e}")
 # ==========================================
-# VISTA 8: PROGRAMACIÓN (CRONOGRAMA DE VENCIMIENTOS)
+# VISTA 8: PROGRAMACIÓN (CRONOGRAMA Y ACCIONES URGENTES)
 # ==========================================
 elif st.session_state.vista_actual == "Schedule" and not st.session_state.modo_lectura:
     st.markdown("### 📅 Cronograma de Verificaciones ESD")
-    st.info("Selecciona una línea para visualizar las fechas de medición y vencimiento de Equipos, Mobiliarios e Ionizadores combinados.")
     
-    # Obtener datos frescos de maquinaria para consolidar
-    try:
-        resp_maq = supabase.table("mediciones_maquinaria").select("linea_ubicacion, id_maquinaria, clasificacion, fecha_medicion, fecha_proxima, resultado_estatus").execute()
-        df_maq_sched = pd.DataFrame(resp_maq.data)
-    except Exception as e:
-        df_maq_sched = pd.DataFrame()
-        st.warning(f"Error al cargar maquinaria: {e}")
+    tab_cronograma, tab_urgentes = st.tabs(["📅 Cronograma General", "🚨 Pendientes y Vencidos (Edición Directa)"])
 
-    # Consolidar datos en una sola lista
-    lista_registros = []
-    
-    # 1. Extraer del Inventario (Mobiliario, Ionizadores, Piso, etc.)
-    if df_inv_full is not None and not df_inv_full.empty:
-        for _, row in df_inv_full.iterrows():
-            # OMITIR EQUIPOS DADOS DE BAJA
-            if str(row.get('Estatus operativo', '')).strip().upper() == 'NO OPERATIVO':
-                continue
-                
-            lista_registros.append({
-                "Línea": str(row.get('Línea', 'N/D')),
-                "Categoría": str(row.get('categoria', 'N/D')),
-                "ID / Nombre": str(row.get('Id de producto', 'N/D')),
-                "Clasificación": str(row.get('Clasificación', 'N/D')),
-                "Última Medición": str(row.get('Fecha de verificación', 'N/D'))[:10],
-                "Próximo Vencimiento": str(row.get('Fecha de próxima verificación', 'N/D'))[:10],
-                "Estatus": str(row.get('Estatus de verificación', 'N/D'))
-            })
-            
-    # 2. Extraer de Maquinaria
-    if not df_maq_sched.empty:
-        # Mantener solo el registro más reciente por cada id_maquinaria
-        df_maq_sched = df_maq_sched.sort_values('fecha_medicion', ascending=False).drop_duplicates(subset=['id_maquinaria'])
-        for _, row in df_maq_sched.iterrows():
-            # OMITIR MAQUINARIA DADA DE BAJA
-            if str(row.get('status_operativo', '')).strip().upper() == 'NO OPERATIVO' or str(row.get('resultado_estatus', '')).strip().upper() == 'BAJA':
-                continue
-                
-            f_med = str(row.get('fecha_medicion', 'N/D'))[:10] if pd.notna(row.get('fecha_medicion')) else 'N/D'
-            f_prox = str(row.get('fecha_proxima', 'N/D'))[:10] if pd.notna(row.get('fecha_proxima')) else 'N/D'
-            
-            lista_registros.append({
-                "Línea": str(row.get('linea_ubicacion', 'N/D')),
-                "Categoría": "Maquinaria / Equipo",
-                "ID / Nombre": str(row.get('id_maquinaria', 'N/D')),
-                "Clasificación": str(row.get('clasificacion', 'N/D')),
-                "Última Medición": f_med,
-                "Próximo Vencimiento": f_prox,
-                "Estatus": str(row.get('resultado_estatus', 'PENDIENTE'))
-            })
-    # 3. Extraer Tierras y Conexiones para el Reporte Maestro
-    try:
-        resp_tierras = supabase.table("tierras_auxiliares").select("*").execute()
-        df_tierras = pd.DataFrame(resp_tierras.data)
+    # --- SUB-PESTAÑA 1: CRONOGRAMA GENERAL (CÓDIGO EXISTENTE OPTIMIZADO) ---
+    with tab_cronograma:
+        st.info("Visualiza las fechas de medición y vencimiento de Equipos, Mobiliarios e Ionizadores combinados en la planta.")
         
-        if not df_tierras.empty:
-            # Nos quedamos solo con la medición más reciente de cada punto
-            df_tierras = df_tierras.sort_values('fecha_medicion', ascending=False).drop_duplicates(subset=['id_punto'])
-            
-            for _, row in df_tierras.iterrows():
-                # Filtramos puntos dados de baja si tuvieras esa opción, o los agregamos directo
-                f_med = str(row.get('fecha_medicion', 'N/D'))[:10]
-                
-                # Para tierras, podemos forzar un cálculo semestral proyectado para el reporte
-                try:
-                    f_med_date = datetime.strptime(f_med, "%Y-%m-%d").date()
-                    f_prox = (f_med_date + relativedelta(months=6)).strftime("%Y-%m-%d")
-                except:
-                    f_prox = "N/D"
+        try:
+            resp_maq = supabase.table("mediciones_maquinaria").select("linea_ubicacion, id_maquinaria, clasificacion, fecha_medicion, fecha_proxima, resultado_estatus").execute()
+            df_maq_sched = pd.DataFrame(resp_maq.data)
+        except Exception as e:
+            df_maq_sched = pd.DataFrame()
+            st.warning(f"Error al cargar maquinaria: {e}")
 
+        lista_registros = []
+        
+        if df_inv_full is not None and not df_inv_full.empty:
+            for _, row in df_inv_full.iterrows():
+                if str(row.get('Estatus operativo', '')).strip().upper() == 'NO OPERATIVO':
+                    continue
                 lista_registros.append({
-                    "Línea": str(row.get('linea', 'N/D')),
-                    "Categoría": "Infraestructura (EPA)",
-                    "ID / Nombre": str(row.get('id_punto', 'N/D')),
-                    "Clasificación": str(row.get('tipo_punto', 'N/D')),
+                    "Línea": str(row.get('Línea', 'N/D')),
+                    "Categoría": str(row.get('categoria', 'N/D')),
+                    "ID / Nombre": str(row.get('Id de producto', 'N/D')),
+                    "Clasificación": str(row.get('Clasificación', 'N/D')),
+                    "Última Medición": str(row.get('Fecha de verificación', 'N/D'))[:10],
+                    "Próximo Vencimiento": str(row.get('Fecha de próxima verificación', 'N/D'))[:10],
+                    "Estatus": str(row.get('Estatus de verificación', 'N/D'))
+                })
+                
+        if not df_maq_sched.empty:
+            df_maq_sched = df_maq_sched.sort_values('fecha_medicion', ascending=False).drop_duplicates(subset=['id_maquinaria'])
+            for _, row in df_maq_sched.iterrows():
+                if str(row.get('status_operativo', '')).strip().upper() == 'NO OPERATIVO' or str(row.get('resultado_estatus', '')).strip().upper() == 'BAJA':
+                    continue
+                f_med = str(row.get('fecha_medicion', 'N/D'))[:10] if pd.notna(row.get('fecha_medicion')) else 'N/D'
+                f_prox = str(row.get('fecha_proxima', 'N/D'))[:10] if pd.notna(row.get('fecha_proxima')) else 'N/D'
+                
+                lista_registros.append({
+                    "Línea": str(row.get('linea_ubicacion', 'N/D')),
+                    "Categoría": "Maquinaria / Equipo",
+                    "ID / Nombre": str(row.get('id_maquinaria', 'N/D')),
+                    "Clasificación": str(row.get('clasificacion', 'N/D')),
                     "Última Medición": f_med,
                     "Próximo Vencimiento": f_prox,
-                    "Estatus": str(row.get('estatus', 'PENDIENTE'))
+                    "Estatus": str(row.get('resultado_estatus', 'PENDIENTE'))
                 })
-    except Exception as e:
-        pass # Si falla, simplemente no interrumpe el resto del reporte
-        
-    # CÓDIGO CORREGIDO
-    df_schedule_full = pd.DataFrame(lista_registros)
 
-    if not df_schedule_full.empty:
-        # --- HOMOLOGACIÓN MASIVA DE TEXTO ---
-        # Convertimos todo a texto, quitamos espacios a los lados y forzamos mayúsculas
-        df_schedule_full['Línea'] = df_schedule_full['Línea'].astype(str).str.strip().str.upper()
-        
-        # Obtener líneas únicas (asegurando que validamos las versiones en mayúscula de los nulos)
-        lineas_disponibles = sorted([x for x in df_schedule_full['Línea'].unique() if x not in ['N/D', 'NAN', 'NONE', '']])
-        # ------------------------------------
-        
-        c_filtro1, c_filtro2 = st.columns(2)
-        linea_sel = c_filtro1.selectbox("📍 Selecciona la Línea / Ubicación:", ["Todas las Líneas"] + lineas_disponibles)
-        categoria_sel = c_filtro2.selectbox("🏷️ Filtrar por Categoría:", ["Todas", "Maquinaria / Equipo", "Mobiliario", "Ionizador", "Piso"])
-        
-        # Aplicar filtros
-        df_filtrado = df_schedule_full.copy()
-        if linea_sel != "Todas las Líneas":
-            df_filtrado = df_filtrado[df_filtrado['Línea'] == linea_sel]
-        if categoria_sel != "Todas":
-            df_filtrado = df_filtrado[df_filtrado['Categoría'] == categoria_sel]
-        
-        # REPARACIÓN DE ORDENACIÓN: Reemplazar N/D por NaT para que no rompa la conversión de fecha
-        df_filtrado['Fecha Orden'] = df_filtrado['Próximo Vencimiento'].replace('N/D', None)
-        df_filtrado['Fecha Orden'] = pd.to_datetime(df_filtrado['Fecha Orden'], errors='coerce')
-        
-        # Los NaT (valores sin fecha/PENDIENTES) los mandamos al final para que no estorben la visualización crítica
-        df_filtrado = df_filtrado.sort_values(by=['Fecha Orden', 'Línea'], ascending=[True, True], na_position='last').drop(columns=['Fecha Orden'])
-        
-        # Añadir emojis de estado para mayor claridad visual
-        def add_emoji(val):
-            val_str = str(val).upper()
-            if 'VIGENTE' in val_str or 'PASA' in val_str: return f"🟢 {val}"
-            if 'VENCIDO' in val_str or 'FALLA' in val_str or 'RECHAZADO' in val_str: return f"🔴 {val}"
-            if 'PENDIENTE' in val_str: return f"🟡 {val}"
-            return val
+        try:
+            resp_tierras = supabase.table("tierras_auxiliares").select("*").execute()
+            df_tierras = pd.DataFrame(resp_tierras.data)
+            if not df_tierras.empty:
+                df_tierras = df_tierras.sort_values('fecha_medicion', ascending=False).drop_duplicates(subset=['id_punto'])
+                for _, row in df_tierras.iterrows():
+                    f_med = str(row.get('fecha_medicion', 'N/D'))[:10]
+                    try:
+                        f_med_date = datetime.strptime(f_med, "%Y-%m-%d").date()
+                        f_prox = (f_med_date + relativedelta(months=6)).strftime("%Y-%m-%d")
+                    except:
+                        f_prox = "N/D"
+
+                    lista_registros.append({
+                        "Línea": str(row.get('linea', 'N/D')),
+                        "Categoría": "Infraestructura (EPA)",
+                        "ID / Nombre": str(row.get('id_punto', 'N/D')),
+                        "Clasificación": str(row.get('tipo_punto', 'N/D')),
+                        "Última Medición": f_med,
+                        "Próximo Vencimiento": f_prox,
+                        "Estatus": str(row.get('estatus', 'PENDIENTE'))
+                    })
+        except:
+            pass
             
-        df_filtrado['Estatus'] = df_filtrado['Estatus'].apply(add_emoji)
-        
-        st.markdown(f"**Mostrando {len(df_filtrado)} registros:**")
-        st.dataframe(df_filtrado, use_container_width=True, hide_index=True)
-        
-        # --- NUEVA SECCIÓN: GENERAR REPORTE DE LÍNEA ---
-        if linea_sel != "Todas las Líneas" and not df_filtrado.empty:
-            st.divider()
-            st.markdown(f"#### 📄 Generar Reporte de Validación: `{linea_sel}`")
+        df_schedule_full = pd.DataFrame(lista_registros)
+
+        if not df_schedule_full.empty:
+            df_schedule_full['Línea'] = df_schedule_full['Línea'].astype(str).str.strip().str.upper()
+            lineas_disponibles = sorted([x for x in df_schedule_full['Línea'].unique() if x not in ['N/D', 'NAN', 'NONE', '']])
             
-            with st.form("form_rep_linea"):
-                col_r1, col_r2 = st.columns([1, 2])
-                auditor_rep = col_r1.text_input("Auditor / Coordinador", value=st.session_state.usuario_nombre)
-                comentarios_rep = col_r2.text_area("Observaciones Generales", placeholder="Ej: La línea cumple satisfactoriamente...")
+            c_filtro1, c_filtro2 = st.columns(2)
+            linea_sel = c_filtro1.selectbox("📍 Selecciona la Línea / Ubicación:", ["Todas las Líneas"] + lineas_disponibles)
+            categoria_sel = c_filtro2.selectbox("🏷️ Filtrar por Categoría:", ["Todas", "Maquinaria / Equipo", "Mobiliario", "Ionizador", "Piso"])
+            
+            df_filtrado = df_schedule_full.copy()
+            if linea_sel != "Todas las Líneas":
+                df_filtrado = df_filtrado[df_filtrado['Línea'] == linea_sel]
+            if categoria_sel != "Todas":
+                df_filtrado = df_filtrado[df_filtrado['Categoría'] == categoria_sel]
+            
+            df_filtrado['Fecha Orden'] = df_filtrado['Próximo Vencimiento'].replace('N/D', None)
+            df_filtrado['Fecha Orden'] = pd.to_datetime(df_filtrado['Fecha Orden'], errors='coerce')
+            df_filtrado = df_filtrado.sort_values(by=['Fecha Orden', 'Línea'], ascending=[True, True], na_position='last').drop(columns=['Fecha Orden'])
+            
+            def add_emoji(val):
+                val_str = str(val).upper()
+                if 'VIGENTE' in val_str or 'PASA' in val_str: return f"🟢 {val}"
+                if 'VENCIDO' in val_str or 'FALLA' in val_str or 'RECHAZADO' in val_str: return f"🔴 {val}"
+                if 'PENDIENTE' in val_str: return f"🟡 {val}"
+                return val
                 
-                if st.form_submit_button("Generar Reporte Oficial", use_container_width=True):
-                    with st.spinner("Generando folio único y construyendo documento..."):
-                        try:
-                            # 1. Registrar en la bitácora para obtener ID único
-                            resp_log = supabase.table("log_reportes_linea").insert({
-                                "linea_ubicacion": linea_sel,
-                                "auditor": auditor_rep,
-                                "comentarios": comentarios_rep
-                            }).execute()
+            df_filtrado['Estatus'] = df_filtrado['Estatus'].apply(add_emoji)
+            st.markdown(f"**Mostrando {len(df_filtrado)} registros:**")
+            st.dataframe(df_filtrado, use_container_width=True, hide_index=True)
+            
+            if linea_sel != "Todas las Líneas" and not df_filtrado.empty:
+                st.divider()
+                st.markdown(f"#### 📄 Generar Reporte de Validación: `{linea_sel}`")
+                with st.form("form_rep_linea"):
+                    col_r1, col_r2 = st.columns([1, 2])
+                    auditor_rep = col_r1.text_input("Auditor / Coordinador", value=st.session_state.usuario_nombre)
+                    comentarios_rep = col_r2.text_area("Observaciones Generales", placeholder="Ej: La línea cumple satisfactoriamente...")
+                    
+                    if st.form_submit_button("Generar Reporte Oficial", use_container_width=True):
+                        with st.spinner("Generando documento..."):
+                            try:
+                                resp_log = supabase.table("log_reportes_linea").insert({"linea_ubicacion": linea_sel, "auditor": auditor_rep, "comentarios": comentarios_rep}).execute()
+                                db_id_linea = resp_log.data[0]['id']
+                                html_rep_linea, año_rep = generar_html_reporte_linea(linea_sel, df_filtrado, auditor_rep, comentarios_rep, db_id_linea)
+                                b64_html = base64.b64encode(html_rep_linea.encode('utf-8')).decode('utf-8')
+                                nombre_oficial = f"BCS-LV-{db_id_linea:03d}-{año_rep}"
+                                href = f'<a href="data:text/html;base64,{b64_html}" download="{nombre_oficial}.html" target="_blank" style="display: block; text-align: center; padding: 15px; background-color: #003366; color: white; text-decoration: none; border-radius: 8px; font-weight: bold; margin-top: 10px; font-size: 16px;">📥 Descargar Reporte de Línea ({nombre_oficial})</a>'
+                                st.markdown(href, unsafe_allow_html=True)
+                            except Exception as e:
+                                st.error(f"Error generando el reporte: {e}")
+        else:
+            st.warning("No hay registros disponibles para mostrar en el cronograma.")
+
+    # --- SUB-PESTAÑA 2: ACCIONES URGENTES (TABLA INTEGRAL EDITABLE DE ALTAS/PENDIENTES/VENCIDOS) ---
+    with tab_urgentes:
+        st.markdown("#### 🚨 Mesa de Control y Actualización en Vivo")
+        st.caption("Modifica cualquier celda y presiona **Enter**. Los cambios impactarán directamente la tabla origen en Supabase de forma inmediata.")
+
+        with st.spinner("Compilando activos fuera de especificación o pendientes..."):
+            # 1. Extraer Inventario Completo Operativo
+            try:
+                resp_inv_u = supabase.table("inventario_esd").select("*").not_.eq("estatus_operativo", "NO OPERATIVO").execute()
+                df_inv_u = pd.DataFrame(resp_inv_u.data) if resp_inv_u.data else pd.DataFrame()
+            except:
+                df_inv_u = pd.DataFrame()
+
+            # 2. Extraer Maquinaria Completa Operativa
+            try:
+                resp_maq_u = supabase.table("mediciones_maquinaria").select("*").not_.eq("status_operativo", "NO OPERATIVO").not_.eq("resultado_estatus", "BAJA").execute()
+                df_maq_u = pd.DataFrame(resp_maq_u.data) if resp_maq_u.data else pd.DataFrame()
+                if not df_maq_u.empty:
+                    df_maq_u = df_maq_u.sort_values('fecha_medicion', ascending=False).drop_duplicates(subset=['id_maquinaria'], keep='first')
+            except:
+                df_maq_u = pd.DataFrame()
+
+            # 3. Consolidar registros que requieren atención
+            lista_urgentes = []
+
+            # Mapeo desde Inventario (Mobiliario, Ionizadores, Monitores, Pisos)
+            if not df_inv_u.empty:
+                for _, r in df_inv_u.iterrows():
+                    est = str(r.get('estatus_verificacion', '')).upper()
+                    if 'VENCIDO' in est or 'PENDIENTE' in est or 'FALLA' in est or est == '':
+                        lista_urgentes.append({
+                            "DB_ID": r.get('id'),
+                            "Tabla Origen": "inventario_esd",
+                            "Key_ID": r.get('id_producto'),
+                            "ID Activo": r.get('id_producto'),
+                            "Categoría": r.get('categoria', 'Inventario'),
+                            "Clasificación": r.get('clasificacion', 'N/D'),
+                            "Ubicación / Línea": r.get('linea_ubicacion', 'N/D'),
+                            "Estatus": est if est else "PENDIENTE",
+                            "Fecha Medición": str(r.get('fecha_ultima_verif', ''))[:10] if r.get('fecha_ultima_verif') else "",
+                            "Resistencia / Descarga (Ω/s)": r.get('valor_actual'),
+                            "Balance (V)": r.get('balance_ionizador'),
+                            "Campo Estático (V)": None,
+                            "Tomacorriente": None,
+                            "Temp (°C)": r.get('temperatura', '23.5'),
+                            "Humedad (%)": r.get('humedad', '45'),
+                            "Notas / Observaciones": r.get('comentarios', '')
+                        })
+
+            # Mapeo desde Maquinaria
+            if not df_maq_u.empty:
+                for _, r in df_maq_u.iterrows():
+                    est = str(r.get('resultado_estatus', '')).upper()
+                    if 'VENCIDO' in est or 'PENDIENTE' in est or 'FALLA' in est or 'RECHAZADO' in est or est == '':
+                        lista_urgentes.append({
+                            "DB_ID": r.get('id'),
+                            "Tabla Origen": "mediciones_maquinaria",
+                            "Key_ID": r.get('id_maquinaria'),
+                            "ID Activo": r.get('id_maquinaria'),
+                            "Categoría": "Maquinaria",
+                            "Clasificación": r.get('clasificacion', 'Maquinaria'),
+                            "Ubicación / Línea": r.get('linea_ubicacion', 'N/D'),
+                            "Estatus": est if est else "PENDIENTE",
+                            "Fecha Medición": str(r.get('fecha_medicion', ''))[:10] if r.get('fecha_medicion') else "",
+                            "Resistencia / Descarga (Ω/s)": r.get('resistencia_tierra'),
+                            "Balance (V)": None,
+                            "Campo Estático (V)": r.get('campo_estatico_voltaje'),
+                            "Tomacorriente": r.get('tomacorriente_estatus', 'N/A'),
+                            "Temp (°C)": r.get('temperatura', '23.5'),
+                            "Humedad (%)": r.get('humedad', '45'),
+                            "Notas / Observaciones": r.get('observaciones', '')
+                        })
+
+            df_urg_source = pd.DataFrame(lista_urgentes)
+
+            if df_urg_source.empty:
+                st.success("🎉 ¡Excelente! No se encontraron activos pendientes, dados de alta vacíos o vencidos en la planta.")
+            else:
+                # 4. RENDERIZACIÓN DEL EDITOR INTERACTIVO EN PISO
+                df_editor = st.data_editor(
+                    df_urg_source,
+                    column_config={
+                        "DB_ID": None,       # Ocultar Primary Key de control interno
+                        "Tabla Origen": None, # Ocultar nombre físico de la tabla
+                        "Key_ID": None,       # Ocultar ID alterno
+                        "ID Activo": st.column_config.TextColumn("ID Activo", disabled=True),
+                        "Categoría": st.column_config.TextColumn("Categoría", disabled=True),
+                        "Clasificación": st.column_config.TextColumn("Clasificación", disabled=True),
+                        "Estatus": st.column_config.SelectboxColumn("Estatus", options=["PENDIENTE", "VENCIDO", "VIGENTE", "FALLA", "APROBADO", "RECHAZADO"], required=True),
+                        "Tomacorriente": st.column_config.SelectboxColumn("Tomacorriente", options=["PASA", "FALLA", "N/A"]),
+                        "Resistencia / Descarga (Ω/s)": st.column_config.NumberColumn("Resistencia/Descarga", format="%.2e"),
+                        "Campo Estático (V)": st.column_config.NumberColumn("Campo Estático (V)", format="%.1f"),
+                        "Balance (V)": st.column_config.NumberColumn("Balance (V)", format="%.1f"),
+                        "Fecha Medición": st.column_config.TextColumn("Fecha (YYYY-MM-DD)")
+                    },
+                    hide_index=True,
+                    use_container_width=True,
+                    key="live_editor_urgentes"
+                )
+
+                # 5. DETECTOR TRANSACCIONAL EN CALIENTE (EJECUCIÓN AL DAR ENTER)
+                if "live_editor_urgentes" in st.session_state and st.session_state.live_editor_urgentes.get("edited_rows"):
+                    cambios_detectados = st.session_state.live_editor_urgentes["edited_rows"]
+                    
+                    for idx_str, c_celdas in cambios_detectados.items():
+                        idx = int(idx_str)
+                        fila_original = df_urg_source.iloc[idx]
+                        
+                        id_registro = fila_original["DB_ID"]
+                        tabla_destino = fila_original["Tabla Origen"]
+                        id_activo_txt = fila_original["Key_ID"]
+                        
+                        payload_update = {}
+                        
+                        # Mapear los nombres de columnas de la interfaz a las columnas reales de SQL
+                        if "Ubicación / Línea" in c_celdas:
+                            payload_update["linea_ubicacion"] = str(c_celdas["Ubicación / Línea"]).strip().upper()
                             
-                            db_id_linea = resp_log.data[0]['id']
+                        if "Estatus" in c_celdas:
+                            nuevo_est = c_celdas["Estatus"]
+                            if tabla_destino == "inventario_esd":
+                                payload_update["estatus_verificacion"] = nuevo_est
+                            else:
+                                payload_update["resultado_estatus"] = nuevo_est
+                                
+                            # Si se aprueba, recalculamos automáticamente la fecha de vencimiento (1 año)
+                            if nuevo_est in ["VIGENTE", "APROBADO"]:
+                                f_base = datetime.today().date()
+                                payload_update["fecha_proxima" if tabla_destino == "mediciones_maquinaria" else "fecha_proxima_verif"] = (f_base + relativedelta(years=1)).isoformat()
+                        
+                        if "Fecha Medición" in c_celdas:
+                            val_f = c_celdas["Fecha Medición"]
+                            payload_update["fecha_ultima_verif" if tabla_destino == "inventario_esd" else "fecha_medicion"] = val_f
                             
-                            # 2. Generar el HTML
-                            html_rep_linea, año_rep = generar_html_reporte_linea(
-                                linea=linea_sel, 
-                                df_linea=df_filtrado, 
-                                auditor=auditor_rep, 
-                                comentarios=comentarios_rep, 
-                                db_id=db_id_linea
-                            )
+                        if "Resistencia / Descarga (Ω/s)" in c_celdas:
+                            val_r = c_celdas["Resistencia / Descarga (Ω/s)"]
+                            payload_update["valor_actual" if tabla_destino == "inventario_esd" else "resistencia_tierra"] = float(val_r) if val_r else None
                             
-                            # 3. Preparar descarga
-                            b64_html = base64.b64encode(html_rep_linea.encode('utf-8')).decode('utf-8')
-                            nombre_oficial = f"BCS-LV-{db_id_linea:03d}-{año_rep}"
+                        if "Balance (V)" in c_celdas and tabla_destino == "inventario_esd":
+                            val_b = c_celdas["Balance (V)"]
+                            payload_update["balance_ionizador"] = float(val_b) if val_b else None
                             
-                            st.success(f"✅ ¡Reporte {nombre_oficial} generado con éxito!")
+                        if "Campo Estático (V)" in c_celdas and tabla_destino == "mediciones_maquinaria":
+                            val_c = c_celdas["Campo Estático (V)"]
+                            payload_update["campo_estatico_voltaje"] = float(val_c) if val_c else None
                             
-                            href = f'<a href="data:text/html;base64,{b64_html}" download="{nombre_oficial}.html" target="_blank" style="display: block; text-align: center; padding: 15px; background-color: #003366; color: white; text-decoration: none; border-radius: 8px; font-weight: bold; margin-top: 10px; font-size: 16px;">📥 Descargar / Imprimir Reporte de Línea ({nombre_oficial})</a>'
-                            st.markdown(href, unsafe_allow_html=True)
+                        if "Tomacorriente" in c_celdas and tabla_destino == "mediciones_maquinaria":
+                            payload_update["tomacorriente_estatus"] = c_celdas["Tomacorriente"]
                             
-                        except Exception as e:
-                            st.error(f"Error generando el reporte: {e}")
-    else:
-        st.warning("No hay registros disponibles para mostrar en el cronograma.")
+                        if "Temp (°C)" in c_celdas:
+                            payload_update["temperatura"] = str(c_celdas["Temp (°C)"])
+                            
+                        if "Humedad (%)" in c_celdas:
+                            try:
+                                payload_update["humedad"] = int(c_celdas["Humedad (%)"])
+                            except:
+                                payload_update["humedad"] = str(c_celdas["Humedad (%)"])
+                                
+                        if "Notas / Observaciones" in c_celdas:
+                            payload_update["comentarios" if tabla_destino == "inventario_esd" else "observaciones"] = c_celdas["Notas / Observaciones"]
+
+                        # Ejecutar la inyección SQL transaccional
+                        if payload_update:
+                            try:
+                                if id_registro: # Intento seguro por ID único de base de datos
+                                    supabase.table(tabla_destino).update(payload_update).eq("id", id_registro).execute()
+                                else: # Fallback seguro por ID de activo
+                                    col_llave = "id_producto" if tabla_destino == "inventario_esd" else "id_maquinaria"
+                                    supabase.table(tabla_destino).update(payload_update).eq(col_llave, id_activo_txt).execute()
+                                
+                                st.toast(f"⚡ ¡Activo {id_activo_txt} sincronizado en la tabla {tabla_destino} con éxito!")
+                            except Exception as sql_err:
+                                st.error(f"Error transaccional en la BD para el ID {id_activo_txt}: {sql_err}")
+                                
+                    # Limpieza transaccional de caché para refrescar toda la aplicación al instante
+                    st.cache_data.clear()
+                    st.rerun()
 
 # ==========================================
 # VISTA 9: SENSIBILIDAD DE COMPONENTES (ESDS)
