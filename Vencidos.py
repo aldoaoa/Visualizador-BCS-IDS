@@ -5191,7 +5191,7 @@ elif st.session_state.vista_actual == "Tierras" and not st.session_state.modo_le
                             cx, cy = coords_map[punto_num]
                             
                             # Definimos una "caja de recorte" de 200x200 píxeles centrada en el punto
-                            box_size = 100 
+                            box_size = 200 
                             left = max(0, cx - box_size)
                             upper = max(0, cy - box_size)
                             right = min(img_w, cx + box_size)
