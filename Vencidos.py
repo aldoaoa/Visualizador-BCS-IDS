@@ -5218,14 +5218,18 @@ elif st.session_state.vista_actual == "Tierras" and not st.session_state.modo_le
             btn_borrador = c_btn1.form_submit_button("📝 Guardar Borrador (Temporal)", use_container_width=True)
             submit_piso = c_btn2.form_submit_button("💾 Guardar Validación Final", type="primary", use_container_width=True)
 
-        # Lógica formularios
+        # Lógica formularios (Borrador / Guardado)
         if btn_borrador:
             for p_num, p_val in puntos_rtg.items():
-                if p_val > 0: st.session_state.borrador_piso[f"{cuarto_sel}_{p_num}"] = p_val
+                # BLINDAJE: Validamos que el punto no sea None antes de evaluar si es mayor a 0
+                if p_val is not None and p_val > 0: 
+                    st.session_state.borrador_piso[f"{cuarto_sel}_{p_num}"] = p_val
             st.success("✅ Progreso guardado temporalmente.")
 
         if submit_piso:
-            puntos_a_guardar = {k: v for k, v in puntos_rtg.items() if v > 0}
+            # BLINDAJE: También protegemos el diccionario de guardado final contra los None
+            puntos_a_guardar = {k: v for k, v in puntos_rtg.items() if v is not None and v > 0}
+            
             if not puntos_a_guardar:
                 st.error("⚠️ Registra al menos un punto.")
             else:
