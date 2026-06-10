@@ -4636,7 +4636,7 @@ elif st.session_state.vista_actual == "Schedule" and not st.session_state.modo_l
         else:
             st.warning("No hay registros disponibles para mostrar en el cronograma.")
 
-    # --- SUB-PESTAÑA 2: ACCIONES URGENTES (TABLA INTEGRAL EDITABLE DE ALTAS/PENDIENTES/VENCIDOS) ---
+    # --- SUB-PESTAÑA 2: ACCIONES URGENTES (TABLA INTEGRAL EDITABLE EN VIVO) ---
     with tab_urgentes:
         st.markdown("#### 🚨 Mesa de Control y Actualización en Vivo")
         st.caption("Modifica cualquier celda y presiona **Enter**. Los cambios impactarán directamente la tabla origen en Supabase de forma inmediata.")
@@ -4667,9 +4667,8 @@ elif st.session_state.vista_actual == "Schedule" and not st.session_state.modo_l
                     est = str(r.get('estatus_verificacion', '')).upper()
                     if 'VENCIDO' in est or 'PENDIENTE' in est or 'FALLA' in est or est == '':
                         lista_urgentes.append({
-                            "DB_ID": r.get('id'),
                             "Tabla Origen": "inventario_esd",
-                            "Key_ID": r.get('id_producto'),
+                            "Columna_Llave": "id_producto", # <-- Asignación automática del nombre de la columna PK
                             "ID Activo": r.get('id_producto'),
                             "Categoría": r.get('categoria', 'Inventario'),
                             "Clasificación": r.get('clasificacion', 'N/D'),
@@ -4691,9 +4690,8 @@ elif st.session_state.vista_actual == "Schedule" and not st.session_state.modo_l
                     est = str(r.get('resultado_estatus', '')).upper()
                     if 'VENCIDO' in est or 'PENDIENTE' in est or 'FALLA' in est or 'RECHAZADO' in est or est == '':
                         lista_urgentes.append({
-                            "DB_ID": r.get('id'),
                             "Tabla Origen": "mediciones_maquinaria",
-                            "Key_ID": r.get('id_maquinaria'),
+                            "Columna_Llave": "id_maquinaria", # <-- Asignación automática del nombre de la columna PK
                             "ID Activo": r.get('id_maquinaria'),
                             "Categoría": "Maquinaria",
                             "Clasificación": r.get('clasificacion', 'Maquinaria'),
@@ -4712,15 +4710,14 @@ elif st.session_state.vista_actual == "Schedule" and not st.session_state.modo_l
             df_urg_source = pd.DataFrame(lista_urgentes)
 
             if df_urg_source.empty:
-                st.success("🎉 ¡Excelente! No se encontraron activos pendientes, dados de alta vacíos o vencidos en la planta.")
+                st.success("🎉 ¡Excelente! No se encontraron activos pendientes o vencidos.")
             else:
                 # 4. RENDERIZACIÓN DEL EDITOR INTERACTIVO EN PISO
                 df_editor = st.data_editor(
                     df_urg_source,
                     column_config={
-                        "DB_ID": None,       # Ocultar Primary Key de control interno
-                        "Tabla Origen": None, # Ocultar nombre físico de la tabla
-                        "Key_ID": None,       # Ocultar ID alterno
+                        "Tabla Origen": None,    # Oculto
+                        "Columna_Llave": None,   # Oculto: El motor usará esto para saber a qué columna apuntar
                         "ID Activo": st.column_config.TextColumn("ID Activo", disabled=True),
                         "Categoría": st.column_config.TextColumn("Categoría", disabled=True),
                         "Clasificación": st.column_config.TextColumn("Clasificación", disabled=True),
@@ -4736,7 +4733,7 @@ elif st.session_state.vista_actual == "Schedule" and not st.session_state.modo_l
                     key="live_editor_urgentes"
                 )
 
-                # 5. DETECTOR TRANSACCIONAL EN CALIENTE (EJECUCIÓN AL DAR ENTER)
+                # 5. DETECTOR TRANSACCIONAL DINÁMICO
                 if "live_editor_urgentes" in st.session_state and st.session_state.live_editor_urgentes.get("edited_rows"):
                     cambios_detectados = st.session_state.live_editor_urgentes["edited_rows"]
                     
@@ -4744,13 +4741,14 @@ elif st.session_state.vista_actual == "Schedule" and not st.session_state.modo_l
                         idx = int(idx_str)
                         fila_original = df_urg_source.iloc[idx]
                         
-                        id_registro = fila_original["DB_ID"]
+                        # Variables dinámicas de enrutamiento
                         tabla_destino = fila_original["Tabla Origen"]
-                        id_activo_txt = fila_original["Key_ID"]
+                        columna_pk = fila_original["Columna_Llave"]
+                        id_activo_txt = fila_original["ID Activo"]
                         
                         payload_update = {}
                         
-                        # Mapear los nombres de columnas de la interfaz a las columnas reales de SQL
+                        # Mapeo de columnas Front-End -> Back-End (Supabase)
                         if "Ubicación / Línea" in c_celdas:
                             payload_update["linea_ubicacion"] = str(c_celdas["Ubicación / Línea"]).strip().upper()
                             
@@ -4761,14 +4759,13 @@ elif st.session_state.vista_actual == "Schedule" and not st.session_state.modo_l
                             else:
                                 payload_update["resultado_estatus"] = nuevo_est
                                 
-                            # Si se aprueba, recalculamos automáticamente la fecha de vencimiento (1 año)
+                            # Autocalcular vencimiento
                             if nuevo_est in ["VIGENTE", "APROBADO"]:
                                 f_base = datetime.today().date()
                                 payload_update["fecha_proxima" if tabla_destino == "mediciones_maquinaria" else "fecha_proxima_verif"] = (f_base + relativedelta(years=1)).isoformat()
                         
                         if "Fecha Medición" in c_celdas:
-                            val_f = c_celdas["Fecha Medición"]
-                            payload_update["fecha_ultima_verif" if tabla_destino == "inventario_esd" else "fecha_medicion"] = val_f
+                            payload_update["fecha_ultima_verif" if tabla_destino == "inventario_esd" else "fecha_medicion"] = c_celdas["Fecha Medición"]
                             
                         if "Resistencia / Descarga (Ω/s)" in c_celdas:
                             val_r = c_celdas["Resistencia / Descarga (Ω/s)"]
@@ -4789,29 +4786,23 @@ elif st.session_state.vista_actual == "Schedule" and not st.session_state.modo_l
                             payload_update["temperatura"] = str(c_celdas["Temp (°C)"])
                             
                         if "Humedad (%)" in c_celdas:
-                            try:
-                                payload_update["humedad"] = int(c_celdas["Humedad (%)"])
-                            except:
-                                payload_update["humedad"] = str(c_celdas["Humedad (%)"])
+                            payload_update["humedad"] = str(c_celdas["Humedad (%)"])
                                 
                         if "Notas / Observaciones" in c_celdas:
                             payload_update["comentarios" if tabla_destino == "inventario_esd" else "observaciones"] = c_celdas["Notas / Observaciones"]
 
-                        # Ejecutar la inyección SQL transaccional
+                        # Inyección SQL Dinámica
                         if payload_update:
                             try:
-                                if id_registro: # Intento seguro por ID único de base de datos
-                                    supabase.table(tabla_destino).update(payload_update).eq("id", id_registro).execute()
-                                else: # Fallback seguro por ID de activo
-                                    col_llave = "id_producto" if tabla_destino == "inventario_esd" else "id_maquinaria"
-                                    supabase.table(tabla_destino).update(payload_update).eq(col_llave, id_activo_txt).execute()
-                                
-                                st.toast(f"⚡ ¡Activo {id_activo_txt} sincronizado en la tabla {tabla_destino} con éxito!")
+                                # Magia automática: Apunta a la tabla correcta y a la columna llave correcta
+                                supabase.table(tabla_destino).update(payload_update).eq(columna_pk, id_activo_txt).execute()
+                                st.toast(f"⚡ ¡{id_activo_txt} actualizado correctamente!")
                             except Exception as sql_err:
-                                st.error(f"Error transaccional en la BD para el ID {id_activo_txt}: {sql_err}")
+                                st.error(f"Error actualizando {id_activo_txt}: {sql_err}")
                                 
-                    # Limpieza transaccional de caché para refrescar toda la aplicación al instante
+                    # Refrescar aplicación
                     st.cache_data.clear()
+                    time.sleep(0.5)
                     st.rerun()
 
 # ==========================================
