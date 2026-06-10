@@ -37,6 +37,25 @@ if "val_form_key" not in st.session_state:
 st.set_page_config(page_title="Control ESD BCS-AIS", layout="wide")
 
 # ==========================================
+# OPTIMIZACIÓN DE INTERFAZ (OCULTAR OVERLAY)
+# ==========================================
+ocultar_menu_streamlit = """
+    <style>
+    #MainMenu {visibility: hidden;}
+    header {visibility: hidden;}
+    footer {visibility: hidden;}
+    div[data-testid="stDecoration"] {display: none;}
+    .stAppDeployButton {display: none;}
+    /* Ajuste extra para ganar espacio vertical en móviles */
+    .block-container {
+        padding-top: 1.5rem;
+        padding-bottom: 1rem;
+    }
+    </style>
+"""
+st.markdown(ocultar_menu_streamlit, unsafe_allow_html=True)
+
+# ==========================================
 # DICCIONARIOS GLOBALES DE REFERENCIA
 # ==========================================
 INFO_ELEMENTOS_ESD = {
