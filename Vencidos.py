@@ -75,6 +75,17 @@ MAPA_UNIDADES = {
     "Otro": "N/A"
 }
 
+def parsear_resistencia(valor_str):
+    """Convierte texto libre a float soportando notación científica y comas."""
+    if not valor_str or str(valor_str).strip() == "":
+        return None
+    try:
+        # Limpiamos espacios y cambiamos la coma por punto (por si usan teclado en español)
+        val_limpio = str(valor_str).strip().replace(',', '.')
+        return float(val_limpio)
+    except ValueError:
+        return "ERROR"
+
 def ejecutar_automigracion_lineas():
     """Extrae líneas únicas de las tablas históricas y las inserta en catalogo_lineas."""
     lineas_encontradas = set()
@@ -1090,18 +1101,24 @@ if st.session_state.vista_actual == "Alta" and not st.session_state.modo_lectura
             
             # --- CAMPOS PARA MOBILIARIO ---
             if tipo_alta == "Mobiliario":
+                # [CORRECCIÓN APLICADA AQUÍ: SANGRÍA]
                 tipos_disponibles = sorted([str(x).strip() for x in df_target_alta.get('Clasificación', pd.Series()).unique() if pd.notna(x) and str(x).strip() != ''])
                 nuevo_tipo = col1.selectbox("Tipo / Clasificación", options=tipos_disponibles if tipos_disponibles else ["Mesa", "Silla"])
                 
                 with col2:
-                    st.caption("Valor inicial (Ohms)")
-                    c_b, c_x, c_e = st.columns([2, 1, 2])
-                    base_alta = c_b.number_input("Número", value=None, format="%.2f", placeholder="0.0")
-                    exp_alta = c_e.number_input("Exponente", value=None, step=1, format="%d", placeholder="0")
-                    if base_alta is not None and exp_alta is not None:
-                        valor_alta = base_alta * (10 ** exp_alta)
-                    else:
-                        valor_alta = None
+                    # Sustituimos el bloque de base/exponente por un text_input limpio
+                    valor_alta_txt = st.text_input("Valor inicial (Ohms)", placeholder="Ej: 1e9 o 5.5e8")
+                    
+                    # Procesamos el texto ingresado
+                    valor_alta = parsear_resistencia(valor_alta_txt)
+                    
+                    # Validación visual inmediata en el formulario
+                    if valor_alta == "ERROR":
+                        st.error("❌ Formato inválido. Usa números o notación (ej: 1e9).")
+                        valor_alta = None  # Evita que el error pase a la base de datos
+                    elif valor_alta is not None and valor_alta >= 1e9:
+                        # Opcional: Una advertencia visual si excede el límite normativo de 1e9
+                        st.warning("⚠️ Atención: El valor ingresado excede el límite de 1e9 Ohms.")
                 
                 fabricante_opc = col1.selectbox("Fabricante", options=["BCS", "Otro", "N/A"])
                 fabricante_final = col1.text_input("Especifique Fabricante") if fabricante_opc == "Otro" else fabricante_opc
@@ -1115,12 +1132,26 @@ if st.session_state.vista_actual == "Alta" and not st.session_state.modo_lectura
             # --- CAMPOS PARA IONIZADORES ---
             elif tipo_alta == "Ionizador":
                 nuevo_tipo = col1.selectbox("Clasificación", options=["Ventilador", "Barra", "Pistola"])
-                valor_alta = col2.number_input("Descarga (Seg)", value=None, format="%.2f", placeholder="0.0")
+                
+                # Cambiado a text_input para liberar el teclado y permitir decimales sin bloqueos
+                valor_alta_txt = col2.text_input("Descarga (Seg)", placeholder="Ej: 1.5")
+                valor_alta = parsear_resistencia(valor_alta_txt)
+                
+                if valor_alta == "ERROR":
+                    col2.error("❌ Formato de descarga inválido. Usa números (ej: 1.5).")
+                    valor_alta = None
                 
                 fabricante_opc = col1.selectbox("Fabricante", options=["SMC", "Panasonic", "Keyence", "SIMCO", "Otro"])
                 fabricante_final = col1.text_input("Especifique Fabricante") if fabricante_opc == "Otro" else fabricante_opc
                 
-                balance_alta = col2.number_input("Balance (V)", value=None, format="%.2f", placeholder="0.0")
+                # Cambiado a text_input para permitir capturar voltajes negativos fácilmente (-5 V)
+                balance_alta_txt = col2.text_input("Balance (V)", placeholder="Ej: 3 o -5")
+                balance_alta = parsear_resistencia(balance_alta_txt)
+                
+                if balance_alta == "ERROR":
+                    col2.error("❌ Formato de balance inválido. Usa números enteros o decimales.")
+                    balance_alta = None
+                    
                 frecuencia_alta = "Trimestral"
                 nuevo_minimo = 0.00
                 limite_alta = "10.00"
@@ -1130,13 +1161,13 @@ if st.session_state.vista_actual == "Alta" and not st.session_state.modo_lectura
                 nuevo_tipo = col1.selectbox("Clasificación", options=["Monitor Sencillo", "Monitor Dual", "Monitor de Superficie"])
                 
                 with col2:
-                    st.caption("Resistencia inicial (Ohms)")
-                    c_b, c_x, c_e = st.columns([2, 1, 2])
-                    base_alta = c_b.number_input("Número", value=None, format="%.2f", placeholder="0.0", key="base_mon")
-                    exp_alta = c_e.number_input("Exponente", value=None, step=1, format="%d", placeholder="0", key="exp_mon")
-                    if base_alta is not None and exp_alta is not None:
-                        valor_alta = base_alta * (10 ** exp_alta)
-                    else:
+                    # Eliminamos las tres columnas complejas y abrimos el teclado completo
+                    valor_alta_txt = st.text_input("Resistencia inicial (Ohms)", placeholder="Ej: 1e6 o 1.2e7", key="txt_mon_res")
+                    
+                    valor_alta = parsear_resistencia(valor_alta_txt)
+                    
+                    if valor_alta == "ERROR":
+                        st.error("❌ Formato inválido. Usa números o notación científica (ej: 1e6).")
                         valor_alta = None
                         
                 fabricante_opc = col1.selectbox("Fabricante", options=["SCS", "Desco", "Transforming Technologies", "Botron", "Otro"])
@@ -1149,12 +1180,16 @@ if st.session_state.vista_actual == "Alta" and not st.session_state.modo_lectura
                 # Limite típico de monitor según tu diccionario (2.0) o (10 Megohms = 1.00E+07)
                 limite_alta = col4.text_input("Límite Máximo", value="1.00E+07", key="lim_mon")
                 balance_alta = 0.0
+                
             comentarios = st.text_area("Comentarios")
             submit_alta = st.form_submit_button("Registrar en sistema", use_container_width=True)
             
         if submit_alta:
+            # 0. BLOQUEO DE SEGURIDAD PARA FORMATOS INVÁLIDOS
+            if valor_alta == "ERROR" or (tipo_alta == "Ionizador" and balance_alta == "ERROR"):
+                st.error("❌ Hay valores de medición inválidos en el formulario. Corrígelos antes de guardar.")
             # 1. Dejamos solo los campos verdaderamente obligatorios para crear el registro
-            if not nuevo_id or not fabricante_final:
+            elif not nuevo_id or not fabricante_final:
                 st.error("⚠️ Por favor complete los campos obligatorios (ID y Fabricante).")
             else:
                 id_limpio_alta = str(nuevo_id).strip().upper()
@@ -1178,10 +1213,30 @@ if st.session_state.vista_actual == "Alta" and not st.session_state.modo_lectura
                         else:
                             metodo_final = "RTG"
 
-                        # 2. VARIABLE DE CONTROL: Verificamos de forma segura si el usuario ingresó un valor inicial
-                        tiene_valor = valor_alta is not None
+                        # 2. VARIABLE DE CONTROL
+                        tiene_valor = valor_alta is not None and valor_alta != "ERROR"
+                        
+                        # 2.5 EVALUACIÓN AUTOMÁTICA DE ESTATUS (Estandarizado a VIGENTE/VENCIDO/PENDIENTE)
+                        estatus_final = "PENDIENTE"
+                        
+                        # Parseo seguro del límite (usando nuestra función salvavidas)
+                        limite_numerico = parsear_resistencia(limite_alta)
+                        if limite_numerico == "ERROR":
+                            limite_numerico = 1.0e9 # Valor de respaldo seguro
+                            
+                        if tiene_valor:
+                            # Evaluamos si el valor capturado pasa la norma
+                            if float(valor_alta) < limite_numerico:
+                                estatus_final = "VIGENTE"
+                            else:
+                                estatus_final = "VENCIDO"
+                                
+                            # Si es ionizador, el balance también puede reprobar al equipo (ej. límite +/- 35V)
+                            if tipo_alta == "Ionizador" and balance_alta is not None and balance_alta != "ERROR":
+                                if abs(float(balance_alta)) > 35.0: # Ajusta el 35.0 según tu norma real para balance
+                                    estatus_final = "VENCIDO"
 
-                        # 3. DICCIONARIO BLINDADO: Usamos la variable de control para no romper el código con 'None'
+                        # 3. DICCIONARIO BLINDADO
                         data_insert = {
                             "id_producto": id_limpio_alta,
                             "categoria": tipo_alta,
@@ -1189,14 +1244,14 @@ if st.session_state.vista_actual == "Alta" and not st.session_state.modo_lectura
                             "clasificacion": nuevo_tipo,
                             "fabricante": fabricante_final,
                             "limite_minimo": float(nuevo_minimo),
-                            "limite_maximo": float(limite_alta) if "E" not in str(limite_alta).upper() else float(limite_alta), 
+                            "limite_maximo": float(limite_numerico), 
                             "unidad_medida": "Segundos" if tipo_alta == "Ionizador" else "Ohms",
                             "valor_actual": float(valor_alta) if tiene_valor else None,
                             "metodo_prueba": metodo_final,
                             "fecha_ultima_verif": fecha_hoy.isoformat() if tiene_valor else None,
                             "fecha_proxima_verif": proxima.isoformat() if tiene_valor else None,
                             "frecuencia": frecuencia_alta,
-                            "estatus_verificacion": "VIGENTE" if tiene_valor else "PENDIENTE",
+                            "estatus_verificacion": estatus_final, # <-- Automático e Inteligente
                             "estatus_operativo": "OPERATIVO",
                             "comentarios": comentarios,
                             "auditor_responsable": st.session_state.usuario_nombre
@@ -1204,17 +1259,17 @@ if st.session_state.vista_actual == "Alta" and not st.session_state.modo_lectura
                         
                         # Manejo seguro para el balance del ionizador
                         if tipo_alta == "Ionizador":
-                            data_insert["balance_ionizador"] = float(balance_alta) if balance_alta is not None else None
+                            data_insert["balance_ionizador"] = float(balance_alta) if (balance_alta is not None and balance_alta != "ERROR") else None
                         
                         try:
                             supabase.table("inventario_esd").insert(data_insert).execute()
-                            st.success(f"✅ ¡Activo {nuevo_id} registrado con éxito!")
+                            st.success(f"✅ ¡Activo {nuevo_id} registrado con éxito en estatus: {estatus_final}!")
                             st.cache_data.clear()
                             st.balloons()
                         except Exception as e:
                             st.error(f"Error SQL: {e}")
                             
-# --- SUB-VISTA 2: BAJA (CON ESCÁNER QR REACTIVO INDEPENDIENTE) ---
+    # --- SUB-VISTA 2: BAJA (CON ESCÁNER QR REACTIVO INDEPENDIENTE) ---
     elif accion_seleccionada == "🗑️ Dar de Baja":
         st.markdown("#### 🗑️ Desactivación de Activos ESD")
         
@@ -1363,7 +1418,7 @@ if st.session_state.vista_actual == "Alta" and not st.session_state.modo_lectura
                                         # 2. Hacemos el update usando el texto literal de la base de datos
                                         supabase.table("inventario_esd").update({
                                             "estatus_operativo": "NO OPERATIVO",
-                                            "estatus_verificacion": "BAJA"
+                                            "estatus_verificacion": "PENDIENTE" # Estandarizado a PENDIENTE, como es baja, no debe ser VIGENTE ni VENCIDO.
                                         }).eq("id_producto", id_exacto_db).execute()
                                         
                                         st.success("✅ ¡Desactivado de Inventario!")
@@ -1390,7 +1445,7 @@ if st.session_state.vista_actual == "Alta" and not st.session_state.modo_lectura
                                     try:
                                         supabase.table("mediciones_maquinaria").update({
                                             "status_operativo": "NO OPERATIVO",
-                                            "resultado_estatus": "BAJA"
+                                            "resultado_estatus": "PENDIENTE" # Estandarizado a PENDIENTE.
                                         }).eq("id_maquinaria", id_limpio_baja).execute()
                                         st.success("✅ ¡Desactivado de Maquinaria!")
                                         st.cache_data.clear()
