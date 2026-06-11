@@ -4915,7 +4915,7 @@ elif st.session_state.vista_actual == "Schedule" and not st.session_state.modo_l
                         "ID Activo": st.column_config.TextColumn("ID Activo", disabled=True),
                         "Categoría": st.column_config.TextColumn("Categoría", disabled=True),
                         "Clasificación": st.column_config.TextColumn("Clasificación", disabled=True),
-                        "Estatus": st.column_config.SelectboxColumn("Estatus", options=["PENDIENTE", "VENCIDO", "VIGENTE", "FALLA", "APROBADO", "RECHAZADO"], required=True),
+                        "Estatus": st.column_config.SelectboxColumn("Estatus", options=["PENDIENTE", "VENCIDO", "VIGENTE"], required=True),
                         "Tomacorriente": st.column_config.SelectboxColumn("Tomacorriente", options=["PASA", "FALLA", "N/A"]),
                         # Cambiado a TextColumn para admitir "1e9" sin problemas de formato del navegador
                         "Resistencia / Descarga (Ω/s)": st.column_config.TextColumn("Resistencia (Ω) [Ej: 1e9]", help="Admite notación científica. Ej: 1e9 o 5.5e8"),
@@ -4966,10 +4966,10 @@ elif st.session_state.vista_actual == "Schedule" and not st.session_state.modo_l
                                             # Evaluación contra límites normativos
                                             if tabla_destino == "mediciones_maquinaria":
                                                 # Maquinaria: Máximo 1 ohm
-                                                estatus_calc = "APROBADO" if val_r_float <= 1.0 else "FALLA"
+                                                estatus_calc = "VIGENTE" if val_r_float <= 1.0 else "VENCIDO"
                                             else:
                                                 # Mobiliario: Máximo 1e9 ohms
-                                                estatus_calc = "VIGENTE" if val_r_float < 1.0e9 else "FALLA"
+                                                estatus_calc = "VIGENTE" if val_r_float < 1.0e9 else "VENCIDO"
                                             
                                             # Sobrescribimos el estatus en la cola de guardado para automatizarlo
                                             c_celdas["Estatus"] = estatus_calc
@@ -5602,7 +5602,7 @@ elif st.session_state.vista_actual == "Tierras" and not st.session_state.modo_le
                     registros_db = []
                     fecha_reg = datetime.now().isoformat()
                     for p_num, p_val in puntos_a_guardar.items():
-                        estatus = "PASA" if p_val < 1.0e9 else "FALLA"
+                        estatus = "VIGENTE" if p_val < 1.0e9 else "VENCIDO"
                         registros_db.append({
                             "cuarto": cuarto_sel, "punto": p_num, "medicion_ohms": p_val,
                             "temperatura": temp_piso, "humedad": hum_piso, "equipo_medicion": equipo_piso_sel,
