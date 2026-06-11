@@ -236,14 +236,14 @@ def generar_html_reporte_linea(linea, df_linea, auditor, comentarios, db_id):
             <div class="border-t-[3px] border-b-[3px] border-black mt-16 py-1 text-[11px] font-sans [page-break-inside:avoid]">
                 <div class="flex justify-between items-end">
                     <div class="text-left leading-tight">
-                        <div>E_310_4_120_QRO_SP_Rev. A</div>
-                        <div>Formato de Validación de Línea Integral.</div>
+                        <div>B_010_4_013_QRO_SP Rev. A</div>
+                        <div>Registro de eventos ESD.</div>
                     </div>
                     <div class="text-center leading-tight">
                         <div>Fecha: {fecha_pie}</div>
                     </div>
                     <div class="text-right leading-tight">
-                        <div>Ref.E_310_3_001_QRO_SP</div>
+                        <div>Ref.B_010_3_002_QRO_SP</div>
                     </div>
                 </div>
             </div>
