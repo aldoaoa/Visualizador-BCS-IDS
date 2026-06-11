@@ -4817,7 +4817,10 @@ elif st.session_state.vista_actual == "Schedule" and not st.session_state.modo_l
         st.markdown("#### 🚨 Mesa de Control y Actualización")
         st.caption("Escribe el nuevo valor de resistencia (puedes usar **1e9**). Al guardar, el sistema evaluará el límite, cambiará el estatus y actualizará las fechas automáticamente.")
 
-        with st.spinner("Compilando activos fuera de especificación o pendientes..."):
+        with st.spinner("Evaluando fechas de vencimiento y compilando activos pendientes..."):
+            from datetime import datetime
+            hoy = datetime.today().date()
+
             # 1. Extraer Inventario Completo Operativo
             try:
                 resp_inv_u = supabase.table("inventario_esd").select("*").not_.eq("estatus_operativo", "NO OPERATIVO").execute()
@@ -4840,16 +4843,30 @@ elif st.session_state.vista_actual == "Schedule" and not st.session_state.modo_l
             # --- MAPEO DESDE INVENTARIO ---
             if not df_inv_u.empty:
                 for _, r in df_inv_u.iterrows():
-                    # Blindaje contra nulos de Pandas/Supabase
                     valor_original = r.get('estatus_verificacion')
                     est = str(valor_original).strip().upper()
-                    
-                    # Verificamos si es realmente nulo o una palabra clave de falla/pendiente
                     es_nulo = pd.isna(valor_original) or est in ['', 'NONE', 'NAN', 'NULL', 'N/A', 'N/D']
+
+                    # Validación matemática estricta de la fecha
+                    f_prox_str = str(r.get('fecha_proxima_verif', ''))[:10]
+                    vencido_por_fecha = False
+                    f_prox_date = None
                     
-                    if 'VENCIDO' in est or 'PENDIENTE' in est or 'FALLA' in est or es_nulo:
+                    if f_prox_str and f_prox_str not in ['NONE', 'NAN', 'N/D', 'NULL', '']:
+                        try:
+                            f_prox_date = datetime.strptime(f_prox_str, "%Y-%m-%d").date()
+                            if f_prox_date < hoy:
+                                vencido_por_fecha = True
+                        except:
+                            pass
+
+                    # REGLA DE ORO: Entra si dice VENCIDO/PENDIENTE, si no tiene datos, O si ya caducó por fecha
+                    if 'VENCIDO' in est or 'PENDIENTE' in est or es_nulo or vencido_por_fecha:
                         val_previo = r.get('valor_actual')
                         val_str = f"{val_previo:.2e}" if pd.notna(val_previo) else ""
+                        
+                        # Corrección visual en vivo: Si decía VIGENTE pero ya caducó, lo mostramos como VENCIDO
+                        estatus_mostrar = "VENCIDO" if vencido_por_fecha and est == "VIGENTE" else ("PENDIENTE" if es_nulo else est)
                         
                         lista_urgentes.append({
                             "Tabla Origen": "inventario_esd",
@@ -4858,7 +4875,9 @@ elif st.session_state.vista_actual == "Schedule" and not st.session_state.modo_l
                             "Categoría": r.get('categoria', 'Inventario'),
                             "Clasificación": r.get('clasificacion', 'N/D'),
                             "Ubicación / Línea": r.get('linea_ubicacion', 'N/D'),
-                            "Estatus": "PENDIENTE" if es_nulo else est, # Forzamos a que diga PENDIENTE si estaba vacío
+                            "Vencimiento": f_prox_str if f_prox_str else "Sin Fecha",
+                            "_fecha_sort": f_prox_date if f_prox_date else datetime.min.date(), # Columna de ordenamiento
+                            "Estatus": estatus_mostrar,
                             "Fecha Medición": str(r.get('fecha_ultima_verif', ''))[:10] if r.get('fecha_ultima_verif') else "",
                             "Resistencia / Descarga (Ω/s)": val_str,
                             "Balance (V)": r.get('balance_ionizador'),
@@ -4872,15 +4891,28 @@ elif st.session_state.vista_actual == "Schedule" and not st.session_state.modo_l
             # --- MAPEO DESDE MAQUINARIA ---
             if not df_maq_u.empty:
                 for _, r in df_maq_u.iterrows():
-                    # Blindaje contra nulos de Pandas/Supabase
                     valor_original = r.get('resultado_estatus')
                     est = str(valor_original).strip().upper()
-                    
                     es_nulo = pd.isna(valor_original) or est in ['', 'NONE', 'NAN', 'NULL', 'N/A', 'N/D']
                     
-                    if 'VENCIDO' in est or 'PENDIENTE' in est or 'FALLA' in est or 'RECHAZADO' in est or es_nulo:
+                    # Validación matemática estricta de la fecha
+                    f_prox_str = str(r.get('fecha_proxima', ''))[:10]
+                    vencido_por_fecha = False
+                    f_prox_date = None
+                    
+                    if f_prox_str and f_prox_str not in ['NONE', 'NAN', 'N/D', 'NULL', '']:
+                        try:
+                            f_prox_date = datetime.strptime(f_prox_str, "%Y-%m-%d").date()
+                            if f_prox_date < hoy:
+                                vencido_por_fecha = True
+                        except:
+                            pass
+                    
+                    if 'VENCIDO' in est or 'PENDIENTE' in est or es_nulo or vencido_por_fecha:
                         val_previo = r.get('resistencia_tierra')
                         val_str = f"{val_previo:.2e}" if pd.notna(val_previo) else ""
+                        
+                        estatus_mostrar = "VENCIDO" if vencido_por_fecha and est == "VIGENTE" else ("PENDIENTE" if es_nulo else est)
                         
                         lista_urgentes.append({
                             "Tabla Origen": "mediciones_maquinaria",
@@ -4889,7 +4921,9 @@ elif st.session_state.vista_actual == "Schedule" and not st.session_state.modo_l
                             "Categoría": "Maquinaria",
                             "Clasificación": r.get('clasificacion', 'Maquinaria'),
                             "Ubicación / Línea": r.get('linea_ubicacion', 'N/D'),
-                            "Estatus": "PENDIENTE" if es_nulo else est,
+                            "Vencimiento": f_prox_str if f_prox_str else "Sin Fecha",
+                            "_fecha_sort": f_prox_date if f_prox_date else datetime.min.date(),
+                            "Estatus": estatus_mostrar,
                             "Fecha Medición": str(r.get('fecha_medicion', ''))[:10] if r.get('fecha_medicion') else "",
                             "Resistencia / Descarga (Ω/s)": val_str,
                             "Balance (V)": None,
@@ -4901,23 +4935,27 @@ elif st.session_state.vista_actual == "Schedule" and not st.session_state.modo_l
                         })
 
             df_urg_source = pd.DataFrame(lista_urgentes)
-            
-            # (A partir de aquí se mantiene igual tu código original que renderiza st.data_editor)
+
             if df_urg_source.empty:
-                st.success("🎉 ¡Excelente! No se encontraron activos pendientes o vencidos.")
+                st.success("🎉 ¡Excelente! No se encontraron activos pendientes ni con fechas caducadas.")
             else:
+                # ORDENAMIENTO CRONOLÓGICO: Los más antiguos y pendientes hasta arriba
+                df_urg_source = df_urg_source.sort_values(by=['_fecha_sort', 'Ubicación / Línea'], ascending=[True, True])
+
                 # 4. RENDERIZACIÓN DEL EDITOR INTERACTIVO EN PISO
                 df_editor = st.data_editor(
                     df_urg_source,
                     column_config={
                         "Tabla Origen": None,
                         "Columna_Llave": None,
+                        "_fecha_sort": None, # Se oculta esta columna técnica
                         "ID Activo": st.column_config.TextColumn("ID Activo", disabled=True),
                         "Categoría": st.column_config.TextColumn("Categoría", disabled=True),
                         "Clasificación": st.column_config.TextColumn("Clasificación", disabled=True),
+                        "Ubicación / Línea": st.column_config.TextColumn("Ubicación", disabled=True),
+                        "Vencimiento": st.column_config.TextColumn("Vencimiento", disabled=True), # Agregada a la vista
                         "Estatus": st.column_config.SelectboxColumn("Estatus", options=["PENDIENTE", "VENCIDO", "VIGENTE"], required=True),
                         "Tomacorriente": st.column_config.SelectboxColumn("Tomacorriente", options=["PASA", "FALLA", "N/A"]),
-                        # Cambiado a TextColumn para admitir "1e9" sin problemas de formato del navegador
                         "Resistencia / Descarga (Ω/s)": st.column_config.TextColumn("Resistencia (Ω) [Ej: 1e9]", help="Admite notación científica. Ej: 1e9 o 5.5e8"),
                         "Campo Estático (V)": st.column_config.NumberColumn("Campo Estático (V)", format="%.1f"),
                         "Balance (V)": st.column_config.NumberColumn("Balance (V)", format="%.1f"),
