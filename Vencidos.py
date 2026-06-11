@@ -3845,18 +3845,17 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
                 st.error(f"Error al obtener maquinaria: {e}")
 
         # =====================================================================
-        # HERRAMIENTA DE SANEAMIENTO Y CORRECCIÓN DE FECHAS/ESTATUS (MODO SEGURO)
+        # HERRAMIENTA DE SANEAMIENTO Y ESTANDARIZACIÓN DE ESTATUS (3 OFICIALES)
         # =====================================================================
         st.divider()
         st.markdown("### 🧹 Auditoría y Saneamiento de Base de Datos")
-        st.info("Esta herramienta recalcula las fechas de vencimiento (Ionizadores = 3 meses, Resto = 1 año) y actualiza el estatus de los activos operativos. **Paso 1:** Simulación de cambios. **Paso 2:** Aplicación definitiva.")
+        st.info("Estandariza el sistema a los 3 estatus oficiales: **VIGENTE**, **VENCIDO** y **PENDIENTE**. Modifica las fechas de vencimiento según la norma (Ionizadores = 3 meses, Otros = 1 año) y vence automáticamente los activos cuya fecha ya caducó.")
         
-        # Inicializar variables de sesión para el modo simulacro
         if "simulacro_saneamiento" not in st.session_state:
             st.session_state.simulacro_saneamiento = None
             st.session_state.cambios_saneamiento = []
 
-        if st.button("🔍 Paso 1: Escanear y Previsualizar Cambios (Simulacro)"):
+        if st.button("🔍 Paso 1: Escanear y Previsualizar Cambios (Estandarización)"):
             from dateutil.relativedelta import relativedelta
             from datetime import datetime
             
@@ -3864,29 +3863,53 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
             actualizaciones_pendientes = []
             vista_previa = []
             
-            with st.spinner("Escaneando discrepancias matemáticas en la base de datos..."):
-                # --- 1. ESCANEO DE INVENTARIO GENERAL ---
+            with st.spinner("Escaneando discrepancias y estatus obsoletos..."):
+                # --- 1. SANEAMIENTO DE INVENTARIO GENERAL ---
                 try:
                     resp_inv = supabase.table("inventario_esd").select("*").not_.eq("estatus_operativo", "NO OPERATIVO").execute()
                     datos_inv = resp_inv.data if resp_inv.data else []
                     
                     for item in datos_inv:
                         f_ultima = item.get('fecha_ultima_verif')
-                        if not f_ultima: continue 
+                        estatus_actual = str(item.get('estatus_verificacion', '')).strip().upper()
+                        
+                        # Determinar estatus base de homologación
+                        if estatus_actual in ['', 'NONE', 'NAN', 'NULL', 'N/A', 'N/D', 'PENDIENTE']:
+                            estatus_base = "PENDIENTE"
+                        elif estatus_actual in ['VIGENTE', 'APROBADO', 'PASA']:
+                            estatus_base = "VIGENTE"
+                        else:
+                            estatus_base = "VENCIDO"
+                            
+                        # Si no hay medición previa, es un PENDIENTE puro y no tiene fecha próxima
+                        if not f_ultima:
+                            if estatus_actual != "PENDIENTE":
+                                actualizaciones_pendientes.append({
+                                    "tabla": "inventario_esd", "columna_pk": "id_producto", "id_valor": item['id_producto'],
+                                    "payload": {"estatus_verificacion": "PENDIENTE", "fecha_proxima_verif": None}
+                                })
+                                vista_previa.append({
+                                    "Activo": item['id_producto'], "Categoría": str(item.get('categoria')).upper(),
+                                    "Estatus Anterior": estatus_actual, "Nuevo Estatus": "PENDIENTE",
+                                    "Fecha Anterior": str(item.get('fecha_proxima_verif')), "Nueva Fecha": "N/A"
+                                })
+                            continue
                         
                         try:
                             f_base = datetime.strptime(str(f_ultima)[:10], "%Y-%m-%d").date()
                         except:
                             continue
                         
+                        # Calcular fecha próxima según categoría (Ionizadores = 3 meses, resto = 1 año)
                         categoria = str(item.get('categoria', '')).upper()
                         f_prox_calc = f_base + relativedelta(months=3) if 'IONIZA' in categoria else f_base + relativedelta(years=1)
                         f_prox_str = f_prox_calc.strftime("%Y-%m-%d")
                         
-                        estatus_actual = str(item.get('estatus_verificacion', '')).upper()
-                        nuevo_estatus = "VENCIDO" if f_prox_calc < hoy else estatus_actual
-                            
-                        fecha_bd = str(item.get('fecha_proxima_verif'))[:10]
+                        # Evaluar si ya caducó en el tiempo
+                        nuevo_estatus = "VENCIDO" if f_prox_calc < hoy else estatus_base
+                        fecha_bd = str(item.get('fecha_proxima_verif'))[:10] if item.get('fecha_proxima_verif') else ""
+                        
+                        # Si algo no cuadra, se agenda para corregir
                         if fecha_bd != f_prox_str or estatus_actual != nuevo_estatus:
                             actualizaciones_pendientes.append({
                                 "tabla": "inventario_esd", "columna_pk": "id_producto", "id_valor": item['id_producto'],
@@ -3899,7 +3922,7 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
                             })
                 except Exception as e: st.error(f"Error analizando inventario: {e}")
 
-                # --- 2. ESCANEO DE MAQUINARIA ---
+                # --- 2. SANEAMIENTO DE MAQUINARIA ---
                 try:
                     resp_maq = supabase.table("mediciones_maquinaria").select("*").not_.eq("status_operativo", "NO OPERATIVO").execute()
                     if resp_maq.data:
@@ -3908,8 +3931,29 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
                         
                         for item in datos_maq_unicos:
                             if str(item.get('resultado_estatus')).upper() == 'BAJA': continue
+                            
                             f_ultima = item.get('fecha_medicion')
-                            if not f_ultima: continue
+                            estatus_actual = str(item.get('resultado_estatus', '')).strip().upper()
+                            
+                            if estatus_actual in ['', 'NONE', 'NAN', 'NULL', 'N/A', 'N/D', 'PENDIENTE']:
+                                estatus_base = "PENDIENTE"
+                            elif estatus_actual in ['VIGENTE', 'APROBADO', 'PASA']:
+                                estatus_base = "VIGENTE"
+                            else:
+                                estatus_base = "VENCIDO"
+                                
+                            if not f_ultima:
+                                if estatus_actual != "PENDIENTE":
+                                    actualizaciones_pendientes.append({
+                                        "tabla": "mediciones_maquinaria", "columna_pk": "id_maquinaria", "id_valor": item['id_maquinaria'],
+                                        "payload": {"resultado_estatus": "PENDIENTE", "fecha_proxima": None}
+                                    })
+                                    vista_previa.append({
+                                        "Activo": item['id_maquinaria'], "Categoría": "MAQUINARIA",
+                                        "Estatus Anterior": estatus_actual, "Nuevo Estatus": "PENDIENTE",
+                                        "Fecha Anterior": str(item.get('fecha_proxima')), "Nueva Fecha": "N/A"
+                                    })
+                                continue
                             
                             try: f_base = datetime.strptime(str(f_ultima)[:10], "%Y-%m-%d").date()
                             except: continue
@@ -3917,10 +3961,9 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
                             f_prox_calc = f_base + relativedelta(years=1)
                             f_prox_str = f_prox_calc.strftime("%Y-%m-%d")
                             
-                            estatus_actual = str(item.get('resultado_estatus', '')).upper()
-                            nuevo_estatus = "VENCIDO" if f_prox_calc < hoy else estatus_actual
+                            nuevo_estatus = "VENCIDO" if f_prox_calc < hoy else estatus_base
+                            fecha_bd = str(item.get('fecha_proxima'))[:10] if item.get('fecha_proxima') else ""
                             
-                            fecha_bd = str(item.get('fecha_proxima'))[:10]
                             if fecha_bd != f_prox_str or estatus_actual != nuevo_estatus:
                                 actualizaciones_pendientes.append({
                                     "tabla": "mediciones_maquinaria", "columna_pk": "id_maquinaria", "id_valor": item['id_maquinaria'],
@@ -3933,46 +3976,44 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
                                 })
                 except Exception as e: st.error(f"Error analizando maquinaria: {e}")
 
-            # Guardar resultados en sesión
             st.session_state.cambios_saneamiento = actualizaciones_pendientes
             st.session_state.simulacro_saneamiento = pd.DataFrame(vista_previa)
 
-        # --- FASE 2: APROBACIÓN Y EJECUCIÓN ---
+        # --- REVISIÓN Y APLICACIÓN MASIVA ---
         if st.session_state.simulacro_saneamiento is not None:
             df_prev = st.session_state.simulacro_saneamiento
             total_cambios = len(st.session_state.cambios_saneamiento)
             
             if total_cambios == 0:
-                st.success("✨ El escaneo ha finalizado. Toda la base de datos está matemáticamente sincronizada.")
+                st.success("✨ Estandarización completa. Todos los activos operativos ya se encuentran mapeados bajo los 3 estatus oficiales.")
                 st.session_state.simulacro_saneamiento = None
             else:
-                st.warning(f"⚠️ **Se detectaron {total_cambios} registros con fechas o estatus desfasados.** Revisa la tabla de cambios propuestos antes de proceder:")
+                st.warning(f"⚠️ **Se detectaron {total_cambios} registros fuera de la norma de estatus oficial o con fechas desfasadas.**")
                 st.dataframe(df_prev, use_container_width=True, hide_index=True)
                 
-                # Candado de seguridad doble
-                st.markdown("#### Confirmación de Escritura")
-                confirmacion = st.checkbox("Entiendo que esta acción sobrescribirá la base de datos y confirmo que he validado la lista superior.")
+                st.markdown("#### 🔒 Autorización de Reescritura Homologada")
+                confirmacion = st.checkbox("Confirmo que deseo unificar el padrón de datos a los estatus oficiales VIGENTE, VENCIDO y PENDIENTE.")
                 
                 if confirmacion:
-                    if st.button("💾 Paso 2: Aplicar Cambios Definitivos", type="primary"):
-                        barra_progreso = st.progress(0, text=f"Actualizando 0 de {total_cambios} registros...")
+                    if st.button("💾 Paso 2: Aplicar Homologación Definitiva", type="primary"):
+                        barra_progreso = st.progress(0, text="Sincronizando...")
                         errores = 0
                         
                         for idx, accion in enumerate(st.session_state.cambios_saneamiento):
                             try:
                                 supabase.table(accion["tabla"]).update(accion["payload"]).eq(accion["columna_pk"], accion["id_valor"]).execute()
-                            except Exception as sql_e:
+                            except:
                                 errores += 1
-                            barra_progreso.progress((idx + 1) / total_cambios, text=f"Sincronizando: {accion['id_valor']} ({idx + 1}/{total_cambios})")
+                            barra_progreso.progress((idx + 1) / total_cambios, text=f"Actualizando: {accion['id_valor']} ({idx + 1}/{total_cambios})")
                         
                         if errores == 0:
-                            st.success(f"✅ ¡Operación exitosa! Base de datos saneada.")
+                            st.success(f"✅ ¡Base de datos estandarizada con éxito! {total_cambios} registros modificados.")
                             st.session_state.simulacro_saneamiento = None
                             st.cache_data.clear()
-                            time.sleep(2)
+                            time.sleep(1.5)
                             st.rerun()
                         else:
-                            st.error(f"Operación finalizada con {errores} errores. Revisa la conexión.")
+                            st.error(f"Sincronización completada con {errores} fallas estructurales.")
     # --- PESTAÑA 5: USUARIOS (PANEL DE ADMINISTRACIÓN) ---
         with tab_usuarios:
             st.markdown("#### 🔐 Administración de Usuarios")
