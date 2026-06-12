@@ -1970,13 +1970,23 @@ elif st.session_state.vista_actual == "Mapa" and not st.session_state.modo_lectu
                         df_new = df_new.dropna(subset=['ID'])
                         df_new['ID'] = df_new['ID'].astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
 
-                        # ---> NUEVO PASO 3: LIMPIAR NaN PARA COMPATIBILIDAD JSON <---
-                        # Reemplazamos los valores nulos de Pandas (NaN) por None (null de JSON)
-                        df_new = df_new.where(pd.notnull(df_new), None)
+                        # Convertimos a lista de diccionarios (Aún con la "basura" de Pandas)
+                        records_raw = df_new.to_dict('records')
+                        
+                        # ---> NUEVO PASO 3: LIMPIEZA ABSOLUTA DE NaN A NIVEL DICCIONARIO <---
+                        clean_records = []
+                        for row in records_raw:
+                            clean_row = {}
+                            for key, val in row.items():
+                                # pd.isna() detecta de forma segura cualquier NaN, NaT o valor nulo de Pandas
+                                if pd.isna(val):
+                                    clean_row[key] = None
+                                else:
+                                    clean_row[key] = val
+                            clean_records.append(clean_row)
 
                         # --- LÓGICA DE ACTUALIZACIÓN EN SUPABASE (Upsert) ---
-                        records = df_new.to_dict('records')
-                        supabase.table("hallazgos_4q").upsert(records).execute()
+                        supabase.table("hallazgos_4q").upsert(clean_records).execute()
                         
                         st.success(f"✅ Archivo procesado correctamente. {len(df_new)} hallazgos listos y sincronizados.")
                         st.session_state.df_hallazgos_4q = df_new
