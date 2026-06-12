@@ -6125,12 +6125,12 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
                         st.plotly_chart(fig, width="stretch")
                     else:
                         st.info("No se localizaron reactivos de conocimiento puro tras aplicar los filtros conceptuales.")
-            # =========================================================
-            # 🔍 SECCIÓN: BÚSQUEDA INTERACTIVA POR EMPLEADO
-            # =========================================================
+            # =====================================================================
+            # 🔍 SECCIÓN: BÚSQUEDA INTERACTIVA POR EMPLEADO (ACTUALIZADO)
+            # =====================================================================
             st.divider()
             st.markdown("#### 🔍 Consultar Historial Individual de Entrenamiento")
-            st.write("Introduce el número de empleado para extraer su expediente completo de certificaciones y el desglose de sus respuestas.")
+            st.write("Introduce el número de empleado para extraer su expediente completo de certificaciones, puesto y fecha de ingreso.")
     
             # Inicializar el estado de la búsqueda en session_state para evitar pérdidas de datos al interactuar con expanders
             if "emp_search_id" not in st.session_state:
@@ -6139,7 +6139,7 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
             with st.form("form_busqueda_individual"):
                 c_search1, c_search2 = st.columns([3, 1])
                 num_empleado_input = c_search1.text_input("Número de Empleado / Personnel Number:", value=st.session_state.emp_search_id)
-                btn_buscar = c_search2.form_submit_button("🔍 Buscar Historial", width="stretch")
+                btn_buscar = c_search2.form_submit_button("🔍 Buscar Historial", use_container_width=True)
     
             if btn_buscar and num_empleado_input.strip():
                 st.session_state.emp_search_id = num_empleado_input.strip()
@@ -6158,7 +6158,21 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
                             df_individual['fecha_entrenamiento'] = pd.to_datetime(df_individual['fecha_entrenamiento']).dt.strftime('%d-%b-%Y %H:%M')
                             
                             nombre_detectado = df_individual.iloc[0]['nombre_empleado']
-                            st.markdown(f"👤 **Empleado:** {nombre_detectado}")
+                            
+                            # Extraer de forma segura los datos de la Ficha Maestra cargados al inicio de la vista
+                            # Buscamos el registro correspondiente en df_merged
+                            emp_maestro = df_merged[df_merged['num_empleado'] == st.session_state.emp_search_id] if 'df_merged' in locals() else pd.DataFrame()
+                            
+                            puesto_detectado = emp_maestro.iloc[0].get('departamento', 'N/D') if not emp_maestro.empty else "N/D"
+                            ingreso_detectado = emp_maestro.iloc[0].get('fecha_ingreso', 'N/D') if not emp_maestro.empty else "N/D"
+                            
+                            # --- NUEVA CONDICIÓN: COMPONENTES MÉTRICOS DE IDENTIFICACIÓN ---
+                            st.markdown(f"##### 📋 Ficha de Identificación de Personal")
+                            c_emp1, c_emp2, c_emp3 = st.columns(3)
+                            c_emp1.metric("Empleado", nombre_detectado)
+                            c_emp2.metric("Puesto", str(puesto_detectado) if puesto_detectado else "N/D")
+                            c_emp3.metric("Fecha de Ingreso", str(ingreso_detectado)[:10] if ingreso_detectado and ingreso_detectado != 'N/D' else 'N/D')
+                            st.write("")
                             
                             # Recalcular la nota exacta al vuelo para registros históricos
                             def calcular_nota_real(detalle):
@@ -6182,12 +6196,12 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
                                         return 'background-color: #ffcccc; color: #cc0000; font-weight: bold;'
                                     else:
                                         return 'background-color: #e2f0d9; color: #385723;'
-                                except:
+                                  except:
                                     return ''
     
                             # Aplicamos el mapeo de color
                             df_estilado = df_tabla_individual.style.map(estilar_calificaciones, subset=['Calificación (Base 10)'])
-                            st.dataframe(df_estilado, width="stretch", hide_index=True)
+                            st.dataframe(df_estilado, use_container_width=True, hide_index=True)
     
                             # --- DESGLOSE INTERACTIVO DE REACTIVOS POR INTENTO ---
                             st.markdown("##### 📜 Desglose de preguntas por examen")
@@ -6223,7 +6237,7 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
                                             })
                                         
                                         df_reactivos = pd.DataFrame(lista_reactivos)
-                                        st.dataframe(df_reactivos, width="stretch", hide_index=True)
+                                        st.dataframe(df_reactivos, use_container_width=True, hide_index=True)
                                     else:
                                         st.info("Este registro histórico no cuenta con el desglose detallado de reactivos en formato JSON.")
                         else:
@@ -6231,10 +6245,6 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
                             
                     except Exception as e:
                         st.error(f"Ocurrió un error al consultar el registro en la base de datos: {e}")
-            else:
-                st.info("Cargue datos en los módulos históricos o semanales para generar las métricas de reactivos.")
-        else:
-            st.warning("⚠️ El padrón maestro de personal se encuentra vacío. Ejecute la sincronización de Headcount para activar los cálculos automáticos de vencimientos.")
 
     # --- PESTAÑA 2: CARGAR ARCHIVOS HISTÓRICOS (FORMS) ---
     with tab_historico:
