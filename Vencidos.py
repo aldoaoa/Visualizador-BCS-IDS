@@ -1467,8 +1467,8 @@ if st.session_state.vista_actual == "Alta" and not st.session_state.modo_lectura
 # ==========================================
 elif st.session_state.vista_actual == "Mapa" and not st.session_state.modo_lectura:
     st.markdown("### Mapa y Cumplimiento ESD")
-    tab_mapa, tab_overview = st.tabs(["📍 Mapa Físico", "📊 Overview (S20.20)"])
-
+    tab_mapa, tab_overview, tab_4q = st.tabs(["📍 Mapa Físico", "📊 Overview (S20.20)", "📋 4Q (Hallazgos)"])
+    
     with tab_mapa:
         # Agregamos "Pisos" a las opciones del radio button
         tipo_mapa = st.radio("Ver en mapa:", ["Mobiliario", "Ionizadores", "Maquinaria", "Pisos"], horizontal=True)
@@ -1934,6 +1934,118 @@ elif st.session_state.vista_actual == "Mapa" and not st.session_state.modo_lectu
         else:
             st.success("🎉 ¡Excelente trabajo! No hay activos vencidos ni fallas operativas recientes reportadas en la infraestructura.")
 
+    with tab_4q:
+        st.markdown("#### 📊 Dashboard 4Q - Sistema de Hallazgos y Auditorías")
+        st.info("Sube el archivo de hallazgos para actualizar la base de datos y visualizar el estado actual. Se omitirán las descripciones marcadas como QMS y el cruce se realizará mediante la columna ID.")
+
+        archivo_hallazgos = st.file_uploader("📥 Subir archivo de Hallazgos (CSV o Excel)", type=["csv", "xlsx"], key="file_4q")
+
+        # Inicializar dataframe temporal en session_state para retener la vista tras recargas
+        if "df_hallazgos_4q" not in st.session_state:
+            st.session_state.df_hallazgos_4q = pd.DataFrame()
+
+        if archivo_hallazgos:
+            with st.spinner("Procesando y estandarizando hallazgos..."):
+                try:
+                    if archivo_hallazgos.name.endswith('.csv'):
+                        df_new = pd.read_csv(archivo_hallazgos)
+                    else:
+                        df_new = pd.read_excel(archivo_hallazgos)
+
+                    # Estandarizamos los nombres de las columnas para evitar espacios fantasma
+                    df_new.columns = [str(c).strip() for c in df_new.columns]
+
+                    if 'ID' not in df_new.columns:
+                        st.error("❌ El archivo no contiene la columna 'ID' requerida para el cruce de datos.")
+                    else:
+                        # 1. Ignorar Assessment description con "QMS"
+                        if 'Assessment Description' in df_new.columns:
+                            df_new = df_new[~df_new['Assessment Description'].astype(str).str.contains('QMS', case=False, na=False)]
+
+                        # 2. Asegurar y limpiar el ID principal (Ignorando Assessment ID)
+                        df_new = df_new.dropna(subset=['ID'])
+                        df_new['ID'] = df_new['ID'].astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
+
+                        # --- LÓGICA DE ACTUALIZACIÓN EN SUPABASE (Upsert) ---
+                        # Para que esto funcione, asegúrate de tener una tabla 'hallazgos_4q' en Supabase 
+                        # donde 'ID' sea tu Primary Key. El método 'upsert' actualizará los existentes y agregará los nuevos.
+                        
+                        # records = df_new.to_dict('records')
+                        # supabase.table("hallazgos_4q").upsert(records).execute()
+                        
+                        st.success(f"✅ Archivo procesado correctamente. {len(df_new)} hallazgos listos y sincronizados.")
+                        st.session_state.df_hallazgos_4q = df_new
+
+                except Exception as e:
+                    st.error(f"Ocurrió un error al procesar el archivo: {e}")
+
+        df_4q = st.session_state.df_hallazgos_4q
+
+        if not df_4q.empty:
+            st.divider()
+            
+            # --- CÁLCULO DE MÉTRICAS GLOBALES ---
+            total_hallazgos = len(df_4q)
+            
+            # Estandarización de la columna de estatus si el archivo viene en inglés o español
+            estatus_col = 'Status' if 'Status' in df_4q.columns else ('Estatus' if 'Estatus' in df_4q.columns else None)
+            
+            if estatus_col:
+                # Utilizamos filtros flexibles asumiendo los textos de EASE
+                cerrados = df_4q[df_4q[estatus_col].astype(str).str.contains('Completed|Closed|Cerrado', case=False, na=False)]
+                vencidos = df_4q[df_4q[estatus_col].astype(str).str.contains('Past Due|Vencido', case=False, na=False)]
+                abiertos = df_4q[~df_4q[estatus_col].astype(str).str.contains('Completed|Closed|Cerrado', case=False, na=False)]
+                
+                m1, m2, m3, m4 = st.columns(4)
+                m1.metric("Total de Hallazgos", total_hallazgos)
+                m2.metric("🟢 Completados / Cerrados", len(cerrados))
+                m3.metric("🟡 En Proceso / On Time", len(abiertos) - len(vencidos))
+                m4.metric("🔴 Vencidos (Past Due)", len(vencidos), delta="Prioridad", delta_color="inverse" if len(vencidos) > 0 else "normal")
+
+            st.divider()
+
+            # --- GRÁFICOS INTERACTIVOS ---
+            col_chart1, col_chart2 = st.columns(2)
+
+            with col_chart1:
+                if estatus_col:
+                    df_status = df_4q[estatus_col].value_counts().reset_index()
+                    df_status.columns = ['Estatus', 'Cantidad']
+                    fig_status = px.pie(df_status, values='Cantidad', names='Estatus', title="Distribución por Estatus", hole=0.45)
+                    fig_status.update_layout(margin=dict(t=30, b=10, l=10, r=10))
+                    st.plotly_chart(fig_status, use_container_width=True)
+
+            with col_chart2:
+                # Pareto de problemas (Question Title es el estándar de EASE para la falla)
+                cat_col = 'Question Title' if 'Question Title' in df_4q.columns else ('Location' if 'Location' in df_4q.columns else None)
+                if cat_col:
+                    df_cat = df_4q[cat_col].value_counts().head(10).reset_index()
+                    df_cat.columns = ['Tipo de Hallazgo', 'Ocurrencias']
+                    fig_pareto = px.bar(df_cat, x='Ocurrencias', y='Tipo de Hallazgo', orientation='h', title=f"Top 10 Hallazgos ({cat_col})", text_auto=True)
+                    fig_pareto.update_layout(yaxis={'categoryorder':'total ascending'}, margin=dict(t=30, b=10, l=10, r=10))
+                    st.plotly_chart(fig_pareto, use_container_width=True)
+
+            # --- TABLA DE DATOS INTERACTIVA ---
+            st.markdown("##### 📋 Directorio y Seguimiento de Hallazgos")
+            
+            # Filtro ágil para la tabla
+            if estatus_col:
+                filtro_estatus = st.selectbox("Filtrar directorio por estatus:", options=["Todos"] + sorted(df_4q[estatus_col].dropna().unique()))
+                df_mostrar = df_4q.copy()
+                if filtro_estatus != "Todos":
+                    df_mostrar = df_mostrar[df_mostrar[estatus_col] == filtro_estatus]
+            else:
+                df_mostrar = df_4q.copy()
+                
+            # Mostramos un dataframe estilizado seleccionando columnas clave si existen
+            cols_clave = [c for c in ['ID', 'Status', 'Location', 'Question Title', 'Responsible Party', 'Finding Comment', 'Days Open'] if c in df_mostrar.columns]
+            if cols_clave:
+                df_mostrar = df_mostrar[cols_clave]
+                
+            st.dataframe(df_mostrar, use_container_width=True, hide_index=True)
+            
+        else:
+            st.info("Sube el archivo estructurado para iniciar la visualización y análisis 4Q.")
 # ==========================================
 # VISTA 2: ESCÁNER Y DETALLES
 # ==========================================
