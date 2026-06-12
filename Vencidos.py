@@ -6163,8 +6163,30 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
                             # Buscamos el registro correspondiente en df_merged
                             emp_maestro = df_merged[df_merged['num_empleado'] == st.session_state.emp_search_id] if 'df_merged' in locals() else pd.DataFrame()
                             
-                            puesto_detectado = emp_maestro.iloc[0].get('departamento', 'N/D') if not emp_maestro.empty else "N/D"
-                            ingreso_detectado = emp_maestro.iloc[0].get('fecha_ingreso', 'N/D') if not emp_maestro.empty else "N/D"
+                            # --- CORRECCIÓN: CONSULTA DIRECTA Y BLINDADA A LA BASE DE DATOS ---
+                            puesto_detectado = "N/D"
+                            ingreso_detectado = "N/D"
+                            
+                            try:
+                                # Consultamos directamente la ficha del empleado usando su ID único
+                                resp_ficha = supabase.table("empleados_batas").select("departamento, fecha_ingreso").eq("num_empleado", st.session_state.emp_search_id).execute()
+                                
+                                if resp_ficha.data:
+                                    ficha_usuario = resp_ficha.data[0]
+                                    
+                                    # Validación y limpieza para el puesto (departamento)
+                                    p_val = ficha_usuario.get('departamento')
+                                    if pd.notna(p_val) and str(p_val).strip().lower() not in ['none', 'nan', 'null', '', 'n/d']:
+                                        puesto_detectado = str(p_val).strip()
+                                        
+                                    # Validación y limpieza para la fecha de ingreso
+                                    f_val = ficha_usuario.get('fecha_ingreso')
+                                    if pd.notna(f_val) and str(f_val).strip().lower() not in ['none', 'nan', 'null', '', 'n/d']:
+                                        ingreso_detectado = str(f_val).strip()[:10]
+                            except:
+                                # En caso de cualquier caída de red o de base de datos, el sistema mantiene el "N/D" seguro
+                                pass
+                            # ------------------------------------------------------------------
                             
                             # --- NUEVA CONDICIÓN: COMPONENTES MÉTRICOS DE IDENTIFICACIÓN ---
                             st.markdown(f"##### 📋 Ficha de Identificación de Personal")
