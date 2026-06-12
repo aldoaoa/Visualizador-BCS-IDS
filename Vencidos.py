@@ -1970,10 +1970,11 @@ elif st.session_state.vista_actual == "Mapa" and not st.session_state.modo_lectu
                         df_new = df_new.dropna(subset=['ID'])
                         df_new['ID'] = df_new['ID'].astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
 
+                        # ---> NUEVO PASO 3: LIMPIAR NaN PARA COMPATIBILIDAD JSON <---
+                        # Reemplazamos los valores nulos de Pandas (NaN) por None (null de JSON)
+                        df_new = df_new.where(pd.notnull(df_new), None)
+
                         # --- LÓGICA DE ACTUALIZACIÓN EN SUPABASE (Upsert) ---
-                        # Para que esto funcione, asegúrate de tener una tabla 'hallazgos_4q' en Supabase 
-                        # donde 'ID' sea tu Primary Key. El método 'upsert' actualizará los existentes y agregará los nuevos.
-                        
                         records = df_new.to_dict('records')
                         supabase.table("hallazgos_4q").upsert(records).execute()
                         
