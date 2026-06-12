@@ -1933,10 +1933,14 @@ elif st.session_state.vista_actual == "Mapa" and not st.session_state.modo_lectu
             st.dataframe(df_alertas, use_container_width=True, hide_index=True)
         else:
             st.success("🎉 ¡Excelente trabajo! No hay activos vencidos ni fallas operativas recientes reportadas en la infraestructura.")
-
+    
+    #######################
+    ### 4Q dashboard
+    #######################
+    
     with tab_4q:
         st.markdown("#### 📊 Dashboard 4Q - Sistema de Hallazgos y Auditorías")
-        st.info("Sube el archivo de hallazgos para actualizar la base de datos y visualizar el estado actual. Se omitirán las descripciones marcadas como QMS y el cruce se realizará mediante la columna ID.")
+        st.info("Sube el archivo de hallazgos para actualizar la base de datos y visualizar el estado actual.")
 
         archivo_hallazgos = st.file_uploader("📥 Subir archivo de Hallazgos (CSV o Excel)", type=["csv", "xlsx"], key="file_4q")
 
