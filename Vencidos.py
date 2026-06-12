@@ -1974,8 +1974,8 @@ elif st.session_state.vista_actual == "Mapa" and not st.session_state.modo_lectu
                         # Para que esto funcione, asegúrate de tener una tabla 'hallazgos_4q' en Supabase 
                         # donde 'ID' sea tu Primary Key. El método 'upsert' actualizará los existentes y agregará los nuevos.
                         
-                        # records = df_new.to_dict('records')
-                        # supabase.table("hallazgos_4q").upsert(records).execute()
+                        records = df_new.to_dict('records')
+                        supabase.table("hallazgos_4q").upsert(records).execute()
                         
                         st.success(f"✅ Archivo procesado correctamente. {len(df_new)} hallazgos listos y sincronizados.")
                         st.session_state.df_hallazgos_4q = df_new
@@ -1991,20 +1991,27 @@ elif st.session_state.vista_actual == "Mapa" and not st.session_state.modo_lectu
             # --- CÁLCULO DE MÉTRICAS GLOBALES ---
             total_hallazgos = len(df_4q)
             
-            # Estandarización de la columna de estatus si el archivo viene en inglés o español
+            # Estandarización de la columna de estatus
             estatus_col = 'Status' if 'Status' in df_4q.columns else ('Estatus' if 'Estatus' in df_4q.columns else None)
             
             if estatus_col:
-                # Utilizamos filtros flexibles asumiendo los textos de EASE
-                cerrados = df_4q[df_4q[estatus_col].astype(str).str.contains('Completed|Closed|Cerrado', case=False, na=False)]
-                vencidos = df_4q[df_4q[estatus_col].astype(str).str.contains('Past Due|Vencido', case=False, na=False)]
-                abiertos = df_4q[~df_4q[estatus_col].astype(str).str.contains('Completed|Closed|Cerrado', case=False, na=False)]
+                # 1. Identificar todos los que YA están cerrados/completados
+                mask_cerrados = df_4q[estatus_col].astype(str).str.contains('Completed|Closed|Cerrado', case=False, na=False)
+                cerrados = df_4q[mask_cerrados]
+                
+                # 2. Todo lo que NO está cerrado, está abierto (En Proceso)
+                abiertos = df_4q[~mask_cerrados]
+                
+                # 3. De los abiertos, separamos los vencidos y los que van a tiempo
+                mask_vencidos = abiertos[estatus_col].astype(str).str.contains('Past Due|Vencido', case=False, na=False)
+                vencidos_activos = abiertos[mask_vencidos]
+                en_proceso_on_time = abiertos[~mask_vencidos]
                 
                 m1, m2, m3, m4 = st.columns(4)
                 m1.metric("Total de Hallazgos", total_hallazgos)
                 m2.metric("🟢 Completados / Cerrados", len(cerrados))
-                m3.metric("🟡 En Proceso / On Time", len(abiertos) - len(vencidos))
-                m4.metric("🔴 Vencidos (Past Due)", len(vencidos), delta="Prioridad", delta_color="inverse" if len(vencidos) > 0 else "normal")
+                m3.metric("🟡 En Proceso / On Time", len(en_proceso_on_time))
+                m4.metric("🔴 Vencidos Activos (Past Due)", len(vencidos_activos), delta="Requieren Acción", delta_color="inverse" if len(vencidos_activos) > 0 else "normal")
 
             st.divider()
 
