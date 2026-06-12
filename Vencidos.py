@@ -3415,7 +3415,7 @@ elif st.session_state.vista_actual == "Validación" and not st.session_state.mod
         # -- SUB-PESTAÑA: SINCRONIZACIÓN HC --
         with subtab_sync:
             st.markdown("#### 🔄 Actualización de Usuarios (Altas y Bajas)")
-            st.write("Sube el archivo Excel o CSV semanal. El sistema escaneará **todas las pestañas** para encontrar el padrón automáticamente.")
+            st.write("Sube el archivo Excel o CSV semanal. El sistema escaneará **todas las pestañas** para encontrar el padrón automáticamente y detectar fechas de ingreso.")
             
             archivo_hc = st.file_uploader("Subir archivo de Personal", type=["csv", "xlsx"], key="up_hc")
             
@@ -3458,8 +3458,9 @@ elif st.session_state.vista_actual == "Validación" and not st.session_state.mod
                         col_num = 'Personnel Number'
                         col_nom = 'Local name'
                         
-                        # Buscar dinámicamente la columna de departamento por si cambia de nombre
+                        # Buscar dinámicamente columnas de departamento y FECHA DE INGRESO
                         col_depto = next((c for c in df_upload.columns if 'department' in str(c).lower() or 'depto' in str(c).lower() or 'área' in str(c).lower() or 'area' in str(c).lower() or 'cost center' in str(c).lower()), None)
+                        col_ingreso = next((c for c in df_upload.columns if 'ingreso' in str(c).lower() or 'date of join' in str(c).lower() or 'doj' in str(c).lower() or 'hire date' in str(c).lower()), None)
                         
                         if col_num not in df_upload.columns or col_nom not in df_upload.columns:
                             st.error(f"❌ Las columnas no coinciden. Columnas detectadas en la tabla: {', '.join(df_upload.columns)}")
@@ -3474,7 +3475,7 @@ elif st.session_state.vista_actual == "Validación" and not st.session_state.mod
                             if st.button("🔄 Sincronizar Padrón de Personal", type="primary"):
                                 with st.spinner("Comparando base de datos con el nuevo archivo de HC..."):
                                     
-                                    # 1. Limpiar los IDs usando df_upload (CORRECCIÓN AQUÍ)
+                                    # 1. Limpiar los IDs
                                     df_upload['num_empleado_clean'] = df_upload[col_num].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
                                     
                                     # Descartar filas vacías o nulas
@@ -3485,20 +3486,31 @@ elif st.session_state.vista_actual == "Validación" and not st.session_state.mod
                                     for _, row in df_excel.iterrows():
                                         emp_id = row['num_empleado_clean']
                                         
-                                        # Validación segura para el departamento
-                                        if col_depto and col_depto in df_excel.columns:
-                                            depto_val = str(row.get(col_depto, 'N/D')).strip()[:100]
-                                        else:
-                                            depto_val = "No Especificado"
-                                            
-                                        empleados_excel[emp_id] = {
+                                        datos_usuario = {
                                             "nombre": str(row.get(col_nom, 'N/D')).strip()[:100],
-                                             "estatus_empleado": "Activo"
+                                            "estatus_empleado": "Activo"
                                         }
+                                        
+                                        # Extracción segura de Departamento
+                                        if col_depto and col_depto in df_excel.columns:
+                                            datos_usuario["departamento"] = str(row.get(col_depto, 'N/D')).strip()[:100]
+                                            
+                                        # Extracción y formateo seguro de Fecha de Ingreso
+                                        if col_ingreso and col_ingreso in df_excel.columns:
+                                            raw_fecha = row.get(col_ingreso)
+                                            if pd.notna(raw_fecha):
+                                                try:
+                                                    fecha_dt = pd.to_datetime(raw_fecha, errors='coerce')
+                                                    if pd.notna(fecha_dt):
+                                                        datos_usuario["fecha_ingreso"] = fecha_dt.strftime('%Y-%m-%d')
+                                                except:
+                                                    pass # Si el formato es totalmente ilegible, lo ignoramos para no romper la carga
+                                        
+                                        empleados_excel[emp_id] = datos_usuario
                                         
                                     set_excel_ids = set(empleados_excel.keys())
 
-                                    # 2. Descargar el estado actual de la Base de Datos (Solo IDs y estatus)
+                                    # 2. Descargar el estado actual de la Base de Datos
                                     try:
                                         resp_db = supabase.table("empleados_batas").select("num_empleado, estatus_empleado").execute()
                                         db_data = resp_db.data
@@ -3509,7 +3521,6 @@ elif st.session_state.vista_actual == "Validación" and not st.session_state.mod
                                     set_db_ids = set([str(x['num_empleado']).strip() for x in db_data])
                                     
                                     # 3. LÓGICA DE CONJUNTOS
-                                    
                                     # A) ALTAS NUEVAS
                                     ids_nuevos = set_excel_ids - set_db_ids
                                     
@@ -3545,6 +3556,9 @@ elif st.session_state.vista_actual == "Validación" and not st.session_state.mod
 
                                     # --- RESUMEN FINAL ---
                                     st.success("✅ Sincronización de personal completada con éxito.")
+                                    if col_ingreso:
+                                        st.info(f"📅 Se detectaron y sincronizaron las fechas de ingreso usando la columna: '{col_ingreso}'.")
+                                        
                                     col1, col2, col3 = st.columns(3)
                                     col1.metric("🟢 Nuevos Ingresos (Altas)", len(ids_nuevos))
                                     col2.metric("🔄 Registros Actualizados", len(ids_actualizar))
