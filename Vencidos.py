@@ -6126,30 +6126,35 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
                     else:
                         st.info("No se localizaron reactivos de conocimiento puro tras aplicar los filtros conceptuales.")
             # =====================================================================
-            # 🔍 SECCIÓN: BÚSQUEDA INTERACTIVA POR EMPLEADO (ACTUALIZADO)
+            # 🔍 SECCIÓN: BÚSQUEDA INTERACTIVA POR EMPLEADO 
             # =====================================================================
             st.divider()
             st.markdown("#### 🔍 Consultar Historial Individual de Entrenamiento")
             st.write("Introduce el número de empleado para extraer su expediente completo de certificaciones, puesto y fecha de ingreso.")
     
-            # Inicializar el estado de la búsqueda en session_state para evitar pérdidas de datos al interactuar con expanders
-            if "emp_search_id" not in st.session_state:
-                st.session_state.emp_search_id = ""
+            # 1. Variable para recordar a quién estamos auditando (Persistencia tras abrir expanders)
+            if "empleado_consultado" not in st.session_state:
+                st.session_state.empleado_consultado = ""
     
             with st.form("form_busqueda_individual"):
                 c_search1, c_search2 = st.columns([3, 1])
-                num_empleado_input = c_search1.text_input("Número de Empleado / Personnel Number:", value=st.session_state.emp_search_id)
+                # 2. CORRECCIÓN VITAL: Eliminamos el 'value='. Usar solo el 'key' evita que Streamlit borre lo que tecleas
+                c_search1.text_input("Número de Empleado / Personnel Number:", key="texto_busqueda_empleado")
                 btn_buscar = c_search2.form_submit_button("🔍 Buscar Historial", use_container_width=True)
     
-            if btn_buscar and num_empleado_input.strip():
-                st.session_state.emp_search_id = num_empleado_input.strip()
+            # 3. Solo cuando se presiona el botón, actualizamos a quién vamos a consultar
+            if btn_buscar:
+                st.session_state.empleado_consultado = st.session_state.texto_busqueda_empleado.strip()
                 
-                with st.spinner(f"Consultando expediente para el ID {st.session_state.emp_search_id}..."):
+            # 4. Si tenemos un empleado fijado en memoria, procesamos y mostramos todo
+            if st.session_state.empleado_consultado:
+                
+                with st.spinner(f"Consultando expediente para el ID {st.session_state.empleado_consultado}..."):
                     try:
                         # Consulta directa y selectiva a Supabase para optimizar rendimiento
                         resp_individual = supabase.table("entrenamientos_esd")\
                                                   .select("fecha_entrenamiento, nombre_empleado, calificacion_total, archivo_origen, detalle_respuestas")\
-                                                  .eq("num_empleado", st.session_state.emp_search_id)\
+                                                  .eq("num_empleado", st.session_state.empleado_consultado)\
                                                   .order("fecha_entrenamiento", desc=True)\
                                                   .execute()
                         
@@ -6159,41 +6164,32 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
                             
                             nombre_detectado = df_individual.iloc[0]['nombre_empleado']
                             
-                            # Extraer de forma segura los datos de la Ficha Maestra cargados al inicio de la vista
-                            # Buscamos el registro correspondiente en df_merged
-                            emp_maestro = df_merged[df_merged['num_empleado'] == st.session_state.emp_search_id] if 'df_merged' in locals() else pd.DataFrame()
-                            
-                            # --- CORRECCIÓN: CONSULTA DIRECTA Y BLINDADA A LA BASE DE DATOS ---
+                            # --- CONSULTA DIRECTA Y BLINDADA A LA BASE DE DATOS MAESTRA ---
                             puesto_detectado = "N/D"
                             ingreso_detectado = "N/D"
                             
                             try:
-                                # Consultamos directamente la ficha del empleado usando su ID único
-                                resp_ficha = supabase.table("empleados_batas").select("departamento, fecha_ingreso").eq("num_empleado", st.session_state.emp_search_id).execute()
+                                resp_ficha = supabase.table("empleados_batas").select("departamento, fecha_ingreso").eq("num_empleado", st.session_state.empleado_consultado).execute()
                                 
                                 if resp_ficha.data:
                                     ficha_usuario = resp_ficha.data[0]
                                     
-                                    # Validación y limpieza para el puesto (departamento)
                                     p_val = ficha_usuario.get('departamento')
                                     if pd.notna(p_val) and str(p_val).strip().lower() not in ['none', 'nan', 'null', '', 'n/d']:
                                         puesto_detectado = str(p_val).strip()
                                         
-                                    # Validación y limpieza para la fecha de ingreso
                                     f_val = ficha_usuario.get('fecha_ingreso')
                                     if pd.notna(f_val) and str(f_val).strip().lower() not in ['none', 'nan', 'null', '', 'n/d']:
                                         ingreso_detectado = str(f_val).strip()[:10]
                             except:
-                                # En caso de cualquier caída de red o de base de datos, el sistema mantiene el "N/D" seguro
                                 pass
                             # ------------------------------------------------------------------
                             
-                            # --- NUEVA CONDICIÓN: COMPONENTES MÉTRICOS DE IDENTIFICACIÓN ---
                             st.markdown(f"##### 📋 Ficha de Identificación de Personal")
                             c_emp1, c_emp2, c_emp3 = st.columns(3)
                             c_emp1.metric("Empleado", nombre_detectado)
-                            c_emp2.metric("Puesto", str(puesto_detectado) if puesto_detectado else "N/D")
-                            c_emp3.metric("Fecha de Ingreso", str(ingreso_detectado)[:10] if ingreso_detectado and ingreso_detectado != 'N/D' else 'N/D')
+                            c_emp2.metric("Puesto", puesto_detectado)
+                            c_emp3.metric("Fecha de Ingreso", ingreso_detectado)
                             st.write("")
                             
                             # Recalcular la nota exacta al vuelo para registros históricos
@@ -6263,7 +6259,7 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
                                     else:
                                         st.info("Este registro histórico no cuenta con el desglose detallado de reactivos en formato JSON.")
                         else:
-                            st.warning(f"🔍 No se localizaron registros de capacitación para el número de empleado: **{st.session_state.emp_search_id}**.")
+                            st.warning(f"🔍 No se localizaron registros de capacitación para el número de empleado: **{st.session_state.empleado_consultado}**.")
                             
                     except Exception as e:
                         st.error(f"Ocurrió un error al consultar el registro en la base de datos: {e}")
