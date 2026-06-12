@@ -6196,7 +6196,7 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
                                         return 'background-color: #ffcccc; color: #cc0000; font-weight: bold;'
                                     else:
                                         return 'background-color: #e2f0d9; color: #385723;'
-                                  except:
+                                except:
                                     return ''
     
                             # Aplicamos el mapeo de color
