@@ -4083,6 +4083,106 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
                             st.rerun()
                         else:
                             st.error(f"Sincronización completada con {errores} fallas estructurales.")
+
+        # =====================================================================
+        # HERRAMIENTA 2: VALIDACIÓN CRONOLÓGICA (INGRESO VS ENTRENAMIENTO)
+        # =====================================================================
+        st.divider()
+        st.markdown("### 🕒 Auditoría de Integridad Cronológica (Personal)")
+        st.info("Este escáner cruza el padrón activo y verifica que la **Fecha de Ingreso** de cada colaborador sea estrictamente anterior a la fecha de su **Último Entrenamiento**. Los desfases indican errores de captura.")
+
+        if "simulacro_cronologia" not in st.session_state:
+            st.session_state.simulacro_cronologia = None
+            st.session_state.cambios_cronologia = []
+
+        if st.button("🔍 Paso 1: Escanear Desfases Cronológicos (Simulacro)"):
+            from datetime import datetime
+            actualizaciones_cronologia = []
+            vista_previa_c = []
+
+            with st.spinner("Cruzando fechas de ingreso contra historial de evaluaciones..."):
+                try:
+                    # 1. Traer empleados activos que tengan fecha de ingreso registrada
+                    resp_emp_c = supabase.table("empleados_batas").select("num_empleado, nombre, fecha_ingreso, fecha_ultimo_entrenamiento").eq("estatus_empleado", "Activo").not_.is_("fecha_ingreso", "null").execute()
+                    empleados_c = resp_emp_c.data if resp_emp_c.data else []
+
+                    for emp in empleados_c:
+                        f_ingreso_str = item_f = emp.get('fecha_ingreso')
+                        f_train_str = emp.get('fecha_ultimo_entrenamiento')
+
+                        # Si no se ha entrenado, no hay conflicto cronológico posible
+                        if not f_train_str or str(f_train_str).lower() in ['none', 'nan', 'null', '']:
+                            continue
+
+                        try:
+                            # Parsear de forma segura ambas fechas a objetos date de Python
+                            f_ingreso = datetime.strptime(str(f_ingreso_str)[:10], "%Y-%m-%d").date()
+                            f_train = datetime.strptime(str(f_train_str)[:10], "%Y-%m-%d").date()
+                        except:
+                            continue # Si alguna fecha tiene un formato roto, la saltamos
+
+                        # REGLA DE ORO: La capacitación no puede ocurrir antes de entrar a la empresa
+                        if f_train < f_ingreso:
+                            actualizaciones_cronologia.append({
+                                "num_empleado": emp['num_empleado'],
+                                "payload": {
+                                    "fecha_ultimo_entrenamiento": None,
+                                    "fecha_proximo_entrenamiento": None,
+                                    "estatus_bata": "PENDIENTE" # Se resetea para obligar a re-evaluación lícita
+                                }
+                            })
+                            vista_previa_c.append({
+                                "No. Empleado": emp['num_empleado'],
+                                "Nombre": emp['nombre'],
+                                "Fecha de Ingreso": f_ingreso_str,
+                                "Entrenamiento Erróneo": f_train_str,
+                                "Acción Propuesta": "Resetear a PENDIENTE para re-entrenamiento lícito"
+                            })
+
+                except Exception as e:
+                    st.error(f"Error durante el cruce de datos: {e}")
+
+            st.session_state.cambios_cronologia = actualizaciones_cronologia
+            st.session_state.simulacro_cronologia = pd.DataFrame(vista_previa_c)
+
+        # --- PASO 2: MOSTRAR DISCREPANCIAS Y APLICAR SANEAMIENTO ---
+        if st.session_state.simulacro_cronologia is not None:
+            df_prev_c = st.session_state.simulacro_cronologia
+            total_anomalias = len(st.session_state.cambios_cronologia)
+
+            if total_anomalias == 0:
+                st.success("✨ ¡Perfecto! No se detectaron anomalías cronológicas. Todas las fechas de entrenamiento son posteriores al ingreso del personal.")
+                st.session_state.simulacro_cronologia = None
+            else:
+                st.error(f"⚠️ **Se detectaron {total_anomalias} empleados con entrenamientos fantasma anteriores a su fecha de contratación.**")
+                st.dataframe(df_prev_c, use_container_width=True, hide_index=True)
+
+                st.markdown("#### 🔒 Acción Correctiva Normativa")
+                st.caption("Al aplicar la corrección, se limpiarán las fechas imposibles de la ficha del empleado y su estatus pasará a **PENDIENTE** para que RH o el auditor ESD vuelvan a registrar su última evaluación real.")
+                
+                confirmar_c = st.checkbox("Confirmo que deseo limpiar las fechas incongruentes de los registros superiores.")
+
+                if confirmar_c:
+                    if st.button("💾 Paso 2: Ejecutar Saneamiento Cronológico", type="primary"):
+                        barra_progreso_c = st.progress(0, text="Sincronizando...")
+                        errores_c = 0
+
+                        for idx, accion in enumerate(st.session_state.cambios_cronologia):
+                            try:
+                                supabase.table("empleados_batas").update(accion["payload"]).eq("num_empleado", accion["num_empleado"]).execute()
+                            except:
+                                errores_c += 1
+                            barra_progreso_c.progress((idx + 1) / total_anomalias, text=f"Corrigiendo Ficha: {accion['num_empleado']}")
+
+                        if errores_c == 0:
+                            st.success(f"✅ ¡Saneamiento cronológico completado! {total_anomalias} fichas de personal limpiadas.")
+                            st.session_state.simulacro_cronologia = None
+                            st.cache_data.clear()
+                            time.sleep(1.5)
+                            st.rerun()
+                        else:
+                            st.error(f"Operación finalizada con {errores_c} fallas de comunicación con Supabase.")
+        
     # --- PESTAÑA 5: USUARIOS (PANEL DE ADMINISTRACIÓN) ---
         with tab_usuarios:
             st.markdown("#### 🔐 Administración de Usuarios")
