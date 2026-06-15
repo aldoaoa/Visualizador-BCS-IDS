@@ -1585,7 +1585,7 @@ elif st.session_state.vista_actual == "Mapa" and not st.session_state.modo_lectu
                             df_mostrar_piso['medicion_ohms'] = df_mostrar_piso['medicion_ohms'].apply(lambda x: f"{float(x):.2e} Ω")
                             df_mostrar_piso.columns = ['Punto', 'Resistencia', 'Temp (°C)', 'Humedad (%)', 'Estatus', 'Auditor']
                             
-                            df_mostrar_piso['Estatus'] = df_mostrar_piso['Estatus'].apply(lambda x: f"🟢 {x}" if "VIGENTE" in str(x).upper() else f"🔴 {x}")
+                            df_mostrar_piso['Estatus'] = df_mostrar_piso['Estatus'].apply(lambda x: f"🟢 {x}" if "PASA" in str(x).upper() else f"🔴 {x}")
                             st.dataframe(df_mostrar_piso.sort_values(by='Punto'), use_container_width=True, hide_index=True)
                             
                         else:
