@@ -3805,7 +3805,7 @@ elif st.session_state.vista_actual == "Validación" and not st.session_state.mod
                     
                     # Preparar DataFrame para el Data Editor
                     df_editar = df_validadas[['num_empleado', 'nombre', 'fecha_entrega_bata', 'tiempo_uso', 'fecha_ultima_validacion', 'valor_resistencia', 'estatus_bata']].copy()
-                    
+                    df_editar['fecha_entrega_bata'] = pd.to_datetime(df_editar['fecha_entrega_bata'], errors='coerce').dt.date
                     # Formatear a notación científica para mejor lectura
                     df_editar['valor_resistencia'] = df_editar['valor_resistencia'].apply(lambda x: f"{float(x):.2e} Ω" if pd.notna(x) else "N/D")
                     
