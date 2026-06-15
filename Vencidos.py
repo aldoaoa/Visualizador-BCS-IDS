@@ -6291,13 +6291,7 @@ elif st.session_state.vista_actual == "Tierras" and not st.session_state.modo_le
                             st.markdown(f"**📍 Punto {punto_num}**")
                             
                         # El input de captura justo debajo de la imagen
-                        val = st.number_input(
-                            "Ohms:", 
-                            min_value=0.0, format="%.2e", step=1e6, 
-                            value=valor_previo, placeholder="0.0",
-                            label_visibility="collapsed", # Ocultamos la etiqueta repetitiva para ahorrar espacio
-                            key=f"input_{cuarto_sel}_{punto_num}"
-                        )
+                        val = st.number_input("Ohms:", min_value=0.0, format="%.2e", step=1e6, value=valor_previo, placeholder="0.0", label_visibility="collapsed", key=f"input_{cuarto_sel}_{punto_num}")
                         puntos_rtg[punto_num] = val
 
             st.divider()
