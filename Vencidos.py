@@ -6675,6 +6675,7 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
                         
                         if resp_individual.data:
                             df_individual = pd.DataFrame(resp_individual.data)
+                            df_individual = df_individual.drop_duplicates(subset=['fecha_entrenamiento'], keep='first')
                             df_individual['fecha_entrenamiento'] = pd.to_datetime(df_individual['fecha_entrenamiento']).dt.strftime('%d-%b-%Y %H:%M')
                             
                             nombre_detectado = df_individual.iloc[0]['nombre_empleado']
@@ -6818,12 +6819,47 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
                             
                             if st.button(f"🚀 Guardar datos de {archivo.name} en la nube", key=f"btn_{archivo.name}"):
                                 with st.spinner("Procesando certificaciones y calculando vigencias anuales..."):
+                                    
+                                    # --- NUEVO: OBTENER REGISTROS EXISTENTES PARA EVITAR DUPLICADOS ---
+                                    try:
+                                        resp_ex = supabase.table("entrenamientos_esd").select("num_empleado, fecha_entrenamiento").execute()
+                                        set_existentes = set()
+                                        for x in resp_ex.data:
+                                            emp_db = str(x.get('num_empleado')).strip()
+                                            fecha_db = str(x.get('fecha_entrenamiento'))[:10]
+                                            set_existentes.add(f"{emp_db}|{fecha_db}")
+                                    except:
+                                        set_existentes = set()
+                                    
+                                    # --- NUEVO: ELIMINAR DUPLICADOS DENTRO DEL PROPIO EXCEL ---
+                                    if col_fecha:
+                                        df_clean = df_clean.drop_duplicates(subset=[col_num, col_fecha], keep='first')
+
                                     lote_insercion = []
+                                    registros_omitidos = 0
                                     
                                     for _, row in df_clean.iterrows():
                                         emp_id = str(row[col_num]).strip()
                                         nombre_emp = str(row.get(col_nom, "N/D"))[:100]
                                         
+                                        # Parsear fecha de la evaluación
+                                        fecha_raw = row.get(col_fecha, datetime.now())
+                                        try:
+                                            fecha_dt = pd.to_datetime(fecha_raw)
+                                            fecha_val_str = fecha_dt.strftime('%Y-%m-%d')
+                                            fecha_proximo_str = (fecha_dt + relativedelta(years=1)).strftime('%Y-%m-%d')
+                                        except:
+                                            fecha_dt = datetime.now()
+                                            fecha_val_str = fecha_dt.strftime('%Y-%m-%d')
+                                            fecha_proximo_str = (fecha_dt + relativedelta(years=1)).strftime('%Y-%m-%d')
+                                            
+                                        # --- NUEVO: FILTRO ANTI-DUPLICADOS ---
+                                        llave_unica = f"{emp_id}|{fecha_val_str}"
+                                        if llave_unica in set_existentes:
+                                            registros_omitidos += 1
+                                            continue # Si ya existe, nos saltamos a la siguiente fila
+                                        
+                                        # (AQUÍ CONTINÚA LA LÓGICA DE DICCIONARIO QUE YA TENÍAS)
                                         # Declaramos la lista negra FUERA del for para mayor velocidad
                                         palabras_filtro = [
                                             'nombre', 'puesto', 'empleado', 'fecha', 'exámen', 'examen',
@@ -6837,44 +6873,23 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
                                             'conocimientos', 'cambiarías', 'presentaciones', 'califica'
                                         ]
 
-                                        # MAPEADO DE PUNTAJES HISTÓRICOS
                                         detalle = {}
                                         for cp in cols_preguntas:
-                                            # 1. FILTRO: Si la columna tiene alguna palabra prohibida, la saltamos por completo
                                             if any(x in cp.lower() for x in palabras_filtro):
-                                                continue
+                                                continue 
                                                 
                                             val_raw = row.get(cp)
-                                            
-                                            # 2. IGNORAR VACÍOS FANTASMAS: Si la celda está vacía (NaN), NUNCA vio la pregunta.
                                             if pd.isna(val_raw) or str(val_raw).strip() == '':
                                                 continue
                                                 
-                                            # 3. GUARDADO SEGURO: Si superó los filtros, es pregunta técnica y sí la contestó
                                             try:
                                                 detalle[cp] = float(val_raw)
                                             except:
-                                                pass # Ignoramos celdas con texto inválido
+                                                pass 
                                         
-                                        # Parsear fecha de la evaluación
-                                        fecha_raw = row.get(col_fecha, datetime.now())
-                                        try:
-                                            fecha_dt = pd.to_datetime(fecha_raw)
-                                            fecha_val_str = fecha_dt.strftime('%Y-%m-%d')
-                                            fecha_proximo_dt = fecha_dt + relativedelta(years=1)
-                                            fecha_proximo_str = fecha_proximo_dt.strftime('%Y-%m-%d')
-                                        except:
-                                            fecha_dt = datetime.now()
-                                            fecha_val_str = fecha_dt.strftime('%Y-%m-%d')
-                                            fecha_proximo_str = (fecha_dt + relativedelta(years=1)).strftime('%Y-%m-%d')
-                                            
-                                        # NUEVA LÓGICA: Ignoramos el total crudo del Excel.
-                                        # Calculamos la calificación exacta (Base 10) según la cantidad real de reactivos extraídos.
                                         total_reactivos = len(detalle)
                                         if total_reactivos > 0:
-                                            # Sumamos 1.0 por cada respuesta que tenga un valor mayor a 0
                                             aciertos_totales = sum([1.0 for v in detalle.values() if float(v) > 0])
-                                            # Obtenemos proporción y multiplicamos por 10 (con 2 decimales)
                                             calif_total = round((aciertos_totales / total_reactivos) * 10.0, 2)
                                         else:
                                             calif_total = 0.0
@@ -6889,7 +6904,7 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
                                             "archivo_origen": archivo.name
                                         })
                                         
-                                        # 2. Actualizar la ficha maestra del empleado (Vigencia Anual)
+                                        # 2. Actualizar la ficha maestra del empleado
                                         try:
                                             supabase.table("empleados_batas").update({
                                                 "fecha_ultimo_entrenamiento": fecha_val_str,
@@ -6902,9 +6917,13 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
                                     if lote_insercion:
                                         for i in range(0, len(lote_insercion), 300):
                                             supabase.table("entrenamientos_esd").insert(lote_insercion[i:i+300]).execute()
-                                            
+                                        
                                         st.success(f"🎉 ¡{len(lote_insercion)} exámenes archivados! Las fechas de reentrenamiento han sido calculadas.")
+                                        if registros_omitidos > 0:
+                                            st.info(f"💡 Se omitieron {registros_omitidos} registros que ya existían previamente en la base de datos.")
                                         st.cache_data.clear()
+                                    elif registros_omitidos > 0:
+                                        st.warning(f"No se agregaron datos nuevos. Se omitieron {registros_omitidos} registros que ya existían."))
                     except Exception as e:
                         st.error(f"Error procesando {archivo.name}: {e}")
 
