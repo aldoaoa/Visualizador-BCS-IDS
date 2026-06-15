@@ -6917,7 +6917,7 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
                                             st.info(f"💡 Se omitieron {registros_omitidos} registros que ya existían previamente en la base de datos.")
                                         st.cache_data.clear()
                                     elif registros_omitidos > 0:
-                                        st.warning(f"No se agregaron datos nuevos. Se omitieron {registros_omitidos} registros que ya existían."))
+                                        st.warning(f"No se agregaron datos nuevos. Se omitieron {registros_omitidos} registros que ya existían.")
                     except Exception as e:
                         st.error(f"Error procesando {archivo.name}: {e}")
 
