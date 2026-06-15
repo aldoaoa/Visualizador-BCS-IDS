@@ -3706,28 +3706,170 @@ elif st.session_state.vista_actual == "Validación" and not st.session_state.mod
                 except Exception as e:
                     st.error(f"Error procesando el archivo: {e}")
     
-        # -- SUB-PESTAÑA: HISTORIAL --
+        # -- SUB-PESTAÑA: HISTORIAL Y ANÁLISIS --
         with subtab_hist:
-            st.markdown("#### 📂 Historial de Registros Sobreescritos")
-            if st.button("🔄 Actualizar", key="ref_batas"):
+            st.markdown("#### 📈 Análisis y Control de Batas Validadas")
+            if st.button("🔄 Actualizar Datos", key="ref_batas"):
                 st.cache_data.clear()
                 st.rerun()
-                
+
+            # 1. Traer datos actuales de empleados (batas activas)
+            try:
+                resp_emp = supabase.table("empleados_batas").select("*").eq("estatus_empleado", "Activo").execute()
+                df_activos = pd.DataFrame(resp_emp.data)
+            except Exception as e:
+                df_activos = pd.DataFrame()
+                st.error(f"Error cargando empleados: {e}")
+
+            # 2. Traer historial de mediciones (sobreescrituras)
             try:
                 resp_hist_b = supabase.table("historial_batas").select("*").order("fecha_validacion", desc=True).limit(5000).execute()
                 df_hist_b = pd.DataFrame(resp_hist_b.data)
-                
-                if not df_hist_b.empty:
-                    df_hist_b['fecha_validacion'] = pd.to_datetime(df_hist_b['fecha_validacion']).dt.strftime('%d-%b-%Y')
-                    df_hist_b['valor_resistencia'] = df_hist_b['valor_resistencia'].apply(lambda x: f"{float(x):.2e} Ω" if pd.notna(x) else "N/D")
-                    
-                    df_out = df_hist_b[['fecha_validacion', 'num_empleado', 'valor_resistencia', 'estatus_bata', 'auditor']].copy()
-                    df_out.columns = ['Fecha de Validación', 'Número de Empleado', 'Valor de Resistencia', 'Estatus', 'Auditor']
-                    st.dataframe(df_out, use_container_width=True, hide_index=True)
-                else:
-                    st.info("Aún no hay historial de registros sobreescritos.")
             except Exception as e:
-                st.error(f"Error cargando historial: {e}")
+                df_hist_b = pd.DataFrame()
+
+            # ==========================================
+            # GRÁFICA DE TENDENCIA VISUAL
+            # ==========================================
+            st.markdown("##### 📊 Tendencia de Mediciones de Resistencia")
+            st.info("Visualiza la degradación de la resistencia de las batas en el tiempo. Valores por encima de la línea roja (1.0e11) están fuera de norma.")
+            
+            # Combinar actuales + historial para la gráfica
+            df_grafica = pd.DataFrame()
+            if not df_activos.empty:
+                df_curr = df_activos[['num_empleado', 'fecha_ultima_validacion', 'valor_resistencia']].dropna(subset=['fecha_ultima_validacion', 'valor_resistencia']).copy()
+                df_curr.columns = ['num_empleado', 'fecha', 'valor']
+                df_grafica = pd.concat([df_grafica, df_curr])
+            
+            if not df_hist_b.empty:
+                df_h = df_hist_b[['num_empleado', 'fecha_validacion', 'valor_resistencia']].dropna(subset=['fecha_validacion', 'valor_resistencia']).copy()
+                df_h.columns = ['num_empleado', 'fecha', 'valor']
+                df_grafica = pd.concat([df_grafica, df_h])
+
+            if not df_grafica.empty:
+                df_grafica['fecha'] = pd.to_datetime(df_grafica['fecha'], errors='coerce')
+                df_grafica['valor'] = pd.to_numeric(df_grafica['valor'], errors='coerce')
+                # Filtramos valores corruptos y ceros para la escala logarítmica
+                df_grafica = df_grafica.dropna(subset=['fecha', 'valor'])
+                df_grafica = df_grafica[df_grafica['valor'] > 0].sort_values('fecha')
+
+                if not df_grafica.empty:
+                    import plotly.express as px
+                    fig_trend = px.scatter(
+                        df_grafica, x='fecha', y='valor', color='num_empleado', 
+                        title="Comportamiento de Resistencia de Batas",
+                        labels={'fecha': 'Fecha de Medición', 'valor': 'Resistencia (Ohms)', 'num_empleado': 'Empleado'},
+                        log_y=True # Escala logarítmica esencial para lecturas de ESD
+                    )
+                    
+                    fig_trend.update_traces(marker=dict(size=10, opacity=0.7, line=dict(width=1, color='DarkSlateGrey')))
+                    
+                    # Límite superior normativo (1.0e11)
+                    fig_trend.add_hline(y=1.0e11, line_dash="dash", line_color="red", annotation_text="Límite Superior (1.0e11 Ω)", annotation_position="bottom right", annotation_font=dict(color="red", size=12, weight="bold"))
+                    
+                    fig_trend.update_layout(margin=dict(t=40, b=10, l=10, r=10), showlegend=False)
+                    st.plotly_chart(fig_trend, use_container_width=True)
+                else:
+                    st.info("No hay mediciones numéricas válidas para graficar.")
+            else:
+                st.info("No hay datos suficientes para generar la tendencia.")
+
+            st.divider()
+
+            # ==========================================
+            # TABLA EDITABLE: BATAS VALIDADAS Y VIDA ÚTIL
+            # ==========================================
+            st.markdown("##### 🥼 Batas Actualmente Validadas (Asignación y Vida Útil)")
+            st.caption("Edita la columna **'Fecha Entrega Bata'** haciendo doble clic en la celda. El sistema calculará automáticamente el tiempo de uso. Presiona Guardar al finalizar.")
+            
+            if not df_activos.empty:
+                # Filtrar solo el personal que ya pasó por una validación de bata
+                df_validadas = df_activos.dropna(subset=['fecha_ultima_validacion']).copy()
+                
+                if not df_validadas.empty:
+                    # Calcular el tiempo de uso dinámicamente
+                    hoy_date = datetime.today().date()
+                    
+                    def calcular_meses(fecha_str):
+                        if pd.isna(fecha_str) or not str(fecha_str).strip():
+                            return "Sin Asignar"
+                        try:
+                            f_entrega = pd.to_datetime(fecha_str).date()
+                            dias = (hoy_date - f_entrega).days
+                            meses = dias / 30.41
+                            return f"{meses:.1f} meses"
+                        except:
+                            return "Error"
+
+                    df_validadas['tiempo_uso'] = df_validadas['fecha_entrega_bata'].apply(calcular_meses)
+                    
+                    # Preparar DataFrame para el Data Editor
+                    df_editar = df_validadas[['num_empleado', 'nombre', 'fecha_entrega_bata', 'tiempo_uso', 'fecha_ultima_validacion', 'valor_resistencia', 'estatus_bata']].copy()
+                    
+                    # Formatear a notación científica para mejor lectura
+                    df_editar['valor_resistencia'] = df_editar['valor_resistencia'].apply(lambda x: f"{float(x):.2e} Ω" if pd.notna(x) else "N/D")
+                    
+                    editor_batas = st.data_editor(
+                        df_editar,
+                        column_config={
+                            "num_empleado": st.column_config.TextColumn("No. Empleado", disabled=True),
+                            "nombre": st.column_config.TextColumn("Nombre", disabled=True),
+                            "fecha_entrega_bata": st.column_config.DateColumn("Fecha Entrega Bata (Edítame)"),
+                            "tiempo_uso": st.column_config.TextColumn("Tiempo de Uso", disabled=True),
+                            "fecha_ultima_validacion": st.column_config.TextColumn("Última Validación", disabled=True),
+                            "valor_resistencia": st.column_config.TextColumn("Resistencia Actual", disabled=True),
+                            "estatus_bata": st.column_config.TextColumn("Estatus", disabled=True)
+                        },
+                        hide_index=True,
+                        use_container_width=True,
+                        key="editor_entrega_batas"
+                    )
+
+                    if st.button("💾 Guardar Cambios de Fechas de Entrega", type="primary"):
+                        cambios = st.session_state.editor_entrega_batas.get("edited_rows", {})
+                        if cambios:
+                            with st.spinner("Actualizando fechas de entrega en el padrón de empleados..."):
+                                errores_b = 0
+                                for idx_str, edits in cambios.items():
+                                    if "fecha_entrega_bata" in edits:
+                                        idx = int(idx_str)
+                                        emp_target = df_editar.iloc[idx]['num_empleado']
+                                        nueva_fecha = edits["fecha_entrega_bata"]
+                                        try:
+                                            # Actualizar Supabase (Incluso si dejan el campo vacío - null)
+                                            payload = {"fecha_entrega_bata": nueva_fecha if nueva_fecha else None}
+                                            supabase.table("empleados_batas").update(payload).eq("num_empleado", emp_target).execute()
+                                        except Exception as e:
+                                            st.error(f"Error actualizando al empleado {emp_target}: {e}")
+                                            errores_b += 1
+                                            
+                                if errores_b == 0:
+                                    st.success("✅ Fechas de entrega actualizadas con éxito. Los tiempos de vida útil se han recalculado.")
+                                    st.cache_data.clear()
+                                    time.sleep(1.5)
+                                    st.rerun()
+                        else:
+                            st.info("No modificaste ninguna fecha de entrega.")
+                else:
+                    st.info("Aún no hay batas validadas en el padrón de personal activo.")
+            else:
+                st.info("No hay empleados activos registrados.")
+
+            st.divider()
+
+            # ==========================================
+            # LOG: HISTORIAL DE REGISTROS SOBREESCRITOS
+            # ==========================================
+            st.markdown("##### 📂 Historial de Registros Sobreescritos (Log de Auditoría)")
+            st.caption("Bitácora de las mediciones de batas pasadas para preservar la trazabilidad.")
+            if not df_hist_b.empty:
+                df_out = df_hist_b[['fecha_validacion', 'num_empleado', 'valor_resistencia', 'estatus_bata', 'auditor']].copy()
+                df_out['fecha_validacion'] = pd.to_datetime(df_out['fecha_validacion']).dt.strftime('%d-%b-%Y')
+                df_out['valor_resistencia'] = df_out['valor_resistencia'].apply(lambda x: f"{float(x):.2e} Ω" if pd.notna(x) else "N/D")
+                df_out.columns = ['Fecha de Validación', 'Número de Empleado', 'Valor de Resistencia', 'Estatus', 'Auditor']
+                st.dataframe(df_out, use_container_width=True, hide_index=True)
+            else:
+                st.info("Aún no hay historial de registros sobreescritos.")
 # ==========================================
 # VISTA 6: AJUSTES (CATÁLOGOS MAESTROS)
 # ==========================================
