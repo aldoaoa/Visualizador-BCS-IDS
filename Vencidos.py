@@ -4316,6 +4316,152 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
                             st.rerun()
                         else:
                             st.error(f"Operación finalizada con {errores_c} fallas de comunicación con Supabase.")
+
+        # =====================================================================
+        # HERRAMIENTA 3: AUDITORÍA TÉCNICA DE VALORES VS LÍMITES NORMATIVOS
+        # =====================================================================
+        st.divider()
+        st.markdown("### 🕵️ Auditoría Técnica de Mediciones (Valores vs Límites)")
+        st.info("Escanea todas las bases de datos para detectar equipos cuyas mediciones (resistencia, voltaje, balance) excedan los límites normativos, sin importar el estatus que tengan marcado.")
+
+        if st.button("🔍 Paso 1: Iniciar Escaneo de Valores Técnicos", type="secondary"):
+            with st.spinner("Analizando parámetros en inventario, maquinaria, tierras y conductores..."):
+                anomalias_tecnicas = []
+
+                # 1. Escaneo en INVENTARIO (Resistencia y Balance)
+                try:
+                    resp_inv = supabase.table("inventario_esd").select("*").not_.eq("estatus_operativo", "NO OPERATIVO").execute()
+                    for r in resp_inv.data:
+                        val = r.get('valor_actual')
+                        lim_max = r.get('limite_maximo')
+                        bal = r.get('balance_ionizador')
+                        cat = str(r.get('categoria')).upper()
+                        id_prod = r.get('id_producto', 'N/D')
+                        estatus = r.get('estatus_verificacion', 'N/D')
+                        
+                        # Revisar Resistencia
+                        if val is not None and lim_max is not None:
+                            try:
+                                if float(val) > float(lim_max):
+                                    anomalias_tecnicas.append({
+                                        "Módulo": "Inventario ESD",
+                                        "ID / Ubicación": id_prod,
+                                        "Parámetro": "Resistencia (Ω)",
+                                        "Valor Leído": f"{float(val):.2e}",
+                                        "Límite Permitido": f"{float(lim_max):.2e}",
+                                        "Estatus en BD": estatus
+                                    })
+                            except: pass
+                        
+                        # Revisar Balance en Ionizadores
+                        if 'IONIZA' in cat and bal is not None:
+                            try:
+                                if abs(float(bal)) > 35.0:
+                                    anomalias_tecnicas.append({
+                                        "Módulo": "Inventario ESD (Ionizador)",
+                                        "ID / Ubicación": id_prod,
+                                        "Parámetro": "Balance (V)",
+                                        "Valor Leído": f"{float(bal):.1f}",
+                                        "Límite Permitido": "±35.0",
+                                        "Estatus en BD": estatus
+                                    })
+                            except: pass
+                except Exception as e:
+                    st.error(f"Error leyendo inventario: {e}")
+
+                # 2. Escaneo en MAQUINARIA (Resistencia a Tierra y Campo Estático)
+                try:
+                    resp_maq = supabase.table("mediciones_maquinaria").select("*").not_.eq("status_operativo", "NO OPERATIVO").execute()
+                    for r in resp_maq.data:
+                        val_rtg = r.get('resistencia_tierra')
+                        lim_rtg = r.get('resistencia_max', 1.0) # Por defecto 1 ohm
+                        val_campo = r.get('campo_estatico_voltaje')
+                        id_maq = r.get('id_maquinaria', 'N/D')
+                        estatus = r.get('resultado_estatus', 'N/D')
+                        
+                        # Revisar Resistencia
+                        if val_rtg is not None:
+                            try:
+                                if float(val_rtg) > float(lim_rtg):
+                                    anomalias_tecnicas.append({
+                                        "Módulo": "Maquinaria",
+                                        "ID / Ubicación": id_maq,
+                                        "Parámetro": "Res. Tierra (Ω)",
+                                        "Valor Leído": f"{float(val_rtg):.2e}",
+                                        "Límite Permitido": f"{float(lim_rtg):.2e}",
+                                        "Estatus en BD": estatus
+                                    })
+                            except: pass
+                        
+                        # Revisar Campo Estático (>100V general para S20.20 en proceso)
+                        if val_campo is not None:
+                            try:
+                                if abs(float(val_campo)) > 100.0:
+                                    anomalias_tecnicas.append({
+                                        "Módulo": "Maquinaria",
+                                        "ID / Ubicación": id_maq,
+                                        "Parámetro": "Campo Estático (V)",
+                                        "Valor Leído": f"{float(val_campo):.1f}",
+                                        "Límite Permitido": "< 100.0",
+                                        "Estatus en BD": estatus
+                                    })
+                            except: pass
+                except Exception as e:
+                    st.error(f"Error leyendo maquinaria: {e}")
+
+                # 3. Escaneo en TIERRAS AUXILIARES
+                try:
+                    resp_tierras = supabase.table("tierras_auxiliares").select("*").execute()
+                    for r in resp_tierras.data:
+                        val = r.get('medicion_ohms')
+                        tipo = r.get('tipo_punto', 'Tierra Auxiliar')
+                        limite = 25.0 if 'Auxiliar' in tipo else 2.0
+                        id_punto = f"{r.get('id_punto')} ({r.get('linea')})"
+                        
+                        if val is not None:
+                            try:
+                                if float(val) > limite:
+                                    anomalias_tecnicas.append({
+                                        "Módulo": "Tierras / Conexiones",
+                                        "ID / Ubicación": id_punto,
+                                        "Parámetro": "Resistencia (Ω)",
+                                        "Valor Leído": f"{float(val):.2f}",
+                                        "Límite Permitido": f"{limite:.2f}",
+                                        "Estatus en BD": r.get('estatus', 'N/D')
+                                    })
+                            except: pass
+                except Exception as e:
+                    st.error(f"Error leyendo tierras: {e}")
+
+                # 4. Escaneo en CONDUCTORES AISLADOS
+                try:
+                    resp_cond = supabase.table("registro_conductores_aislados").select("*").execute()
+                    for r in resp_cond.data:
+                        val = r.get('voltaje_maximo')
+                        ubicacion = f"{r.get('operacion')} ({r.get('linea')})"
+                        
+                        if val is not None:
+                            try:
+                                if float(val) > 35.0:
+                                    anomalias_tecnicas.append({
+                                        "Módulo": "Conductores Aislados",
+                                        "ID / Ubicación": ubicacion,
+                                        "Parámetro": "Voltaje (V)",
+                                        "Valor Leído": f"{float(val):.1f}",
+                                        "Límite Permitido": "< 35.0",
+                                        "Estatus en BD": "N/A"
+                                    })
+                            except: pass
+                except Exception as e:
+                    st.error(f"Error leyendo conductores aislados: {e}")
+
+                # --- RENDERIZADO DE RESULTADOS ---
+                if not anomalias_tecnicas:
+                    st.success("✨ ¡Todo en orden! Ningún registro activo en las 4 tablas principales supera los límites normativos físicos.")
+                else:
+                    st.error(f"⚠️ **Se detectaron {len(anomalias_tecnicas)} registros con lecturas técnicas fuera de especificación.**")
+                    st.dataframe(pd.DataFrame(anomalias_tecnicas), use_container_width=True, hide_index=True)
+                    st.info("💡 **Tip:** Si en la columna 'Estatus en BD' dice 'VIGENTE' o 'PASA' pero aparece en esta lista, significa que hay un error de captura o hubo un falso positivo que debes corregir en la mesa de control.")
         
     # --- PESTAÑA 5: USUARIOS (PANEL DE ADMINISTRACIÓN) ---
         with tab_usuarios:
