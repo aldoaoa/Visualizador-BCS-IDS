@@ -4318,14 +4318,18 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
                             st.error(f"Operación finalizada con {errores_c} fallas de comunicación con Supabase.")
 
         # =====================================================================
-        # HERRAMIENTA 3: AUDITORÍA TÉCNICA DE VALORES VS LÍMITES NORMATIVOS
+        # HERRAMIENTA 3: AUDITORÍA TÉCNICA Y MESA DE CONTROL DE DESVIACIONES
         # =====================================================================
         st.divider()
-        st.markdown("### 🕵️ Auditoría Técnica de Mediciones (Valores vs Límites)")
-        st.info("Escanea todas las bases de datos para detectar equipos cuyas mediciones (resistencia, voltaje, balance) excedan los límites normativos, sin importar el estatus que tengan marcado.")
+        st.markdown("### 🕵️ Mesa de Control: Valores vs Límites Normativos")
+        st.info("Escanea equipos cuyas mediciones excedan los límites. Puedes **editar directamente** la fecha, los valores, los límites y el estatus en la tabla. Al finalizar, presiona guardar para aplicar los cambios a las bases de datos correspondientes.")
 
-        if st.button("🔍 Paso 1: Iniciar Escaneo de Valores Técnicos", type="secondary"):
-            with st.spinner("Analizando parámetros en inventario, maquinaria, tierras y conductores..."):
+        if "df_anomalias" not in st.session_state:
+            st.session_state.df_anomalias = None
+
+        col_btn1, col_btn2 = st.columns([1, 3])
+        if col_btn1.button("🔍 Escanear Desviaciones", type="secondary", use_container_width=True):
+            with st.spinner("Analizando parámetros en todas las bases de datos..."):
                 anomalias_tecnicas = []
 
                 # 1. Escaneo en INVENTARIO (Resistencia y Balance)
@@ -4338,18 +4342,18 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
                         cat = str(r.get('categoria')).upper()
                         id_prod = r.get('id_producto', 'N/D')
                         estatus = r.get('estatus_verificacion', 'N/D')
+                        fecha_val = str(r.get('fecha_ultima_verif', ''))[:10]
                         
                         # Revisar Resistencia
                         if val is not None and lim_max is not None:
                             try:
                                 if float(val) > float(lim_max):
                                     anomalias_tecnicas.append({
-                                        "Módulo": "Inventario ESD",
-                                        "ID / Ubicación": id_prod,
-                                        "Parámetro": "Resistencia (Ω)",
-                                        "Valor Leído": f"{float(val):.2e}",
-                                        "Límite Permitido": f"{float(lim_max):.2e}",
-                                        "Estatus en BD": estatus
+                                        "_tabla": "inventario_esd", "_pk_col": "id_producto", "_id": id_prod,
+                                        "_col_val": "valor_actual", "_col_lim": "limite_maximo", "_col_est": "estatus_verificacion", "_col_fec": "fecha_ultima_verif",
+                                        "Módulo": "Inventario", "ID / Ubicación": id_prod, 
+                                        "Fecha Última Val.": fecha_val, "Parámetro": "Resistencia (Ω)",
+                                        "Valor Leído": f"{float(val):.2e}", "Límite Permitido": f"{float(lim_max):.2e}", "Estatus en BD": estatus
                                     })
                             except: pass
                         
@@ -4358,56 +4362,50 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
                             try:
                                 if abs(float(bal)) > 35.0:
                                     anomalias_tecnicas.append({
-                                        "Módulo": "Inventario ESD (Ionizador)",
-                                        "ID / Ubicación": id_prod,
-                                        "Parámetro": "Balance (V)",
-                                        "Valor Leído": f"{float(bal):.1f}",
-                                        "Límite Permitido": "±35.0",
-                                        "Estatus en BD": estatus
+                                        "_tabla": "inventario_esd", "_pk_col": "id_producto", "_id": id_prod,
+                                        "_col_val": "balance_ionizador", "_col_lim": None, "_col_est": "estatus_verificacion", "_col_fec": "fecha_ultima_verif",
+                                        "Módulo": "Ionizador", "ID / Ubicación": id_prod, 
+                                        "Fecha Última Val.": fecha_val, "Parámetro": "Balance (V)",
+                                        "Valor Leído": f"{float(bal):.1f}", "Límite Permitido": "35.0", "Estatus en BD": estatus
                                     })
                             except: pass
-                except Exception as e:
-                    st.error(f"Error leyendo inventario: {e}")
+                except Exception: pass
 
                 # 2. Escaneo en MAQUINARIA (Resistencia a Tierra y Campo Estático)
                 try:
                     resp_maq = supabase.table("mediciones_maquinaria").select("*").not_.eq("status_operativo", "NO OPERATIVO").execute()
                     for r in resp_maq.data:
                         val_rtg = r.get('resistencia_tierra')
-                        lim_rtg = r.get('resistencia_max', 1.0) # Por defecto 1 ohm
+                        lim_rtg = r.get('resistencia_max', 1.0)
                         val_campo = r.get('campo_estatico_voltaje')
                         id_maq = r.get('id_maquinaria', 'N/D')
                         estatus = r.get('resultado_estatus', 'N/D')
+                        fecha_val = str(r.get('fecha_medicion', ''))[:10]
                         
-                        # Revisar Resistencia
                         if val_rtg is not None:
                             try:
                                 if float(val_rtg) > float(lim_rtg):
                                     anomalias_tecnicas.append({
-                                        "Módulo": "Maquinaria",
-                                        "ID / Ubicación": id_maq,
-                                        "Parámetro": "Res. Tierra (Ω)",
-                                        "Valor Leído": f"{float(val_rtg):.2e}",
-                                        "Límite Permitido": f"{float(lim_rtg):.2e}",
-                                        "Estatus en BD": estatus
+                                        "_tabla": "mediciones_maquinaria", "_pk_col": "id_maquinaria", "_id": id_maq,
+                                        "_col_val": "resistencia_tierra", "_col_lim": "resistencia_max", "_col_est": "resultado_estatus", "_col_fec": "fecha_medicion",
+                                        "Módulo": "Maquinaria", "ID / Ubicación": id_maq, 
+                                        "Fecha Última Val.": fecha_val, "Parámetro": "Res. Tierra (Ω)",
+                                        "Valor Leído": f"{float(val_rtg):.2e}", "Límite Permitido": f"{float(lim_rtg):.2e}", "Estatus en BD": estatus
                                     })
                             except: pass
                         
-                        # Revisar Campo Estático (>100V general para S20.20 en proceso)
                         if val_campo is not None:
                             try:
                                 if abs(float(val_campo)) > 100.0:
                                     anomalias_tecnicas.append({
-                                        "Módulo": "Maquinaria",
-                                        "ID / Ubicación": id_maq,
-                                        "Parámetro": "Campo Estático (V)",
-                                        "Valor Leído": f"{float(val_campo):.1f}",
-                                        "Límite Permitido": "< 100.0",
-                                        "Estatus en BD": estatus
+                                        "_tabla": "mediciones_maquinaria", "_pk_col": "id_maquinaria", "_id": id_maq,
+                                        "_col_val": "campo_estatico_voltaje", "_col_lim": None, "_col_est": "resultado_estatus", "_col_fec": "fecha_medicion",
+                                        "Módulo": "Maquinaria", "ID / Ubicación": id_maq, 
+                                        "Fecha Última Val.": fecha_val, "Parámetro": "Campo Estático (V)",
+                                        "Valor Leído": f"{float(val_campo):.1f}", "Límite Permitido": "100.0", "Estatus en BD": estatus
                                     })
                             except: pass
-                except Exception as e:
-                    st.error(f"Error leyendo maquinaria: {e}")
+                except Exception: pass
 
                 # 3. Escaneo en TIERRAS AUXILIARES
                 try:
@@ -4416,22 +4414,22 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
                         val = r.get('medicion_ohms')
                         tipo = r.get('tipo_punto', 'Tierra Auxiliar')
                         limite = 25.0 if 'Auxiliar' in tipo else 2.0
+                        id_bd = r.get('id')
                         id_punto = f"{r.get('id_punto')} ({r.get('linea')})"
+                        fecha_val = str(r.get('fecha_medicion', ''))[:10]
                         
                         if val is not None:
                             try:
                                 if float(val) > limite:
                                     anomalias_tecnicas.append({
-                                        "Módulo": "Tierras / Conexiones",
-                                        "ID / Ubicación": id_punto,
-                                        "Parámetro": "Resistencia (Ω)",
-                                        "Valor Leído": f"{float(val):.2f}",
-                                        "Límite Permitido": f"{limite:.2f}",
-                                        "Estatus en BD": r.get('estatus', 'N/D')
+                                        "_tabla": "tierras_auxiliares", "_pk_col": "id", "_id": id_bd,
+                                        "_col_val": "medicion_ohms", "_col_lim": None, "_col_est": "estatus", "_col_fec": "fecha_medicion",
+                                        "Módulo": "Tierras/Conexiones", "ID / Ubicación": id_punto, 
+                                        "Fecha Última Val.": fecha_val, "Parámetro": "Resistencia (Ω)",
+                                        "Valor Leído": f"{float(val):.2f}", "Límite Permitido": f"{limite:.2f}", "Estatus en BD": r.get('estatus', 'N/D')
                                     })
                             except: pass
-                except Exception as e:
-                    st.error(f"Error leyendo tierras: {e}")
+                except Exception: pass
 
                 # 4. Escaneo en CONDUCTORES AISLADOS
                 try:
@@ -4439,30 +4437,117 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
                     for r in resp_cond.data:
                         val = r.get('voltaje_maximo')
                         ubicacion = f"{r.get('operacion')} ({r.get('linea')})"
+                        id_bd = r.get('id')
+                        fecha_val = str(r.get('created_at', ''))[:10] # Supabase genera created_at
                         
                         if val is not None:
                             try:
                                 if float(val) > 35.0:
                                     anomalias_tecnicas.append({
-                                        "Módulo": "Conductores Aislados",
-                                        "ID / Ubicación": ubicacion,
-                                        "Parámetro": "Voltaje (V)",
-                                        "Valor Leído": f"{float(val):.1f}",
-                                        "Límite Permitido": "< 35.0",
-                                        "Estatus en BD": "N/A"
+                                        "_tabla": "registro_conductores_aislados", "_pk_col": "id", "_id": id_bd,
+                                        "_col_val": "voltaje_maximo", "_col_lim": None, "_col_est": None, "_col_fec": "created_at",
+                                        "Módulo": "Cond. Aislados", "ID / Ubicación": ubicacion, 
+                                        "Fecha Última Val.": fecha_val, "Parámetro": "Voltaje (V)",
+                                        "Valor Leído": f"{float(val):.1f}", "Límite Permitido": "35.0", "Estatus en BD": "N/A"
                                     })
                             except: pass
-                except Exception as e:
-                    st.error(f"Error leyendo conductores aislados: {e}")
+                except Exception: pass
 
-                # --- RENDERIZADO DE RESULTADOS ---
-                if not anomalias_tecnicas:
-                    st.success("✨ ¡Todo en orden! Ningún registro activo en las 4 tablas principales supera los límites normativos físicos.")
-                else:
-                    st.error(f"⚠️ **Se detectaron {len(anomalias_tecnicas)} registros con lecturas técnicas fuera de especificación.**")
-                    st.dataframe(pd.DataFrame(anomalias_tecnicas), use_container_width=True, hide_index=True)
-                    st.info("💡 **Tip:** Si en la columna 'Estatus en BD' dice 'VIGENTE' o 'PASA' pero aparece en esta lista, significa que hay un error de captura o hubo un falso positivo que debes corregir en la mesa de control.")
-        
+                st.session_state.df_anomalias = pd.DataFrame(anomalias_tecnicas)
+
+        # --- RENDERIZADO DEL EDITOR INTERACTIVO ---
+        if st.session_state.df_anomalias is not None:
+            df_mostrar = st.session_state.df_anomalias
+            
+            if df_mostrar.empty:
+                st.success("✨ ¡Todo en orden! Ningún registro activo supera los límites físicos normativos.")
+            else:
+                st.warning(f"⚠️ **Se detectaron {len(df_mostrar)} desviaciones.** Edita las celdas directamente y presiona Guardar Cambios.")
+                
+                # Configuramos el editor, ocultando las columnas técnicas que inician con "_"
+                df_editado = st.data_editor(
+                    df_mostrar,
+                    column_config={
+                        "_tabla": None, "_pk_col": None, "_id": None, 
+                        "_col_val": None, "_col_lim": None, "_col_est": None, "_col_fec": None,
+                        "Módulo": st.column_config.TextColumn("Módulo", disabled=True),
+                        "ID / Ubicación": st.column_config.TextColumn("ID / Ubicación", disabled=True),
+                        "Fecha Última Val.": st.column_config.TextColumn("Fecha (YYYY-MM-DD)", required=True),
+                        "Parámetro": st.column_config.TextColumn("Parámetro"),
+                        "Valor Leído": st.column_config.TextColumn("Valor Leído (Ej: 1e9 o 5.5)"),
+                        "Límite Permitido": st.column_config.TextColumn("Límite Permitido"),
+                        "Estatus en BD": st.column_config.SelectboxColumn("Estatus", options=["VIGENTE", "VENCIDO", "PENDIENTE", "PASA", "FALLA", "N/A"])
+                    },
+                    hide_index=True,
+                    use_container_width=True,
+                    key="editor_desviaciones_tecnicas"
+                )
+
+                # --- LÓGICA DE GUARDADO ---
+                if st.button("💾 Guardar Correcciones Técnicas", type="primary"):
+                    cambios = st.session_state.editor_desviaciones_tecnicas.get("edited_rows", {})
+                    
+                    if not cambios:
+                        st.info("No se ha modificado ninguna celda.")
+                    else:
+                        with st.spinner("Actualizando las bases de datos..."):
+                            errores = 0
+                            
+                            for idx_str, edits in cambios.items():
+                                idx = int(idx_str)
+                                fila_orig = df_mostrar.iloc[idx]
+                                payload = {}
+                                
+                                # 1. Validar y procesar Valor Leído
+                                if "Valor Leído" in edits:
+                                    col_val = fila_orig["_col_val"]
+                                    if col_val:
+                                        try:
+                                            payload[col_val] = float(edits["Valor Leído"])
+                                        except ValueError:
+                                            st.error(f"❌ Valor inválido en la fila {idx+1}. Usa números (Ej: 1.5e9 o 30.5).")
+                                            errores += 1
+                                            continue
+
+                                # 2. Validar y procesar Límite Permitido
+                                if "Límite Permitido" in edits:
+                                    col_lim = fila_orig["_col_lim"]
+                                    if col_lim: # Solo actualizamos si la tabla tiene una columna de límite definida
+                                        try:
+                                            payload[col_lim] = float(edits["Límite Permitido"])
+                                        except ValueError:
+                                            st.error(f"❌ Límite inválido en la fila {idx+1}.")
+                                            errores += 1
+                                            continue
+
+                                # 3. Procesar Fecha
+                                if "Fecha Última Val." in edits:
+                                    col_fec = fila_orig["_col_fec"]
+                                    if col_fec:
+                                        payload[col_fec] = edits["Fecha Última Val."]
+
+                                # 4. Procesar Estatus
+                                if "Estatus en BD" in edits:
+                                    col_est = fila_orig["_col_est"]
+                                    if col_est and edits["Estatus en BD"] != "N/A":
+                                        payload[col_est] = edits["Estatus en BD"]
+
+                                # 5. Ejecutar la actualización en SQL
+                                if payload:
+                                    try:
+                                        supabase.table(fila_orig["_tabla"]).update(payload).eq(fila_orig["_pk_col"], fila_orig["_id"]).execute()
+                                    except Exception as e:
+                                        st.error(f"Error actualizando ID {fila_orig['_id']} en {fila_orig['_tabla']}: {e}")
+                                        errores += 1
+
+                            if errores == 0:
+                                st.success("✅ ¡Todas las correcciones se aplicaron exitosamente a las bases de datos!")
+                                st.session_state.df_anomalias = None # Limpiamos para forzar un re-escaneo
+                                time.sleep(1.5)
+                                st.rerun()
+                            else:
+                                st.warning("Se guardaron algunos datos, pero hubo errores. Revisa los mensajes arriba.")
+                                
     # --- PESTAÑA 5: USUARIOS (PANEL DE ADMINISTRACIÓN) ---
         with tab_usuarios:
             st.markdown("#### 🔐 Administración de Usuarios")
