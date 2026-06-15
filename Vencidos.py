@@ -3747,36 +3747,34 @@ elif st.session_state.vista_actual == "Validación" and not st.session_state.mod
                 df_grafica = pd.concat([df_grafica, df_h])
 
             if not df_grafica.empty:
-                    import plotly.express as px
-                    fig_trend = px.scatter(
-                        df_grafica, x='fecha', y='valor', color='num_empleado', 
-                        title="Comportamiento de Resistencia de Batas",
-                        labels={'fecha': 'Fecha de Medición', 'valor': 'Resistencia (Ohms)', 'num_empleado': 'Empleado'},
-                        log_y=True # Escala logarítmica esencial para lecturas de ESD
-                    )
-                    
-                    # Personalizamos los puntos y el texto flotante (hover) para forzar notación científica a 2 decimales
-                    fig_trend.update_traces(
-                        marker=dict(size=10, opacity=0.7, line=dict(width=1, color='DarkSlateGrey')),
-                        hovertemplate="<b>Empleado:</b> %{fullData.name}<br><b>Fecha:</b> %{x}<br><b>Resistencia:</b> %{y:.2e} Ω<extra></extra>"
-                    )
-                    
-                    # Límite superior normativo (1.0e11)
-                    fig_trend.add_hline(
-                        y=1.0e11, line_dash="dash", line_color="red", 
-                        annotation_text="Límite Superior (1.00e+11 Ω)", 
-                        annotation_position="bottom right", 
-                        annotation_font=dict(color="red", size=12, weight="bold")
-                    )
-                    
-                    fig_trend.update_layout(
-                        margin=dict(t=40, b=10, l=10, r=10), 
-                        showlegend=False,
-                        yaxis=dict(tickformat=".2e") # <--- Fuerza el formato del eje Y a científica
-                    )
-                    st.plotly_chart(fig_trend, use_container_width=True)
-                else:
-                    st.info("No hay mediciones numéricas válidas para graficar.")
+                import plotly.express as px
+                fig_trend = px.scatter(
+                    df_grafica, x='fecha', y='valor', color='num_empleado', 
+                    title="Comportamiento de Resistencia de Batas",
+                    labels={'fecha': 'Fecha de Medición', 'valor': 'Resistencia (Ohms)', 'num_empleado': 'Empleado'},
+                    log_y=True # Escala logarítmica esencial para lecturas de ESD
+                )
+                
+                # Personalizamos los puntos y el texto flotante (hover) para forzar notación científica a 2 decimales
+                fig_trend.update_traces(
+                    marker=dict(size=10, opacity=0.7, line=dict(width=1, color='DarkSlateGrey')),
+                    hovertemplate="<b>Empleado:</b> %{fullData.name}<br><b>Fecha:</b> %{x}<br><b>Resistencia:</b> %{y:.2e} Ω<extra></extra>"
+                )
+                
+                # Límite superior normativo (1.0e11)
+                fig_trend.add_hline(
+                    y=1.0e11, line_dash="dash", line_color="red", 
+                    annotation_text="Límite Superior (1.00e+11 Ω)", 
+                    annotation_position="bottom right", 
+                    annotation_font=dict(color="red", size=12, weight="bold")
+                )
+                
+                fig_trend.update_layout(
+                    margin=dict(t=40, b=10, l=10, r=10), 
+                    showlegend=False,
+                    yaxis=dict(tickformat=".2e") # <--- Fuerza el formato del eje Y a científica
+                )
+                st.plotly_chart(fig_trend, use_container_width=True)
             else:
                 st.info("No hay datos suficientes para generar la tendencia.")
 
