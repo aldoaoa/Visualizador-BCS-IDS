@@ -1470,16 +1470,12 @@ elif st.session_state.vista_actual == "Mapa" and not st.session_state.modo_lectu
     tab_mapa, tab_overview, tab_4q = st.tabs(["📍 Mapa Físico", "📊 Overview (S20.20)", "📋 4Q (Hallazgos)"])
     
     with tab_mapa:
-        # Agregamos "Pisos" a las opciones del radio button
         tipo_mapa = st.radio("Ver en mapa:", ["Mobiliario", "Ionizadores", "Maquinaria", "Pisos"], horizontal=True)
         
-        if tipo_mapa == "Mobiliario":
-            df_total = df_mob_local.copy()
-        elif tipo_mapa == "Ionizadores":
-            df_total = df_ion_local.copy()
-        elif tipo_mapa == "Pisos":
-            # --- CONFIGURACIÓN DE RECURSOS PARA PISOS ---
-            df_total = df_piso_local.copy() if not df_piso_local.empty else pd.DataFrame()
+        # ==========================================
+        # 1. LÓGICA EXCLUSIVA PARA PISOS (MAPA RADIAL + TABLA)
+        # ==========================================
+        if tipo_mapa == "Pisos":
             diagramas_cuartos = {
                 "Cuarto 1": "https://raw.githubusercontent.com/aldoaoa/Visualizador-BCS-IDS/refs/heads/testing/1.png",
                 "Cuarto 2": "https://raw.githubusercontent.com/aldoaoa/Visualizador-BCS-IDS/refs/heads/testing/2.png",
@@ -1520,7 +1516,6 @@ elif st.session_state.vista_actual == "Mapa" and not st.session_state.modo_lectu
                     df_latest = pd.DataFrame(resp_db.data)
 
                     if not df_latest.empty:
-                        # Filtrar solo registros de la auditoría más reciente
                         ultima_fecha = df_latest['fecha_medicion'].max()
                         df_mapa = df_latest[df_latest['fecha_medicion'] == ultima_fecha].copy()
                         
@@ -1538,7 +1533,6 @@ elif st.session_state.vista_actual == "Mapa" and not st.session_state.modo_lectu
                                 info_reales.append({"X": lx, "Y": ly, "P": p, "R": f"{v:.2e}"})
 
                         if len(pts_x) >= 2:
-                            # 1. Malla IDW
                             rx = 200
                             ry = int(200 * (img_h / img_w))
                             gx, gy = np.mgrid[0:img_w:complex(0, rx), 0:img_h:complex(0, ry)]
@@ -1550,10 +1544,9 @@ elif st.session_state.vista_actual == "Mapa" and not st.session_state.modo_lectu
                             weights = 1.0 / (dists ** 2.5)
                             gz = (np.sum(weights * np.array(vals_log), axis=1) / np.sum(weights, axis=1)).reshape(rx, ry)
 
-                            # 2. Construcción de Figura
                             fig_piso = go.Figure()
                             
-                            # Capa Heatmap
+                            # MAPA DE CALOR
                             fig_piso.add_trace(go.Heatmap(
                                 z=gz.T, x=np.linspace(0, img_w, rx), y=np.linspace(0, img_h, ry),
                                 colorscale=[
@@ -1564,7 +1557,7 @@ elif st.session_state.vista_actual == "Mapa" and not st.session_state.modo_lectu
                                 zmin=7, zmax=9, showscale=False, hoverinfo='skip'
                             ))
 
-                            # Capa Puntos
+                            # PUNTOS CON HOVER
                             df_pts = pd.DataFrame(info_reales)
                             fig_piso.add_trace(go.Scatter(
                                 x=df_pts['X'], y=df_pts['Y'], mode='markers+text', text=df_pts['P'],
@@ -1574,15 +1567,27 @@ elif st.session_state.vista_actual == "Mapa" and not st.session_state.modo_lectu
                                 customdata=df_pts['R']
                             ))
 
-                            # Layout
                             fig_piso.update_layout(
                                 xaxis=dict(visible=False, range=[0, img_w]),
                                 yaxis=dict(visible=False, range=[0, img_h], scaleanchor="x", scaleratio=1),
                                 images=[dict(source=img_pil, xref="x", yref="y", x=0, y=img_h, sizex=img_w, sizey=img_h, sizing="stretch", layer="below")],
                                 margin=dict(l=0, r=0, t=0, b=0), height=600, showlegend=False
                             )
+                            
+                            # --- 1. RENDERIZAR MAPA ---
                             st.plotly_chart(fig_piso, use_container_width=True)
                             st.caption(f"📅 Auditoría del {str(ultima_fecha)[:10]}")
+                            
+                            # --- 2. RENDERIZAR TABLA CON VALORES EXACTAMENTE DEBAJO ---
+                            st.divider()
+                            st.markdown(f"##### 📋 Datos registrados en la última auditoría ({str(ultima_fecha)[:10]})")
+                            df_mostrar_piso = df_mapa[['punto', 'medicion_ohms', 'temperatura', 'humedad', 'estatus', 'auditor']].copy()
+                            df_mostrar_piso['medicion_ohms'] = df_mostrar_piso['medicion_ohms'].apply(lambda x: f"{float(x):.2e} Ω")
+                            df_mostrar_piso.columns = ['Punto', 'Resistencia', 'Temp (°C)', 'Humedad (%)', 'Estatus', 'Auditor']
+                            
+                            df_mostrar_piso['Estatus'] = df_mostrar_piso['Estatus'].apply(lambda x: f"🟢 {x}" if "VIGENTE" in str(x).upper() else f"🔴 {x}")
+                            st.dataframe(df_mostrar_piso.sort_values(by='Punto'), use_container_width=True, hide_index=True)
+                            
                         else:
                             st.warning("Se requieren al menos 2 puntos para el renderizado radial.")
                     else:
@@ -1590,96 +1595,95 @@ elif st.session_state.vista_actual == "Mapa" and not st.session_state.modo_lectu
                         st.image(url_img, use_container_width=True)
                 except Exception as e:
                     st.error(f"Error en renderizado: {e}")
+
+        # ==========================================
+        # 2. LÓGICA PARA MAPA GENERAL (MOBILIARIO, IONIZADORES, MAQUINARIA)
+        # ==========================================
         else:
-            # Lógica existente de Maquinaria...
-            # --- NUEVA LÓGICA: EXTRAER MAQUINARIA ---
-            try:
-                # Traemos datos ordenados por fecha para que el más reciente quede arriba
-                resp_maq_mapa = supabase.table("mediciones_maquinaria").select("*").order("fecha_medicion", desc=True).execute()
-                df_maq_mapa = pd.DataFrame(resp_maq_mapa.data)
-                if not df_maq_mapa.empty:
-                    # Eliminamos duplicados históricos conservando solo el último registro
-                    df_maq_mapa = df_maq_mapa.drop_duplicates(subset=['id_maquinaria'], keep='first')
-                    
-                    # Homologamos las columnas para que el código del mapa las entienda
-                    df_total = df_maq_mapa.rename(columns={
-                        'status_operativo': 'Estatus operativo',
-                        'resultado_estatus': 'Estatus de verificación',
-                        'linea_ubicacion': 'Línea',
-                        'id_maquinaria': 'Id de producto',
-                        'clasificacion': 'Clasificación'
-                    })
-                else:
+            if tipo_mapa == "Mobiliario":
+                df_total = df_mob_local.copy() if df_mob_local is not None else pd.DataFrame()
+            elif tipo_mapa == "Ionizadores":
+                df_total = df_ion_local.copy() if df_ion_local is not None else pd.DataFrame()
+            elif tipo_mapa == "Maquinaria":
+                try:
+                    resp_maq_mapa = supabase.table("mediciones_maquinaria").select("*").order("fecha_medicion", desc=True).execute()
+                    df_maq_mapa = pd.DataFrame(resp_maq_mapa.data)
+                    if not df_maq_mapa.empty:
+                        df_maq_mapa = df_maq_mapa.drop_duplicates(subset=['id_maquinaria'], keep='first')
+                        df_total = df_maq_mapa.rename(columns={
+                            'status_operativo': 'Estatus operativo',
+                            'resultado_estatus': 'Estatus de verificación',
+                            'linea_ubicacion': 'Línea',
+                            'id_maquinaria': 'Id de producto',
+                            'clasificacion': 'Clasificación'
+                        })
+                    else:
+                        df_total = pd.DataFrame()
+                except:
                     df_total = pd.DataFrame()
-            except:
-                df_total = pd.DataFrame()
-        
-        if df_total.empty:
-            st.warning(f"No hay datos registrados en {tipo_mapa}.")
-        else:
-            equipos_activos = df_total[df_total['Estatus operativo'].astype(str).str.upper() != 'NO OPERATIVO']
-            total_equipos = len(equipos_activos)
-            vencidos = equipos_activos[equipos_activos['Estatus de verificación'].astype(str).str.upper() == 'VENCIDO']
-            total_vencidos = len(vencidos)
-        
-            if total_equipos > 0:
-                porcentaje = ((total_equipos - total_vencidos) / total_equipos) * 100
+            
+            if df_total.empty:
+                st.warning(f"No hay datos registrados en {tipo_mapa}.")
             else:
-                porcentaje = 100.0
+                equipos_activos = df_total[df_total['Estatus operativo'].astype(str).str.upper() != 'NO OPERATIVO']
+                total_equipos = len(equipos_activos)
+                vencidos = equipos_activos[equipos_activos['Estatus de verificación'].astype(str).str.upper() == 'VENCIDO']
+                total_vencidos = len(vencidos)
+            
+                if total_equipos > 0:
+                    porcentaje = ((total_equipos - total_vencidos) / total_equipos) * 100
+                else:
+                    porcentaje = 100.0
 
-            # --- NUEVA LÓGICA: INCLUIR VENCIDOS Y PENDIENTES ---
-            # Identificar tanto Vencidos como Pendientes/Nulos
-            estatus_ser = equipos_activos['Estatus de verificación'].astype(str).str.strip().str.upper()
-            es_nulo = equipos_activos['Estatus de verificación'].isna() | estatus_ser.isin(['', 'NONE', 'NAN', 'NULL', 'N/A', 'N/D', 'PENDIENTE'])
-            
-            df_alertas = equipos_activos[estatus_ser.str.contains('VENCIDO') | es_nulo].copy()
-            total_alertas = len(df_alertas)
-            
-            if total_alertas > 0:
-                st.error(f"🚨 **Cumplimiento:** {porcentaje:.1f}% | **Requieren Atención:** {total_alertas} activos (🔴 Vencidos/🟡 Pendientes).")
+                estatus_ser = equipos_activos['Estatus de verificación'].astype(str).str.strip().str.upper()
+                es_nulo = equipos_activos['Estatus de verificación'].isna() | estatus_ser.isin(['', 'NONE', 'NAN', 'NULL', 'N/A', 'N/D', 'PENDIENTE'])
                 
-                conteo_tipos = df_alertas.groupby(['Línea']).size().reset_index(name='Total Alertas')
+                df_alertas = equipos_activos[estatus_ser.str.contains('VENCIDO') | es_nulo].copy()
+                total_alertas = len(df_alertas)
                 
-                # Prefijos para el mapa
-                prefijo = {"Mobiliario": "M: ", "Ionizadores": "I: ", "Maquinaria": "MQ: "}.get(tipo_mapa, "A: ")
-                conteo_tipos['Etiqueta'] = prefijo + conteo_tipos['Total Alertas'].astype(str)
-            
-                if os.path.exists(RUTA_MAPA) and os.path.exists(RUTA_COORDENADAS):
-                    img = Image.open(RUTA_MAPA)
-                    width, height = img.size
-                    df_coords = pd.read_csv(RUTA_COORDENADAS)
-                    mapa_data = pd.merge(conteo_tipos, df_coords, on='Línea', how='inner')
+                if total_alertas > 0:
+                    st.error(f"🚨 **Cumplimiento:** {porcentaje:.1f}% | **Requieren Atención:** {total_alertas} activos (🔴 Vencidos/🟡 Pendientes).")
                     
-                    if not mapa_data.empty:
-                        fig = px.scatter(
-                            mapa_data, x="X", y="Y", color="Total Alertas", text="Etiqueta",
-                            hover_data={"X": False, "Y": False, "Etiqueta": False, "Total Alertas": True},
-                            color_continuous_scale="Reds"
-                        )
-                        
-                        fig.update_traces(
-                            textposition='middle center', 
-                            textfont=dict(color='white', size=14, weight='bold'), 
-                            marker=dict(symbol='circle', size=45, opacity=0.9, line=dict(width=2, color='black'))
-                        )
-                        
-                        aspect_ratio = height / width
-                        plot_height = int(1000 * aspect_ratio)
-
-                        fig.update_layout(
-                            height=plot_height,
-                            images=[dict(source=img, xref="x", yref="y", x=0, y=0, sizex=width, sizey=height, sizing="stretch", opacity=1, layer="below")], 
-                            xaxis=dict(visible=False, range=[0, width]), 
-                            yaxis=dict(visible=False, range=[height, 0], scaleanchor="x", scaleratio=1), 
-                            margin=dict(l=0, r=0, t=0, b=0),
-                            coloraxis_showscale=False
-                        )
-                        st.plotly_chart(fig, use_container_width=True)
+                    conteo_tipos = df_alertas.groupby(['Línea']).size().reset_index(name='Total Alertas')
+                    prefijo = {"Mobiliario": "M: ", "Ionizadores": "I: ", "Maquinaria": "MQ: "}.get(tipo_mapa, "A: ")
+                    conteo_tipos['Etiqueta'] = prefijo + conteo_tipos['Total Alertas'].astype(str)
                 
-                # Tabla informativa abajo
-                st.dataframe(df_alertas[['Línea', 'Id de producto', 'Clasificación', 'Estatus de verificación']], use_container_width=True, hide_index=True)
-            else:
-                st.success(f"✅ **100% Cumplimiento en {tipo_mapa}.**")
+                    if os.path.exists(RUTA_MAPA) and os.path.exists(RUTA_COORDENADAS):
+                        img = Image.open(RUTA_MAPA)
+                        width, height = img.size
+                        df_coords = pd.read_csv(RUTA_COORDENADAS)
+                        mapa_data = pd.merge(conteo_tipos, df_coords, on='Línea', how='inner')
+                        
+                        if not mapa_data.empty:
+                            fig = px.scatter(
+                                mapa_data, x="X", y="Y", color="Total Alertas", text="Etiqueta",
+                                hover_data={"X": False, "Y": False, "Etiqueta": False, "Total Alertas": True},
+                                color_continuous_scale="Reds"
+                            )
+                            
+                            fig.update_traces(
+                                textposition='middle center', 
+                                textfont=dict(color='white', size=14, weight='bold'), 
+                                marker=dict(symbol='circle', size=45, opacity=0.9, line=dict(width=2, color='black'))
+                            )
+                            
+                            aspect_ratio = height / width
+                            plot_height = int(1000 * aspect_ratio)
+
+                            fig.update_layout(
+                                height=plot_height,
+                                images=[dict(source=img, xref="x", yref="y", x=0, y=0, sizex=width, sizey=height, sizing="stretch", opacity=1, layer="below")], 
+                                xaxis=dict(visible=False, range=[0, width]), 
+                                yaxis=dict(visible=False, range=[height, 0], scaleanchor="x", scaleratio=1), 
+                                margin=dict(l=0, r=0, t=0, b=0),
+                                coloraxis_showscale=False
+                            )
+                            st.plotly_chart(fig, use_container_width=True)
+                    
+                    st.markdown("##### 📋 Desglose de Activos en Alerta")
+                    st.dataframe(df_alertas[['Línea', 'Id de producto', 'Clasificación', 'Estatus de verificación']], use_container_width=True, hide_index=True)
+                else:
+                    st.success(f"✅ **100% Cumplimiento en {tipo_mapa}.** No hay alertas activas en el mapa general.")
 
     with tab_overview:
         st.markdown("#### 🌐 Dashboard Gerencial Integral (S20.20)")
