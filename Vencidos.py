@@ -1944,78 +1944,78 @@ elif st.session_state.vista_actual == "Mapa" and not st.session_state.modo_lectu
     
     with tab_4q:
         st.markdown("#### 📊 Dashboard 4Q - Sistema de Hallazgos y Auditorías")
-        st.info("Sube el archivo de hallazgos para actualizar la base de datos y visualizar el estado actual.")
+        st.info("Sube el archivo CSV de hallazgos para actualizar la base de datos. El tablero siempre muestra la información histórica guardada en la nube.")
 
-        archivo_hallazgos = st.file_uploader("📥 Subir archivo de Hallazgos (CSV o Excel)", type=["csv", "xlsx"], key="file_4q")
+        # 1. MÓDULO DE ACTUALIZACIÓN (CARGA DE CSV)
+        with st.expander("📥 Actualizar Base de Datos (Subir CSV)"):
+            archivo_hallazgos = st.file_uploader("Subir archivo de Hallazgos de EASE (.csv)", type=["csv"], key="file_4q")
 
-        # Inicializar dataframe temporal en session_state para retener la vista tras recargas
-        if "df_hallazgos_4q" not in st.session_state:
-            st.session_state.df_hallazgos_4q = pd.DataFrame()
-
-        if archivo_hallazgos:
-            with st.spinner("Procesando y estandarizando hallazgos..."):
-                try:
-                    if archivo_hallazgos.name.endswith('.csv'):
+            if archivo_hallazgos:
+                with st.spinner("Procesando, limpiando y sincronizando con la nube..."):
+                    try:
                         df_new = pd.read_csv(archivo_hallazgos)
-                    else:
-                        df_new = pd.read_excel(archivo_hallazgos)
+                        # Estandarizamos las columnas
+                        df_new.columns = [str(c).strip() for c in df_new.columns]
 
-                    # Estandarizamos los nombres de las columnas para evitar espacios fantasma
-                    df_new.columns = [str(c).strip() for c in df_new.columns]
+                        if 'ID' not in df_new.columns:
+                            st.error("❌ El archivo no contiene la columna 'ID' requerida para el cruce de datos.")
+                        else:
+                            # Ignorar Assessment description con "QMS"
+                            if 'Assessment Description' in df_new.columns:
+                                df_new = df_new[~df_new['Assessment Description'].astype(str).str.contains('QMS', case=False, na=False)]
 
-                    if 'ID' not in df_new.columns:
-                        st.error("❌ El archivo no contiene la columna 'ID' requerida para el cruce de datos.")
-                    else:
-                        # 1. Ignorar Assessment description con "QMS"
-                        if 'Assessment Description' in df_new.columns:
-                            df_new = df_new[~df_new['Assessment Description'].astype(str).str.contains('QMS', case=False, na=False)]
+                            # Asegurar y limpiar el ID principal
+                            df_new = df_new.dropna(subset=['ID'])
+                            df_new['ID'] = df_new['ID'].astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
 
-                        # 2. Asegurar y limpiar el ID principal (Ignorando Assessment ID)
-                        df_new = df_new.dropna(subset=['ID'])
-                        df_new['ID'] = df_new['ID'].astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
+                            # Convertimos a diccionario crudo
+                            records_raw = df_new.to_dict('records')
+                            
+                            # Limpieza absoluta de NaN a None para compatibilidad con JSON/Supabase
+                            clean_records = []
+                            for row in records_raw:
+                                clean_row = {}
+                                for key, val in row.items():
+                                    if pd.isna(val):
+                                        clean_row[key] = None
+                                    else:
+                                        clean_row[key] = val
+                                clean_records.append(clean_row)
 
-                        # Convertimos a lista de diccionarios (Aún con la "basura" de Pandas)
-                        records_raw = df_new.to_dict('records')
-                        
-                        # ---> NUEVO PASO 3: LIMPIEZA ABSOLUTA DE NaN A NIVEL DICCIONARIO <---
-                        clean_records = []
-                        for row in records_raw:
-                            clean_row = {}
-                            for key, val in row.items():
-                                # pd.isna() detecta de forma segura cualquier NaN, NaT o valor nulo de Pandas
-                                if pd.isna(val):
-                                    clean_row[key] = None
-                                else:
-                                    clean_row[key] = val
-                            clean_records.append(clean_row)
+                            # Actualizamos en Supabase
+                            supabase.table("hallazgos_4q").upsert(clean_records).execute()
+                            
+                            st.success(f"✅ ¡{len(df_new)} hallazgos sincronizados correctamente!")
+                            time.sleep(1.5)
+                            st.rerun() # Recargamos la página para que la gráfica de abajo tome los datos nuevos
 
-                        # --- LÓGICA DE ACTUALIZACIÓN EN SUPABASE (Upsert) ---
-                        supabase.table("hallazgos_4q").upsert(clean_records).execute()
-                        
-                        st.success(f"✅ Archivo procesado correctamente. {len(df_new)} hallazgos listos y sincronizados.")
-                        st.session_state.df_hallazgos_4q = df_new
+                    except Exception as e:
+                        st.error(f"Ocurrió un error al procesar el archivo: {e}")
 
-                except Exception as e:
-                    st.error(f"Ocurrió un error al procesar el archivo: {e}")
+        # 2. EXTRACCIÓN DE DATOS DESDE SUPABASE (SIEMPRE VISIBLE)
+        try:
+            # Traemos todo el histórico guardado
+            resp_4q = supabase.table("hallazgos_4q").select("*").execute()
+            df_4q_db = pd.DataFrame(resp_4q.data)
+        except Exception as e:
+            df_4q_db = pd.DataFrame()
+            st.error(f"No se pudo conectar con la base de datos 4Q: {e}")
 
-        df_4q = st.session_state.df_hallazgos_4q
-
-        if not df_4q.empty:
+        # 3. RENDERIZADO DEL DASHBOARD
+        if not df_4q_db.empty:
             st.divider()
             
             # --- CÁLCULO DE MÉTRICAS GLOBALES ---
-            total_hallazgos = len(df_4q)
-            
-            # Estandarización de la columna de estatus
-            estatus_col = 'Status' if 'Status' in df_4q.columns else ('Estatus' if 'Estatus' in df_4q.columns else None)
+            total_hallazgos = len(df_4q_db)
+            estatus_col = 'Status' if 'Status' in df_4q_db.columns else ('Estatus' if 'Estatus' in df_4q_db.columns else None)
             
             if estatus_col:
                 # 1. Identificar todos los que YA están cerrados/completados
-                mask_cerrados = df_4q[estatus_col].astype(str).str.contains('Completed|Closed|Cerrado', case=False, na=False)
-                cerrados = df_4q[mask_cerrados]
+                mask_cerrados = df_4q_db[estatus_col].astype(str).str.contains('Completed|Closed|Cerrado', case=False, na=False)
+                cerrados = df_4q_db[mask_cerrados]
                 
                 # 2. Todo lo que NO está cerrado, está abierto (En Proceso)
-                abiertos = df_4q[~mask_cerrados]
+                abiertos = df_4q_db[~mask_cerrados]
                 
                 # 3. De los abiertos, separamos los vencidos y los que van a tiempo
                 mask_vencidos = abiertos[estatus_col].astype(str).str.contains('Past Due|Vencido', case=False, na=False)
@@ -2035,17 +2035,17 @@ elif st.session_state.vista_actual == "Mapa" and not st.session_state.modo_lectu
 
             with col_chart1:
                 if estatus_col:
-                    df_status = df_4q[estatus_col].value_counts().reset_index()
+                    df_status = df_4q_db[estatus_col].value_counts().reset_index()
                     df_status.columns = ['Estatus', 'Cantidad']
                     fig_status = px.pie(df_status, values='Cantidad', names='Estatus', title="Distribución por Estatus", hole=0.45)
                     fig_status.update_layout(margin=dict(t=30, b=10, l=10, r=10))
                     st.plotly_chart(fig_status, use_container_width=True)
 
             with col_chart2:
-                # Pareto de problemas (Question Title es el estándar de EASE para la falla)
-                cat_col = 'Question Title' if 'Question Title' in df_4q.columns else ('Location' if 'Location' in df_4q.columns else None)
+                # Pareto de problemas
+                cat_col = 'Question Title' if 'Question Title' in df_4q_db.columns else ('Location' if 'Location' in df_4q_db.columns else None)
                 if cat_col:
-                    df_cat = df_4q[cat_col].value_counts().head(10).reset_index()
+                    df_cat = df_4q_db[cat_col].value_counts().head(10).reset_index()
                     df_cat.columns = ['Tipo de Hallazgo', 'Ocurrencias']
                     fig_pareto = px.bar(df_cat, x='Ocurrencias', y='Tipo de Hallazgo', orientation='h', title=f"Top 10 Hallazgos ({cat_col})", text_auto=True)
                     fig_pareto.update_layout(yaxis={'categoryorder':'total ascending'}, margin=dict(t=30, b=10, l=10, r=10))
@@ -2056,12 +2056,12 @@ elif st.session_state.vista_actual == "Mapa" and not st.session_state.modo_lectu
             
             # Filtro ágil para la tabla
             if estatus_col:
-                filtro_estatus = st.selectbox("Filtrar directorio por estatus:", options=["Todos"] + sorted(df_4q[estatus_col].dropna().unique()))
-                df_mostrar = df_4q.copy()
+                filtro_estatus = st.selectbox("Filtrar directorio por estatus:", options=["Todos"] + sorted(df_4q_db[estatus_col].dropna().unique()))
+                df_mostrar = df_4q_db.copy()
                 if filtro_estatus != "Todos":
                     df_mostrar = df_mostrar[df_mostrar[estatus_col] == filtro_estatus]
             else:
-                df_mostrar = df_4q.copy()
+                df_mostrar = df_4q_db.copy()
                 
             # Mostramos un dataframe estilizado seleccionando columnas clave si existen
             cols_clave = [c for c in ['ID', 'Status', 'Location', 'Question Title', 'Responsible Party', 'Finding Comment', 'Days Open'] if c in df_mostrar.columns]
@@ -2071,7 +2071,7 @@ elif st.session_state.vista_actual == "Mapa" and not st.session_state.modo_lectu
             st.dataframe(df_mostrar, use_container_width=True, hide_index=True)
             
         else:
-            st.info("Sube el archivo estructurado para iniciar la visualización y análisis 4Q.")
+            st.info("La base de datos 4Q está vacía. Despliega el menú de arriba para subir tu primer archivo CSV.")
 # ==========================================
 # VISTA 2: ESCÁNER Y DETALLES
 # ==========================================
