@@ -3802,20 +3802,22 @@ elif st.session_state.vista_actual == "Validación" and not st.session_state.mod
                     
                     def calcular_meses(fecha_str):
                         if pd.isna(fecha_str) or not str(fecha_str).strip():
-                            return "Sin Asignar"
+                            return None  # Cambiado a None para no mezclar texto con números
                         try:
                             f_entrega = pd.to_datetime(fecha_str).date()
                             dias = (hoy_date - f_entrega).days
-                            meses = dias / 30.41
-                            return f"{meses:.1f} meses"
+                            return float(dias / 30.41)  # Retornamos el número matemático puro
                         except:
-                            return "Error"
+                            return None
 
                     df_validadas['tiempo_uso'] = df_validadas['fecha_entrega_bata'].apply(calcular_meses)
                     
                     # Preparar DataFrame para el Data Editor
                     df_editar = df_validadas[['num_empleado', 'nombre', 'fecha_entrega_bata', 'tiempo_uso', 'fecha_ultima_validacion', 'valor_resistencia', 'estatus_bata']].copy()
+                    
+                    # Convertir la columna de texto a objetos de fecha reales
                     df_editar['fecha_entrega_bata'] = pd.to_datetime(df_editar['fecha_entrega_bata'], errors='coerce').dt.date
+                    
                     # Formatear a notación científica para mejor lectura
                     df_editar['valor_resistencia'] = df_editar['valor_resistencia'].apply(lambda x: f"{float(x):.2e} Ω" if pd.notna(x) else "N/D")
                     
@@ -3825,7 +3827,10 @@ elif st.session_state.vista_actual == "Validación" and not st.session_state.mod
                             "num_empleado": st.column_config.TextColumn("No. Empleado", disabled=True),
                             "nombre": st.column_config.TextColumn("Nombre", disabled=True),
                             "fecha_entrega_bata": st.column_config.DateColumn("Fecha Entrega Bata (Edítame)"),
-                            "tiempo_uso": st.column_config.TextColumn("Tiempo de Uso", disabled=True),
+                            
+                            # ---> NUEVO: NumberColumn con formato visual <---
+                            "tiempo_uso": st.column_config.NumberColumn("Tiempo de Uso", format="%.1f meses", disabled=True),
+                            
                             "fecha_ultima_validacion": st.column_config.TextColumn("Última Validación", disabled=True),
                             "valor_resistencia": st.column_config.TextColumn("Resistencia Actual", disabled=True),
                             "estatus_bata": st.column_config.TextColumn("Estatus", disabled=True)
