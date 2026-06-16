@@ -6579,6 +6579,82 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
                 else:
                     st.info("No hay reentrenamientos proyectados en los próximos 12 meses.")
 
+            # =====================================================================
+            # NUEVA SECCIÓN: RESUMEN DE CALIFICACIONES POR SEMANA
+            # =====================================================================
+            st.divider()
+            st.markdown("#### 📅 Resumen de Calificaciones por Semana")
+            st.caption("Filtra por rango de fechas para visualizar la distribución y el porcentaje de aprobación semanal.")
+            
+            c_f1, c_f2 = st.columns(2)
+            # Por defecto: desde el inicio del año actual hasta hoy
+            from datetime import date
+            fecha_inicio_filtro = c_f1.date_input("Fecha de Inicio", date(hoy.year, 1, 1))
+            fecha_fin_filtro = c_f2.date_input("Fecha de Fin", hoy)
+
+            if not df_todo_train.empty:
+                df_semanal = df_todo_train.copy()
+                df_semanal['fecha_entrenamiento'] = pd.to_datetime(df_semanal['fecha_entrenamiento'], errors='coerce')
+                
+                # 1. Filtrar por el rango de fechas seleccionado
+                mask_fechas = (df_semanal['fecha_entrenamiento'].dt.date >= fecha_inicio_filtro) & (df_semanal['fecha_entrenamiento'].dt.date <= fecha_fin_filtro)
+                df_semanal = df_semanal[mask_fechas]
+
+                if not df_semanal.empty:
+                    # 2. Calcular nota real base 10 (reutilizamos tu función ya existente)
+                    df_semanal['Nota'] = df_semanal.apply(calcular_nota_real, axis=1)
+
+                    # 3. Extraer el Mes y la Semana ISO (WK)
+                    df_semanal['Mes'] = df_semanal['fecha_entrenamiento'].dt.month
+                    df_semanal['Semana'] = "WK " + df_semanal['fecha_entrenamiento'].dt.isocalendar().week.astype(str)
+
+                    # 4. Clasificar cada examen en su columna correspondiente
+                    df_semanal['Reprobados'] = (df_semanal['Nota'] < 8.0).astype(int)
+                    df_semanal['Calif_8'] = ((df_semanal['Nota'] >= 8.0) & (df_semanal['Nota'] < 9.0)).astype(int)
+                    df_semanal['Calif_9'] = ((df_semanal['Nota'] >= 9.0) & (df_semanal['Nota'] < 10.0)).astype(int)
+                    df_semanal['Calif_10'] = (df_semanal['Nota'] >= 10.0).astype(int)
+
+                    # 5. Agrupar la información
+                    agrupado = df_semanal.groupby(['Mes', 'Semana']).agg(
+                        Examenes_aplicados=('num_empleado', 'count'),
+                        No_aprobados=('Reprobados', 'sum'),
+                        Calif_8=('Calif_8', 'sum'),
+                        Calif_9=('Calif_9', 'sum'),
+                        Calif_10=('Calif_10', 'sum')
+                    ).reset_index()
+
+                    # 6. Calcular el porcentaje de aprobación
+                    agrupado['Aprobación de examenes %'] = agrupado.apply(
+                        lambda x: round((x['Examenes_aplicados'] - x['No_aprobados']) / x['Examenes_aplicados'] * 100, 2) if x['Examenes_aplicados'] > 0 else 0.0, 
+                        axis=1
+                    )
+
+                    # Renombrar columnas para que coincidan con tu formato deseado
+                    agrupado.columns = ['Mes', 'Semana', 'Exámenes aplicados', 'Exámenes no aprobados <8', 'Calificación 8', 'Calificación 9', 'Calificación 10', 'Aprobación de examenes %']
+
+                    # 7. Crear el mapeo de colores (semáforo) al estilo de Excel
+                    def estilar_aprobacion(val):
+                        try:
+                            v = float(val)
+                            if v >= 90: return 'background-color: #63be7b; color: white; font-weight: bold;' # Verde Fuerte
+                            elif v >= 80: return 'background-color: #c6d96e; color: black; font-weight: bold;' # Verde/Amarillo
+                            elif v >= 70: return 'background-color: #ffeb84; color: black; font-weight: bold;' # Amarillo
+                            elif v >= 60: return 'background-color: #f7aa67; color: black; font-weight: bold;' # Naranja
+                            else: return 'background-color: #e55c5c; color: white; font-weight: bold;'        # Rojo
+                        except:
+                            return ''
+
+                    # Aplicar formato visual al DataFrame
+                    df_estilado_semanal = agrupado.style.map(estilar_aprobacion, subset=['Aprobación de examenes %']).format({
+                        "Aprobación de examenes %": "{:.2f}"
+                    })
+                    
+                    st.dataframe(df_estilado_semanal, use_container_width=True, hide_index=True)
+                else:
+                    st.info("No hay exámenes registrados en el rango de fechas seleccionado.")
+            else:
+                st.info("La base de datos de entrenamientos está vacía.")
+            
             # --- ANÁLISIS AVANZADO DE REACTIVOS (CON FILTRADO CONCEPTUAL) ---
             st.divider()
             st.markdown("#### 🧠 Análisis de Reactivos Críticos (Áreas de Oportunidad Técnica)")
