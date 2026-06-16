@@ -3493,13 +3493,19 @@ elif st.session_state.vista_actual == "Validación" and not st.session_state.mod
                     with st.form("form_val_bata"):
                         c_f1, c_f2 = st.columns(2)
                         fecha_val = c_f1.date_input("Fecha de validación", datetime.today().date())
-                        res_input = c_f2.number_input("Valor de resistencia (Ohms)", min_value=0.0, format="%.2e", placeholder="Ej: 5.50e+06")
+                        
+                        # CAMBIO: text_input vacío para sacar el teclado alfanumérico en tablets
+                        res_input_txt = c_f2.text_input("Valor de resistencia (Ohms)", value="", placeholder="Ej: 5.5e6")
                         
                         es_entrega_nueva = st.checkbox("Registrar como fecha de entrega de bata nueva")
                         
                         if st.form_submit_button("💾 Guardar Datos", use_container_width=True):
-                            if res_input is None or res_input == 0:
-                                st.error("⚠️ Ingrese un valor de resistencia válido.")
+                            
+                            # Traducimos el texto ingresado a un número matemático usando tu función
+                            res_input = parsear_resistencia(res_input_txt)
+                            
+                            if res_input == "ERROR" or res_input is None:
+                                st.error("⚠️ Ingrese un valor de resistencia válido. Utiliza números o notación científica (Ej: 1e6 o 500000).")
                             else:
                                 limite_bata = 1.0e11
                                 estatus_bata = "PASA" if res_input <= limite_bata else "FALLA"
@@ -3518,15 +3524,15 @@ elif st.session_state.vista_actual == "Validación" and not st.session_state.mod
                                     if f_ultima.year == fecha_val.year and semestre_ultima == semestre_actual:
                                         st.warning("⚠️ ANUNCIO: La bata de este empleado ya estaba validada en el semestre corriente. Busque a otro empleado para el muestreo aleatorio.")
                                         mostrar_notificacion_semestre = True
-                                    
-                                    # Almacenar en historial el dato que se va a sobreescribir
-                                    supabase.table("historial_batas").insert({
-                                        "num_empleado": empleado_sel,
-                                        "fecha_validacion": info_emp['fecha_ultima_validacion'],
-                                        "valor_resistencia": info_emp['valor_resistencia'],
-                                        "auditor": st.session_state.usuario_nombre,
-                                        "estatus_bata": info_emp['estatus_bata']
-                                    }).execute()
+                                
+                                # Almacenar en historial el dato que se va a sobreescribir
+                                supabase.table("historial_batas").insert({
+                                    "num_empleado": empleado_sel,
+                                    "fecha_validacion": info_emp['fecha_ultima_validacion'],
+                                    "valor_resistencia": info_emp['valor_resistencia'],
+                                    "auditor": st.session_state.usuario_nombre,
+                                    "estatus_bata": info_emp['estatus_bata']
+                                }).execute()
                                 
                                 # Actualizar datos de empleado
                                 datos_update = {
