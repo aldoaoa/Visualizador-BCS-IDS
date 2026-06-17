@@ -361,6 +361,10 @@ def generar_html_reporte_completo(row, index):
     notas = get_sql_val('notas', 'Sin observaciones adicionales.')
     resultado = get_sql_val('resultado')
     auditor = get_sql_val('auditor')
+    
+    # Lógica de color para el estatus
+    res_upper = str(resultado).upper()
+    res_color = "text-green-600" if "CUMPLE" in res_upper or "PASA" in res_upper or "APROBADO" in res_upper else "text-red-600"
 
 # Generar fecha en formato YYYY/MM/DD para el pie de página
     fecha_pie_str = datetime.today().strftime("%Y/%m/%d")
@@ -479,7 +483,7 @@ def generar_html_reporte_completo(row, index):
                 <div class="border border-gray-300 flex flex-col relative">
                     <div class="bg-gray-800 text-white font-bold px-2 py-1 uppercase text-xs w-full">Comentarios / Observaciones</div>
                     <div class="p-2 text-sm">{notas}</div>
-                    <div class="absolute bottom-2 right-2 text-lg font-bold text-gray-700">{resultado}</div>
+                    <div class="absolute bottom-2 right-2 text-xl font-bold {res_color}">{resultado}</div>
                 </div>
             </div>
 
@@ -722,6 +726,9 @@ def generar_html_reporte_esd(row, index):
     except:
         db_id = index
     # --------------------------------------------------
+    resultado_str = safe_str(row.get('resultado', 'N/D'))
+    res_upper = resultado_str.upper()
+    res_color = "text-green-600" if "CUMPLE" in res_upper or "PASA" in res_upper or "APROBADO" in res_upper else "text-red-600"
     
     html = f"""<!DOCTYPE html>
 <html lang="es">
@@ -788,7 +795,7 @@ def generar_html_reporte_esd(row, index):
                 <div class="border border-gray-300 flex flex-col relative">
                     <div class="bg-gray-800 text-white font-bold px-2 py-1 uppercase text-xs w-full">Comentarios / Observaciones</div>
                     <div class="p-2 text-sm">{safe_str(row.get('notas'), 'Sin observaciones adicionales.')}</div>
-                    <div class="absolute bottom-2 right-2 text-lg font-bold text-gray-700">{safe_str(row.get('resultado'))}</div>
+                    <div class="absolute bottom-2 right-2 text-xl font-bold {res_color}">{resultado_str}</div>
                 </div>
             </div>
         </div>
@@ -3465,7 +3472,10 @@ elif st.session_state.vista_actual == "Validación" and not st.session_state.mod
                             st.markdown("##### 📊 Resultados")
                             st.write(f"**Medición:** {row.get('medicion_1')} {row.get('unidad')}")
                             st.write(f"**Límite:** < {row.get('limite_referencia')}")
-                            st.write(f"**Resultado:** {res}")
+                            
+                            # Coloreamos en pantalla el resultado
+                            color_res = "green" if "CUMPLE" in res.upper() or "APROBADO" in res.upper() or "PASA" in res.upper() else "red"
+                            st.markdown(f"**Resultado:** <span style='color: {color_res}; font-weight: bold;'>{res}</span>", unsafe_allow_html=True)
 
                         with c_img:
                             url = row.get('imagen_url')
