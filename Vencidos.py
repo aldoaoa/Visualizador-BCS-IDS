@@ -2078,12 +2078,27 @@ elif st.session_state.vista_actual == "Mapa" and not st.session_state.modo_lectu
 elif st.session_state.vista_actual == "Escáner":
     id_escaneado_url = st.query_params.get("qr_id", "")
     
-    tab_camara, tab_vencimientos = st.tabs(["📷 Escáner QR / Manual", "🚨 Próximos a Vencer"])
+    # --- CONTROL DE PESTAÑAS MAESTRO (Evita el reinicio visual) ---
+    if "sub_pestana_escaner" not in st.session_state:
+        st.session_state.sub_pestana_escaner = "📷 Escáner QR / Manual"
+        
+    if id_escaneado_url:
+        st.session_state.sub_pestana_escaner = "📷 Escáner QR / Manual"
+        
+    # Renderizamos un selector horizontal que actúa como pestañas persistentes
+    opcion_pestana = st.radio(
+        "Navegación Interna:", 
+        ["📷 Escáner QR / Manual", "🚨 Próximos a Vencer"], 
+        horizontal=True, 
+        label_visibility="collapsed",
+        key="sub_pestana_escaner_radio"
+    )
+    st.session_state.sub_pestana_escaner = opcion_pestana
     
     id_limpio = None
-    contenedor_destino = None
 
-    with tab_camara:
+    # --- PESTAÑA 1: ESCÁNER ---
+    if st.session_state.sub_pestana_escaner == "📷 Escáner QR / Manual":
         if not id_escaneado_url:
             st.markdown("### 📷 Apunta al Código QR")
             html_code_qr = """
@@ -2193,11 +2208,9 @@ elif st.session_state.vista_actual == "Escáner":
                     st.rerun()
             
             id_limpio = str(id_escaneado_url).strip().upper()
-        
-        # Reservamos este contenedor para que el formulario aparezca DENTRO de esta pestaña
-        contenedor_camara = st.container()
 
-    with tab_vencimientos:
+    # --- PESTAÑA 2: EQUIPOS POR VENCER ---
+    elif st.session_state.sub_pestana_escaner == "🚨 Próximos a Vencer":
         st.markdown("#### 🚨 Equipos Vencidos o por Vencer (7 días)")
         st.info("Haz clic en cualquier fila de la tabla para auditar ese equipo. El formulario se abrirá automáticamente aquí abajo.")
         
@@ -2211,7 +2224,6 @@ elif st.session_state.vista_actual == "Escáner":
         if not df_vencidos.empty:
             col_id = next((c for c in df_vencidos.columns if 'id' in c.lower()), df_vencidos.columns[0])
             
-            # Tabla interactiva: Al hacer clic en una fila, la app recarga y captura la selección
             evento_tabla = st.dataframe(
                 df_vencidos, 
                 use_container_width=True, 
@@ -2220,339 +2232,329 @@ elif st.session_state.vista_actual == "Escáner":
                 on_select="rerun"
             )
             
-            # Reservamos este contenedor para que el formulario aparezca DENTRO de esta pestaña
-            contenedor_tabla = st.container()
-            
             if len(evento_tabla.selection.rows) > 0:
                 fila_idx = evento_tabla.selection.rows[0]
                 id_seleccionado = str(df_vencidos.iloc[fila_idx][col_id]).strip().upper()
-                
                 id_limpio = id_seleccionado
                 
-                with contenedor_tabla:
-                    st.divider()
-                    col_t1, col_t2 = st.columns([0.8, 0.2])
-                    col_t1.info(f"📋 **Auditando Equipo:** `{id_limpio}`")
-                    # Si presionan cancelar, forzamos la recarga para deseleccionar la fila
-                    if col_t2.button("❌ Cancelar Auditoría", use_container_width=True):
-                        st.rerun()
+                st.divider()
+                st.markdown(f"📋 **Auditando Equipo Seleccionado:** `{id_limpio}`")
         else:
             st.success("🎉 ¡Excelente! No hay equipos vencidos ni próximos a vencer.")
 
     # ==========================================
-    # LÓGICA DE AUDITORÍA UNIFICADA
+    # LÓGICA DE AUDITORÍA UNIFICADA (Aparece abajo de la pestaña activa)
     # ==========================================
     if id_limpio:
-        # MAGIA: Redirigimos el formulario a la pestaña correcta dependiendo de dónde vino el ID
-        contenedor_destino = contenedor_camara if id_escaneado_url else contenedor_tabla
+        # Asegúrate de mantener la sangría (indentación) de un nivel (Tab)
+        # para todo el bloque masivo de formularios que sigue aquí abajo:
+        id_limpio = str(id_limpio).strip().upper()
         
-        with contenedor_destino:
-        
-            # 1. Extraemos las listas de IDs limpios de las tres categorías de inventario
-            mob_ids_limpios = df_mob_local.get('Id de producto', pd.Series()).astype(str).str.strip().str.upper()
-            ion_ids_limpios = df_ion_local.get('Id de producto', pd.Series()).astype(str).str.strip().str.upper()
-            mon_ids_limpios = df_mon_local.get('Id de producto', pd.Series()).astype(str).str.strip().str.upper()
-    
-            # --- NUEVO: Búsqueda en tabla de Maquinaria ---
-            try:
-                resp_maq_scan = supabase.table("mediciones_maquinaria").select("*").eq("id_maquinaria", id_limpio).order("fecha_medicion", desc=True).execute()
-                df_maq_scan = pd.DataFrame(resp_maq_scan.data)
-                es_maq = not df_maq_scan.empty
-            except:
-                df_maq_scan = pd.DataFrame()
-                es_maq = False
-            # ----------------------------------------------
-    
-            # 2. Banderas de coincidencia
-            es_mob = id_limpio in mob_ids_limpios.values
-            es_ion = id_limpio in ion_ids_limpios.values
-            es_mon = id_limpio in mon_ids_limpios.values
-    
-            # 3. Validamos si existe en cualquiera de las 4 tablas
-            if es_mob or es_ion or es_mon or es_maq:
+        # 1. Extraemos las listas de IDs limpios de las tres categorías de inventario
+        mob_ids_limpios = df_mob_local.get('Id de producto', pd.Series()).astype(str).str.strip().str.upper()
+        ion_ids_limpios = df_ion_local.get('Id de producto', pd.Series()).astype(str).str.strip().str.upper()
+        mon_ids_limpios = df_mon_local.get('Id de producto', pd.Series()).astype(str).str.strip().str.upper()
+
+        # --- NUEVO: Búsqueda en tabla de Maquinaria ---
+        try:
+            resp_maq_scan = supabase.table("mediciones_maquinaria").select("*").eq("id_maquinaria", id_limpio).order("fecha_medicion", desc=True).execute()
+            df_maq_scan = pd.DataFrame(resp_maq_scan.data)
+            es_maq = not df_maq_scan.empty
+        except:
+            df_maq_scan = pd.DataFrame()
+            es_maq = False
+        # ----------------------------------------------
+
+        # 2. Banderas de coincidencia
+        es_mob = id_limpio in mob_ids_limpios.values
+        es_ion = id_limpio in ion_ids_limpios.values
+        es_mon = id_limpio in mon_ids_limpios.values
+
+        # 3. Validamos si existe en cualquiera de las 4 tablas
+        if es_mob or es_ion or es_mon or es_maq:
+            
+            # ==========================================
+            # LÓGICA DE VISUALIZACIÓN: INVENTARIO GENERAL
+            # ==========================================
+            if es_mob or es_ion or es_mon:
+                if es_mob:
+                    df_actual = df_mob_local
+                    serie_busqueda = mob_ids_limpios
+                elif es_ion:
+                    df_actual = df_ion_local
+                    serie_busqueda = ion_ids_limpios
+                else:
+                    df_actual = df_mon_local
+                    serie_busqueda = mon_ids_limpios
+                idx = serie_busqueda[serie_busqueda == id_limpio].index[0]
+                equipo = df_actual.loc[idx]
                 
-                # ==========================================
-                # LÓGICA DE VISUALIZACIÓN: INVENTARIO GENERAL
-                # ==========================================
-                if es_mob or es_ion or es_mon:
-                    if es_mob:
-                        df_actual = df_mob_local
-                        serie_busqueda = mob_ids_limpios
-                    elif es_ion:
-                        df_actual = df_ion_local
-                        serie_busqueda = ion_ids_limpios
+                estatus_op = str(equipo.get('Estatus operativo', '')).strip().upper()
+                estatus_verif = str(equipo.get('Estatus de verificación', 'N/A')).strip().upper()
+                
+                # --- NUEVA LÓGICA DE ESTATUS VISUAL ---
+                if estatus_op == "NO OPERATIVO":
+                    estatus_mostrar = "🔴 NO OPERATIVO"
+                else:
+                    estatus_mostrar = estatus_verif
+                
+                texto_check = "✅ REACTIVAR" if estatus_op == "NO OPERATIVO" else "✅ Registrar medición"
+                
+                st.markdown(f"### 📊 Detalles del Equipo")
+                c_linea, c_tipo, c_estatus = st.columns(3)
+                c_linea.metric("Ubicación", str(equipo.get('Línea', 'N/A')))
+                clasificacion_equipo = str(equipo.get('Clasificación', 'N/A'))
+                c_tipo.metric("Clasificación", clasificacion_equipo)
+                c_estatus.metric("Estatus", estatus_mostrar)
+                
+                c_val, c_bal = st.columns(2)
+                val_previo = equipo.get('Valor de verificación', 0)
+                if es_ion:
+                    c_val.metric("Descarga", f"{float(val_previo):.2f} s" if pd.notna(val_previo) else "N/A")
+                    
+                    # --- NUEVO: FORMATEO DEL BALANCE CON UNIDAD DE VOLTS ---
+                    bal_previo = equipo.get('Balance')
+                    if pd.notna(bal_previo) and str(bal_previo).strip() not in ['', 'N/A', 'nan', 'None']:
+                        c_bal.metric("Balance", f"{float(bal_previo):.2f} V")
                     else:
-                        df_actual = df_mon_local
-                        serie_busqueda = mon_ids_limpios
-                    idx = serie_busqueda[serie_busqueda == id_limpio].index[0]
-                    equipo = df_actual.loc[idx]
-                    
-                    estatus_op = str(equipo.get('Estatus operativo', '')).strip().upper()
-                    estatus_verif = str(equipo.get('Estatus de verificación', 'N/A')).strip().upper()
-                    
-                    # --- NUEVA LÓGICA DE ESTATUS VISUAL ---
-                    if estatus_op == "NO OPERATIVO":
-                        estatus_mostrar = "🔴 NO OPERATIVO"
+                        c_bal.metric("Balance", "N/A")
+                    # -------------------------------------------------------
+                else:
+                    c_val.metric("Resistencia", f"{float(val_previo):.2E} Ω" if pd.notna(val_previo) else "N/A")
+
+                try:
+                    resp_fechas = supabase.table("inventario_esd").select("fecha_ultima_verif, fecha_proxima_verif").eq("id_producto", id_limpio).execute()
+                    if resp_fechas.data:
+                        f_val_sql = resp_fechas.data[0].get('fecha_ultima_verif', 'N/A')
+                        f_venc_sql = resp_fechas.data[0].get('fecha_proxima_verif', 'N/A')
                     else:
-                        estatus_mostrar = estatus_verif
-                    
-                    texto_check = "✅ REACTIVAR" if estatus_op == "NO OPERATIVO" else "✅ Registrar medición"
-                    
-                    st.markdown(f"### 📊 Detalles del Equipo")
-                    c_linea, c_tipo, c_estatus = st.columns(3)
-                    c_linea.metric("Ubicación", str(equipo.get('Línea', 'N/A')))
-                    clasificacion_equipo = str(equipo.get('Clasificación', 'N/A'))
-                    c_tipo.metric("Clasificación", clasificacion_equipo)
-                    c_estatus.metric("Estatus", estatus_mostrar)
-                    
-                    c_val, c_bal = st.columns(2)
-                    val_previo = equipo.get('Valor de verificación', 0)
-                    if es_ion:
-                        c_val.metric("Descarga", f"{float(val_previo):.2f} s" if pd.notna(val_previo) else "N/A")
-                        
-                        # --- NUEVO: FORMATEO DEL BALANCE CON UNIDAD DE VOLTS ---
-                        bal_previo = equipo.get('Balance')
-                        if pd.notna(bal_previo) and str(bal_previo).strip() not in ['', 'N/A', 'nan', 'None']:
-                            c_bal.metric("Balance", f"{float(bal_previo):.2f} V")
-                        else:
-                            c_bal.metric("Balance", "N/A")
-                        # -------------------------------------------------------
-                    else:
-                        c_val.metric("Resistencia", f"{float(val_previo):.2E} Ω" if pd.notna(val_previo) else "N/A")
-    
+                        f_val_sql, f_venc_sql = "N/A", "N/A"
+                except Exception as e:
+                    f_val_sql, f_venc_sql = "Error", "Error"
+
+                c_fval, c_fvenc = st.columns(2)
+                c_fval.metric("Fecha de Validación", str(f_val_sql)[:10] if f_val_sql != "N/A" else "N/A")
+                c_fvenc.metric("Fecha de Vencimiento", str(f_venc_sql)[:10] if f_venc_sql != "N/A" else "N/A")
+                
+                with st.expander("🕰️ Consultar Historial de Mediciones Anteriores"):
                     try:
-                        resp_fechas = supabase.table("inventario_esd").select("fecha_ultima_verif, fecha_proxima_verif").eq("id_producto", id_limpio).execute()
-                        if resp_fechas.data:
-                            f_val_sql = resp_fechas.data[0].get('fecha_ultima_verif', 'N/A')
-                            f_venc_sql = resp_fechas.data[0].get('fecha_proxima_verif', 'N/A')
-                        else:
-                            f_val_sql, f_venc_sql = "N/A", "N/A"
-                    except Exception as e:
-                        f_val_sql, f_venc_sql = "Error", "Error"
-    
-                    c_fval, c_fvenc = st.columns(2)
-                    c_fval.metric("Fecha de Validación", str(f_val_sql)[:10] if f_val_sql != "N/A" else "N/A")
-                    c_fvenc.metric("Fecha de Vencimiento", str(f_venc_sql)[:10] if f_venc_sql != "N/A" else "N/A")
-                    
-                    with st.expander("🕰️ Consultar Historial de Mediciones Anteriores"):
-                        try:
-                            resp_hist = supabase.table("historial_mediciones").select("*").eq("id_equipo", id_limpio).order("fecha_modificacion", desc=True).execute()
-                            df_historial = pd.DataFrame(resp_hist.data)
-                            if not df_historial.empty:
-                                if es_ion and 'balance_ionizador' in df_historial.columns:
-                                    df_historial = df_historial[['fecha_modificacion', 'valor_actual', 'balance_ionizador', 'fecha_validacion', 'ubicacion', 'auditor']]
-                                    df_historial.columns = ['Actualizado el', 'T. Descarga (s)', 'Balance (V)', 'Fecha Val.', 'Ubicación', 'Auditor']
-                                else:
-                                    df_historial = df_historial[['fecha_modificacion', 'valor_actual', 'fecha_validacion', 'ubicacion', 'auditor']]
-                                    df_historial.columns = ['Actualizado el', 'Valor', 'Fecha Val.', 'Ubicación', 'Auditor']
-                                
-                                st.dataframe(df_historial, use_container_width=True, hide_index=True)
+                        resp_hist = supabase.table("historial_mediciones").select("*").eq("id_equipo", id_limpio).order("fecha_modificacion", desc=True).execute()
+                        df_historial = pd.DataFrame(resp_hist.data)
+                        if not df_historial.empty:
+                            if es_ion and 'balance_ionizador' in df_historial.columns:
+                                df_historial = df_historial[['fecha_modificacion', 'valor_actual', 'balance_ionizador', 'fecha_validacion', 'ubicacion', 'auditor']]
+                                df_historial.columns = ['Actualizado el', 'T. Descarga (s)', 'Balance (V)', 'Fecha Val.', 'Ubicación', 'Auditor']
                             else:
-                                st.info("No hay mediciones históricas registradas para este equipo aún.")
-                        except Exception as e:
-                            st.error(f"Error al cargar el historial: {e}")
-    
-                    st.divider()
-    
-                    if not st.session_state.modo_lectura:
-                        hacer_medicion = st.checkbox(texto_check)
-                        if hacer_medicion:
-                            with st.form("form_actualizacion"):
-                                st.text_input("Clasificación (Tipo de Equipo)", value=clasificacion_equipo, disabled=True)
+                                df_historial = df_historial[['fecha_modificacion', 'valor_actual', 'fecha_validacion', 'ubicacion', 'auditor']]
+                                df_historial.columns = ['Actualizado el', 'Valor', 'Fecha Val.', 'Ubicación', 'Auditor']
+                            
+                            st.dataframe(df_historial, use_container_width=True, hide_index=True)
+                        else:
+                            st.info("No hay mediciones históricas registradas para este equipo aún.")
+                    except Exception as e:
+                        st.error(f"Error al cargar el historial: {e}")
+
+                st.divider()
+
+                if not st.session_state.modo_lectura:
+                    hacer_medicion = st.checkbox(texto_check)
+                    if hacer_medicion:
+                        with st.form("form_actualizacion"):
+                            st.text_input("Clasificación (Tipo de Equipo)", value=clasificacion_equipo, disabled=True)
+                            
+                            # --- 1. LÍNEA POR DEFECTO ASEGURADA ---
+                            if 'obtener_catalogo_lineas' in globals():
+                                lineas_opc = obtener_catalogo_lineas()
+                            else:
+                                lineas_opc = sorted([str(x).strip() for x in df_mob_local['Línea'].dropna().unique()])
                                 
-                                # --- 1. LÍNEA POR DEFECTO ASEGURADA ---
-                                if 'obtener_catalogo_lineas' in globals():
-                                    lineas_opc = obtener_catalogo_lineas()
+                            ub_actual = str(equipo.get('Línea', '')).strip()
+                            
+                            # Si la ubicación actual no está en la lista del catálogo, la inyectamos para no perder la referencia visual
+                            if ub_actual and ub_actual not in lineas_opc:
+                                lineas_opc = [ub_actual] + lineas_opc
+                                
+                            idx_l = lineas_opc.index(ub_actual) if ub_actual in lineas_opc else 0
+                            nueva_linea_upd = st.selectbox("Línea / Ubicación", options=lineas_opc, index=idx_l)
+                            
+                            # --- 2. CAMPOS VACÍOS (value=None) ---
+                            if es_ion:
+                                c_ion1, c_ion2 = st.columns(2)
+                                v_act = c_ion1.number_input("Descarga (s)", value=None, format="%.2f", placeholder="0.0")
+                                bal_act = c_ion2.number_input("Balance (V)", value=None, format="%.2f", placeholder="0.0")
+                            else:
+                                c_b, c_e = st.columns(2)
+                                base_upd = c_b.number_input("Base (Ohms)", value=None, placeholder="Ej: 3.5")
+                                exp_upd = c_e.number_input("Exponente", value=None, step=1, placeholder="Ej: 6")
+                                
+                            fecha_hoy = datetime.today().date()
+                            nueva_fecha = st.date_input("Fecha de Validación", fecha_hoy)
+                            
+                            if st.form_submit_button("💾 Guardar Actualización e Historial"):
+                                # --- 3. VALIDACIÓN DE CAMPOS ---
+                                # Como los campos inician vacíos (None), debemos evitar que el programa truene si le dan a Guardar accidentalmente.
+                                if es_ion and (v_act is None or bal_act is None):
+                                    st.error("⚠️ Debes ingresar los valores de Descarga y Balance.")
+                                elif not es_ion and (base_upd is None or exp_upd is None):
+                                    st.error("⚠️ Debes ingresar los valores de Base y Exponente.")
                                 else:
-                                    lineas_opc = sorted([str(x).strip() for x in df_mob_local['Línea'].dropna().unique()])
-                                    
-                                ub_actual = str(equipo.get('Línea', '')).strip()
-                                
-                                # Si la ubicación actual no está en la lista del catálogo, la inyectamos para no perder la referencia visual
-                                if ub_actual and ub_actual not in lineas_opc:
-                                    lineas_opc = [ub_actual] + lineas_opc
-                                    
-                                idx_l = lineas_opc.index(ub_actual) if ub_actual in lineas_opc else 0
-                                nueva_linea_upd = st.selectbox("Línea / Ubicación", options=lineas_opc, index=idx_l)
-                                
-                                # --- 2. CAMPOS VACÍOS (value=None) ---
-                                if es_ion:
-                                    c_ion1, c_ion2 = st.columns(2)
-                                    v_act = c_ion1.number_input("Descarga (s)", value=None, format="%.2f", placeholder="0.0")
-                                    bal_act = c_ion2.number_input("Balance (V)", value=None, format="%.2f", placeholder="0.0")
-                                else:
-                                    c_b, c_e = st.columns(2)
-                                    base_upd = c_b.number_input("Base (Ohms)", value=None, placeholder="Ej: 3.5")
-                                    exp_upd = c_e.number_input("Exponente", value=None, step=1, placeholder="Ej: 6")
-                                    
-                                fecha_hoy = datetime.today().date()
-                                nueva_fecha = st.date_input("Fecha de Validación", fecha_hoy)
-                                
-                                if st.form_submit_button("💾 Guardar Actualización e Historial"):
-                                    # --- 3. VALIDACIÓN DE CAMPOS ---
-                                    # Como los campos inician vacíos (None), debemos evitar que el programa truene si le dan a Guardar accidentalmente.
-                                    if es_ion and (v_act is None or bal_act is None):
-                                        st.error("⚠️ Debes ingresar los valores de Descarga y Balance.")
-                                    elif not es_ion and (base_upd is None or exp_upd is None):
-                                        st.error("⚠️ Debes ingresar los valores de Base y Exponente.")
-                                    else:
-                                        with st.spinner("Guardando registro..."):
-                                            if es_ion:
-                                                nuevo_valor_final = float(v_act)
-                                                bal_act = float(bal_act)
-                                            else:
-                                                nuevo_valor_final = float(base_upd) * (10 ** int(exp_upd))
-                                                bal_act = None
-                                                
-                                            freq = str(equipo.get('Frecuencia de verificación', 'Anual'))
-                                            proxy = calcular_proxima_fecha(nueva_fecha, freq)
+                                    with st.spinner("Guardando registro..."):
+                                        if es_ion:
+                                            nuevo_valor_final = float(v_act)
+                                            bal_act = float(bal_act)
+                                        else:
+                                            nuevo_valor_final = float(base_upd) * (10 ** int(exp_upd))
+                                            bal_act = None
                                             
-                                            try:
-                                                # --- 4. GUARDAR EL ESTADO ANTERIOR EN LA TABLA HISTORIAL ---
-                                                # Extraemos los valores previos que ya tenemos cargados de la BD
-                                                val_previo_hist = str(equipo.get('Valor de verificación', 0))
-                                                ubicacion_previa = str(equipo.get('Línea', 'N/D'))
-                                                auditor_previo = str(equipo.get('Auditor', st.session_state.usuario_nombre))
-                                                
-                                                # Solo guardamos en el historial si realmente existía una medición anterior (evita guardar registros vacíos/nuevos)
-                                                if f_val_sql != 'N/A' and f_val_sql != 'Error':
-                                                    historial_data = {
-                                                        "id_equipo": id_limpio,
-                                                        "tipo_equipo": clasificacion_equipo,
-                                                        "ubicacion": ubicacion_previa,
-                                                        "valor_actual": val_previo_hist,
-                                                        "fecha_validacion": f_val_sql, # <--- FECHA ANTERIOR
-                                                        "fecha_vencimiento": f_venc_sql if f_venc_sql != 'N/A' else None,
-                                                        "auditor": auditor_previo, # <--- AUDITOR ANTERIOR
-                                                        "fecha_modificacion": datetime.now().isoformat() # <--- Cuándo se archivó
-                                                    }
-                                                    if es_ion:
-                                                        historial_data["balance_ionizador"] = str(equipo.get('Balance', 0))
-                                                        
-                                                    supabase.table("historial_mediciones").insert(historial_data).execute()
-    
-                                                # --- 5. ACTUALIZAR EL ESTADO NUEVO EN INVENTARIO MAESTRO ---
-                                                update_data = {
-                                                    "linea_ubicacion": nueva_linea_upd,
-                                                    "valor_actual": float(nuevo_valor_final),
-                                                    "fecha_ultima_verif": nueva_fecha.isoformat(), # <--- FECHA NUEVA (HOY)
-                                                    "fecha_proxima_verif": proxy.isoformat(),
-                                                    "estatus_verificacion": "VIGENTE",
-                                                    "estatus_operativo": "OPERATIVO",
-                                                    "auditor_responsable": st.session_state.usuario_nombre, # <--- AUDITOR NUEVO (TÚ)
+                                        freq = str(equipo.get('Frecuencia de verificación', 'Anual'))
+                                        proxy = calcular_proxima_fecha(nueva_fecha, freq)
+                                        
+                                        try:
+                                            # --- 4. GUARDAR EL ESTADO ANTERIOR EN LA TABLA HISTORIAL ---
+                                            # Extraemos los valores previos que ya tenemos cargados de la BD
+                                            val_previo_hist = str(equipo.get('Valor de verificación', 0))
+                                            ubicacion_previa = str(equipo.get('Línea', 'N/D'))
+                                            auditor_previo = str(equipo.get('Auditor', st.session_state.usuario_nombre))
+                                            
+                                            # Solo guardamos en el historial si realmente existía una medición anterior (evita guardar registros vacíos/nuevos)
+                                            if f_val_sql != 'N/A' and f_val_sql != 'Error':
+                                                historial_data = {
+                                                    "id_equipo": id_limpio,
+                                                    "tipo_equipo": clasificacion_equipo,
+                                                    "ubicacion": ubicacion_previa,
+                                                    "valor_actual": val_previo_hist,
+                                                    "fecha_validacion": f_val_sql, # <--- FECHA ANTERIOR
+                                                    "fecha_vencimiento": f_venc_sql if f_venc_sql != 'N/A' else None,
+                                                    "auditor": auditor_previo, # <--- AUDITOR ANTERIOR
+                                                    "fecha_modificacion": datetime.now().isoformat() # <--- Cuándo se archivó
                                                 }
                                                 if es_ion:
-                                                    update_data["balance_ionizador"] = float(bal_act)
-                                                
-                                                supabase.table("inventario_esd").update(update_data).eq("id_producto", id_limpio).execute()
-                                                
-                                                st.success("💾 ¡Equipo actualizado y medición anterior archivada en el historial!")
-                                                st.cache_data.clear()
-                                                limpiar_url_escaneo()
-                                                st.rerun()
-                                            except Exception as e:
-                                                st.error(f"Error actualizando el equipo en SQL: {e}")
-                    # --- NUEVO: LISTADO DE OTROS EQUIPOS EN LA MISMA LÍNEA ---
-                    if es_mob:
-                        ub_actual_lista = str(equipo.get('Línea', '')).strip()
-                        if ub_actual_lista and ub_actual_lista != 'N/A' and 'df_inv_full' in locals() and not df_inv_full.empty:
-                            st.divider()
-                            st.markdown(f"#### 📍 Otros equipos en la línea: `{ub_actual_lista}`")
-                            
-                            # Filtramos el inventario por la misma línea, quitamos el equipo actual y los que estén dados de baja
-                            df_otros = df_inv_full[
-                                (df_inv_full['Línea'].astype(str).str.strip() == ub_actual_lista) & 
-                                (df_inv_full['Id de producto'].astype(str).str.strip().str.upper() != id_limpio) &
-                                (df_inv_full['Estatus operativo'].astype(str).str.strip().str.upper() != 'NO OPERATIVO')
-                            ]
-                            
-                            if not df_otros.empty:
-                                # Seleccionamos columnas clave para mostrar
-                                df_mostrar_otros = df_otros[['Id de producto', 'Clasificación', 'Estatus de verificación', 'Fecha de próxima verificación']].copy()
-                                df_mostrar_otros = df_mostrar_otros.rename(columns={
-                                    'Id de producto': 'ID Equipo', 
-                                    'Fecha de próxima verificación': 'Vencimiento'
-                                })
-                                
-                                # Formateamos la fecha visualmente para que sea corta
-                                df_mostrar_otros['Vencimiento'] = pd.to_datetime(df_mostrar_otros['Vencimiento'], errors='coerce').dt.strftime('%d-%b-%Y').fillna('N/D')
-                                
-                                # Agregamos emojis de estatus rápido
-                                def emoji_estatus(val):
-                                    v = str(val).upper()
-                                    if 'VIGENTE' in v: return f"🟢 {val}"
-                                    if 'VENCIDO' in v: return f"🔴 {val}"
-                                    return f"🟡 {val}"
-                                    
-                                df_mostrar_otros['Estatus de verificación'] = df_mostrar_otros['Estatus de verificación'].apply(emoji_estatus)
-                                
-                                st.dataframe(df_mostrar_otros, use_container_width=True, hide_index=True)
-                            else:
-                                st.info("No hay otros equipos operativos registrados en esta línea.")
-                    # ---------------------------------------------------------
-                # ==========================================
-                # LÓGICA DE VISUALIZACIÓN: MAQUINARIA
-                # ==========================================
-                elif es_maq:
-                    equipo = df_maq_scan.iloc[0]
-                    
-                    estatus_op = str(equipo.get('status_operativo', '')).strip().upper()
-                    resultado_est = str(equipo.get('resultado_estatus', 'N/A')).strip().upper()
-                    
-                    # --- NUEVA LÓGICA DE ESTATUS VISUAL ---
-                    if estatus_op == "NO OPERATIVO":
-                        estatus_mostrar = "🔴 NO OPERATIVO"
-                    else:
-                        estatus_mostrar = resultado_est
-                    
-                    st.markdown(f"### 🏭 Detalles de la Maquinaria")
-                    c_linea, c_tipo, c_estatus = st.columns(3)
-                    c_linea.metric("Ubicación", str(equipo.get('linea_ubicacion', 'N/A')))
-                    clasificacion_equipo = str(equipo.get('clasificacion', 'N/A'))
-                    c_tipo.metric("Clasificación", clasificacion_equipo)
-                    c_estatus.metric("Estatus", estatus_mostrar)
-                    
-                    c_val, c_bal = st.columns(2)
-                    res_tierra = equipo.get('resistencia_tierra')
-                    c_val.metric("Resistencia a Tierra", f"{float(res_tierra):.2E} Ω" if pd.notna(res_tierra) and res_tierra else "N/D")
-                    campo_est = equipo.get('campo_estatico_voltaje')
-                    c_bal.metric("Campo Estático", f"{float(campo_est):.1f} V" if pd.notna(campo_est) else "N/D")
-    
-                    f_val_sql = str(equipo.get('fecha_medicion', 'N/A'))[:10]
-                    f_venc_sql = str(equipo.get('fecha_proxima', 'N/A'))[:10]
-                    
-                    c_fval, c_fvenc = st.columns(2)
-                    c_fval.metric("Fecha de Validación", f_val_sql)
-                    c_fvenc.metric("Fecha de Vencimiento", f_venc_sql)
-                    
-                    with st.expander("🕰️ Consultar Historial de Mediciones Anteriores"):
-                        df_maq_hist = df_maq_scan[['fecha_medicion', 'resistencia_tierra', 'campo_estatico_voltaje', 'tomacorriente_estatus', 'resultado_estatus', 'auditor']].copy()
-                        df_maq_hist.columns = ['Fecha', 'Resistencia (Ω)', 'Campo (V)', 'Toma', 'Estatus', 'Auditor']
+                                                    historial_data["balance_ionizador"] = str(equipo.get('Balance', 0))
+                                                    
+                                                supabase.table("historial_mediciones").insert(historial_data).execute()
+
+                                            # --- 5. ACTUALIZAR EL ESTADO NUEVO EN INVENTARIO MAESTRO ---
+                                            update_data = {
+                                                "linea_ubicacion": nueva_linea_upd,
+                                                "valor_actual": float(nuevo_valor_final),
+                                                "fecha_ultima_verif": nueva_fecha.isoformat(), # <--- FECHA NUEVA (HOY)
+                                                "fecha_proxima_verif": proxy.isoformat(),
+                                                "estatus_verificacion": "VIGENTE",
+                                                "estatus_operativo": "OPERATIVO",
+                                                "auditor_responsable": st.session_state.usuario_nombre, # <--- AUDITOR NUEVO (TÚ)
+                                            }
+                                            if es_ion:
+                                                update_data["balance_ionizador"] = float(bal_act)
+                                            
+                                            supabase.table("inventario_esd").update(update_data).eq("id_producto", id_limpio).execute()
+                                            
+                                            st.success("💾 ¡Equipo actualizado y medición anterior archivada en el historial!")
+                                            st.cache_data.clear()
+                                            limpiar_url_escaneo()
+                                            st.rerun()
+                                        except Exception as e:
+                                            st.error(f"Error actualizando el equipo en SQL: {e}")
+                # --- NUEVO: LISTADO DE OTROS EQUIPOS EN LA MISMA LÍNEA ---
+                if es_mob:
+                    ub_actual_lista = str(equipo.get('Línea', '')).strip()
+                    if ub_actual_lista and ub_actual_lista != 'N/A' and 'df_inv_full' in locals() and not df_inv_full.empty:
+                        st.divider()
+                        st.markdown(f"#### 📍 Otros equipos en la línea: `{ub_actual_lista}`")
                         
-                        def formatear_res_hist(val):
-                            try:
-                                v = float(val)
-                                return f"{v:.2f}" if v < 10 else f"{v:.2E}"
-                            except:
-                                return "N/D"
-                                
-                        if 'Resistencia (Ω)' in df_maq_hist.columns:
-                            df_maq_hist['Resistencia (Ω)'] = df_maq_hist['Resistencia (Ω)'].apply(formatear_res_hist)
+                        # Filtramos el inventario por la misma línea, quitamos el equipo actual y los que estén dados de baja
+                        df_otros = df_inv_full[
+                            (df_inv_full['Línea'].astype(str).str.strip() == ub_actual_lista) & 
+                            (df_inv_full['Id de producto'].astype(str).str.strip().str.upper() != id_limpio) &
+                            (df_inv_full['Estatus operativo'].astype(str).str.strip().str.upper() != 'NO OPERATIVO')
+                        ]
+                        
+                        if not df_otros.empty:
+                            # Seleccionamos columnas clave para mostrar
+                            df_mostrar_otros = df_otros[['Id de producto', 'Clasificación', 'Estatus de verificación', 'Fecha de próxima verificación']].copy()
+                            df_mostrar_otros = df_mostrar_otros.rename(columns={
+                                'Id de producto': 'ID Equipo', 
+                                'Fecha de próxima verificación': 'Vencimiento'
+                            })
                             
-                        df_maq_hist['Fecha'] = pd.to_datetime(df_maq_hist['Fecha'], format='ISO8601', errors='coerce').dt.strftime('%d-%b-%Y')
-                        st.dataframe(df_maq_hist.fillna("N/D"), use_container_width=True, hide_index=True)
-    
-                    st.divider()
-    
-                    if not st.session_state.modo_lectura:
-                        st.info("💡 Para registrar una nueva validación, utiliza el módulo de maquinaria.")
-                        if st.button("🏭 Ir al Módulo de Maquinaria", use_container_width=True):
-                            st.session_state.vista_actual = "Maquinaria"
-                            limpiar_url_escaneo()
-                            st.rerun()
-    
-            else:
-                st.error("❌ El ID no se encontró en la base de datos (Mobiliario, Ionizadores o Maquinaria).")
+                            # Formateamos la fecha visualmente para que sea corta
+                            df_mostrar_otros['Vencimiento'] = pd.to_datetime(df_mostrar_otros['Vencimiento'], errors='coerce').dt.strftime('%d-%b-%Y').fillna('N/D')
+                            
+                            # Agregamos emojis de estatus rápido
+                            def emoji_estatus(val):
+                                v = str(val).upper()
+                                if 'VIGENTE' in v: return f"🟢 {val}"
+                                if 'VENCIDO' in v: return f"🔴 {val}"
+                                return f"🟡 {val}"
+                                
+                            df_mostrar_otros['Estatus de verificación'] = df_mostrar_otros['Estatus de verificación'].apply(emoji_estatus)
+                            
+                            st.dataframe(df_mostrar_otros, use_container_width=True, hide_index=True)
+                        else:
+                            st.info("No hay otros equipos operativos registrados en esta línea.")
+                # ---------------------------------------------------------
+            # ==========================================
+            # LÓGICA DE VISUALIZACIÓN: MAQUINARIA
+            # ==========================================
+            elif es_maq:
+                equipo = df_maq_scan.iloc[0]
+                
+                estatus_op = str(equipo.get('status_operativo', '')).strip().upper()
+                resultado_est = str(equipo.get('resultado_estatus', 'N/A')).strip().upper()
+                
+                # --- NUEVA LÓGICA DE ESTATUS VISUAL ---
+                if estatus_op == "NO OPERATIVO":
+                    estatus_mostrar = "🔴 NO OPERATIVO"
+                else:
+                    estatus_mostrar = resultado_est
+                
+                st.markdown(f"### 🏭 Detalles de la Maquinaria")
+                c_linea, c_tipo, c_estatus = st.columns(3)
+                c_linea.metric("Ubicación", str(equipo.get('linea_ubicacion', 'N/A')))
+                clasificacion_equipo = str(equipo.get('clasificacion', 'N/A'))
+                c_tipo.metric("Clasificación", clasificacion_equipo)
+                c_estatus.metric("Estatus", estatus_mostrar)
+                
+                c_val, c_bal = st.columns(2)
+                res_tierra = equipo.get('resistencia_tierra')
+                c_val.metric("Resistencia a Tierra", f"{float(res_tierra):.2E} Ω" if pd.notna(res_tierra) and res_tierra else "N/D")
+                campo_est = equipo.get('campo_estatico_voltaje')
+                c_bal.metric("Campo Estático", f"{float(campo_est):.1f} V" if pd.notna(campo_est) else "N/D")
+
+                f_val_sql = str(equipo.get('fecha_medicion', 'N/A'))[:10]
+                f_venc_sql = str(equipo.get('fecha_proxima', 'N/A'))[:10]
+                
+                c_fval, c_fvenc = st.columns(2)
+                c_fval.metric("Fecha de Validación", f_val_sql)
+                c_fvenc.metric("Fecha de Vencimiento", f_venc_sql)
+                
+                with st.expander("🕰️ Consultar Historial de Mediciones Anteriores"):
+                    df_maq_hist = df_maq_scan[['fecha_medicion', 'resistencia_tierra', 'campo_estatico_voltaje', 'tomacorriente_estatus', 'resultado_estatus', 'auditor']].copy()
+                    df_maq_hist.columns = ['Fecha', 'Resistencia (Ω)', 'Campo (V)', 'Toma', 'Estatus', 'Auditor']
+                    
+                    def formatear_res_hist(val):
+                        try:
+                            v = float(val)
+                            return f"{v:.2f}" if v < 10 else f"{v:.2E}"
+                        except:
+                            return "N/D"
+                            
+                    if 'Resistencia (Ω)' in df_maq_hist.columns:
+                        df_maq_hist['Resistencia (Ω)'] = df_maq_hist['Resistencia (Ω)'].apply(formatear_res_hist)
+                        
+                    df_maq_hist['Fecha'] = pd.to_datetime(df_maq_hist['Fecha'], format='ISO8601', errors='coerce').dt.strftime('%d-%b-%Y')
+                    st.dataframe(df_maq_hist.fillna("N/D"), use_container_width=True, hide_index=True)
+
+                st.divider()
+
+                if not st.session_state.modo_lectura:
+                    st.info("💡 Para registrar una nueva validación, utiliza el módulo de maquinaria.")
+                    if st.button("🏭 Ir al Módulo de Maquinaria", use_container_width=True):
+                        st.session_state.vista_actual = "Maquinaria"
+                        limpiar_url_escaneo()
+                        st.rerun()
+
+        else:
+            st.error("❌ El ID no se encontró en la base de datos (Mobiliario, Ionizadores o Maquinaria).")
 # ==========================================
 # VISTA 3: EVENT METER
 # ==========================================
