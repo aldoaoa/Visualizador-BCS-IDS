@@ -3902,6 +3902,64 @@ elif st.session_state.vista_actual == "Validación" and not st.session_state.mod
                 st.dataframe(df_out, use_container_width=True, hide_index=True)
             else:
                 st.info("Aún no hay historial de registros sobreescritos.")
+
+            # =====================================================================
+            # NUEVA SECCIÓN: ANÁLISIS DE RESISTENCIA POR ÁREA / PUESTO
+            # =====================================================================
+            st.divider()
+            st.markdown("##### 🏢 Análisis de Degradación por Área / Puesto")
+            st.info("Compara los niveles de resistencia promedio y máximos agrupados por puesto de trabajo para identificar qué áreas presentan mayor desgaste o riesgo de aislamiento en las batas.")
+
+            if not df_activos.empty and 'departamento' in df_activos.columns and 'valor_resistencia' in df_activos.columns:
+                # Filtrar y limpiar registros que tengan puesto y medición numérica válida
+                df_analisis_area = df_activos.dropna(subset=['departamento', 'valor_resistencia']).copy()
+                df_analisis_area['valor_resistencia'] = pd.to_numeric(df_analisis_area['valor_resistencia'], errors='coerce')
+                df_analisis_area = df_analisis_area[df_analisis_area['valor_resistencia'] > 0]
+
+                if not df_analisis_area.empty:
+                    # Agrupar por puesto (departamento) para extraer métricas clave
+                    df_grouped_area = df_analisis_area.groupby('departamento').agg(
+                        Resistencia_Promedio=('valor_resistencia', 'mean'),
+                        Resistencia_Maxima=('valor_resistencia', 'max'),
+                        Total_Batas=('num_empleado', 'count')
+                    ).reset_index()
+
+                    # Ordenamos de mayor a menor resistencia promedio (puestos más críticos arriba)
+                    df_grouped_area = df_grouped_area.sort_values(by='Resistencia_Promedio', ascending=False)
+
+                    col_an1, col_an2 = st.columns([1.2, 1])
+
+                    with col_an1:
+                        # Gráfico de barras interactivo
+                        fig_area_bar = px.bar(
+                            df_grouped_area, 
+                            x='departamento', 
+                            y='Resistencia_Promedio',
+                            title="Resistencia Promedio por Puesto de Trabajo",
+                            labels={'departamento': 'Área / Puesto', 'Resistencia_Promedio': 'Promedio (Ohms)'},
+                            log_y=True, # Escala logarítmica obligatoria para variaciones de resistencia ESD
+                            text_auto='.2e',
+                            color='Resistencia_Promedio',
+                            color_continuous_scale='YlOrRd' # Gradiente que alerta visualmente los valores altos
+                        )
+                        fig_area_bar.update_layout(coloraxis_showscale=False, margin=dict(t=40, b=10, l=10, r=10))
+                        st.plotly_chart(fig_area_bar, use_container_width=True)
+
+                    with col_an2:
+                        # Tabla de desglose para auditorías o reportes a Gerencia
+                        st.markdown("**Desglose Estadístico de Susceptibilidad**")
+                        df_tabla_area = df_grouped_area.copy()
+                        
+                        # Formatear las columnas numéricas a notación científica limpia
+                        df_tabla_area['Resistencia_Promedio'] = df_tabla_area['Resistencia_Promedio'].apply(lambda x: f"{x:.2e} Ω")
+                        df_tabla_area['Resistencia_Maxima'] = df_tabla_area['Resistencia_Maxima'].apply(lambda x: f"{x:.2e} Ω")
+                        
+                        df_tabla_area.columns = ['Puesto / Área', 'Promedio (Ω)', 'Máximo Histórico (Ω)', 'Muestras Activas']
+                        st.dataframe(df_tabla_area, use_container_width=True, hide_index=True)
+                else:
+                    st.info("No hay mediciones numéricas suficientes en el padrón activo para estructurar el análisis por puesto.")
+            else:
+                st.info("No se localizaron las columnas de estructura de personal ('departamento') o mediciones técnicas para este cruce.")
 # ==========================================
 # VISTA 6: AJUSTES (CATÁLOGOS MAESTROS)
 # ==========================================
