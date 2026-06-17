@@ -3620,7 +3620,7 @@ elif st.session_state.vista_actual == "Validación" and not st.session_state.mod
                         col_nom = 'Local name'
                         
                         # Buscar dinámicamente columnas de departamento y FECHA DE INGRESO
-                        col_depto = next((c for c in df_upload.columns if 'job title' in str(c).lower() or 'depto' in str(c).lower() or 'área' in str(c).lower() or 'area' in str(c).lower()), None)
+                        col_depto = next((c for c in df_upload.columns if 'comments' in str(c).lower()), None)
                         col_ingreso = next((c for c in df_upload.columns if 'ingreso' in str(c).lower() or 'join date' in str(c).lower() or 'doj' in str(c).lower() or 'hire date' in str(c).lower()), None)
                         
                         if col_num not in df_upload.columns or col_nom not in df_upload.columns:
