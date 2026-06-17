@@ -2176,7 +2176,44 @@ elif st.session_state.vista_actual == "Escáner":
         if id_manual:
             st.query_params["qr_id"] = id_manual
             st.rerun()
+    
+    # --- NUEVA PESTAÑA: EQUIPOS POR VENCER ---
+        with tab_vencimientos:
+            st.markdown("#### 🚨 Equipos Vencidos o por Vencer (7 días)")
+            st.info("Selecciona un equipo de la lista para auditarlo de forma directa sin necesidad de escanear su código QR en piso.")
+            
+            try:
+                # Consultamos la vista que agrupa los equipos de todas las tablas
+                resp_vencidos = supabase.table("v_equipos_por_vencer").select("*").execute()
+                df_vencidos = pd.DataFrame(resp_vencidos.data)
+            except Exception as e:
+                df_vencidos = pd.DataFrame()
+                st.error(f"Error al cargar la tabla de vencimientos: {e}")
+                
+            if not df_vencidos.empty:
+                st.dataframe(df_vencidos, use_container_width=True, hide_index=True)
+                
+                st.divider()
+                st.markdown("##### ⚡ Iniciar Auditoría")
+                
+                # Intentamos detectar dinámicamente la columna que contiene el ID 
+                # (puede llamarse id_producto, id_maquinaria o simplemente id)
+                col_id = next((c for c in df_vencidos.columns if 'id' in c.lower()), df_vencidos.columns[0])
+                
+                c_ven1, c_ven2 = st.columns([2, 1])
+                id_a_auditar = c_ven1.selectbox("Selecciona el ID del equipo a auditar:", options=df_vencidos[col_id].astype(str).unique())
+                
+                if c_ven2.button("📝 Auditar Seleccionado", type="primary", use_container_width=True):
+                    # Al inyectar el ID en los query params, el sistema recarga e ingresa 
+                    # a la lógica de guardado que ya tienes construida abajo.
+                    st.query_params["qr_id"] = id_a_auditar
+                    st.rerun()
+            else:
+                st.success("🎉 ¡Excelente! No hay equipos vencidos ni próximos a vencer en los siguientes 7 días.")
 
+    # ==========================================
+    # LÓGICA DE AUDITORÍA (SI YA HAY UN ID SELECCIONADO/ESCANEADO)
+    # ==========================================
     if id_escaneado_url:
         colA, colB = st.columns([0.8, 0.2])
         with colA: st.info(f"🔍 **ID:** {id_escaneado_url}")
