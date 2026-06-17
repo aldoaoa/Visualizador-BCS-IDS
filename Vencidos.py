@@ -2228,6 +2228,14 @@ elif st.session_state.vista_actual == "Escáner":
                 equipo = df_actual.loc[idx]
                 
                 estatus_op = str(equipo.get('Estatus operativo', '')).strip().upper()
+                estatus_verif = str(equipo.get('Estatus de verificación', 'N/A')).strip().upper()
+                
+                # --- NUEVA LÓGICA DE ESTATUS VISUAL ---
+                if estatus_op == "NO OPERATIVO":
+                    estatus_mostrar = "🔴 NO OPERATIVO"
+                else:
+                    estatus_mostrar = estatus_verif
+                
                 texto_check = "✅ REACTIVAR" if estatus_op == "NO OPERATIVO" else "✅ Registrar medición"
                 
                 st.markdown(f"### 📊 Detalles del Equipo")
@@ -2235,7 +2243,7 @@ elif st.session_state.vista_actual == "Escáner":
                 c_linea.metric("Ubicación", str(equipo.get('Línea', 'N/A')))
                 clasificacion_equipo = str(equipo.get('Clasificación', 'N/A'))
                 c_tipo.metric("Clasificación", clasificacion_equipo)
-                c_estatus.metric("Estatus", str(equipo.get('Estatus de verificación', 'N/A')))
+                c_estatus.metric("Estatus", estatus_mostrar)
                 
                 c_val, c_bal = st.columns(2)
                 val_previo = equipo.get('Valor de verificación', 0)
@@ -2428,12 +2436,21 @@ elif st.session_state.vista_actual == "Escáner":
             elif es_maq:
                 equipo = df_maq_scan.iloc[0]
                 
+                estatus_op = str(equipo.get('status_operativo', '')).strip().upper()
+                resultado_est = str(equipo.get('resultado_estatus', 'N/A')).strip().upper()
+                
+                # --- NUEVA LÓGICA DE ESTATUS VISUAL ---
+                if estatus_op == "NO OPERATIVO":
+                    estatus_mostrar = "🔴 NO OPERATIVO"
+                else:
+                    estatus_mostrar = resultado_est
+                
                 st.markdown(f"### 🏭 Detalles de la Maquinaria")
                 c_linea, c_tipo, c_estatus = st.columns(3)
                 c_linea.metric("Ubicación", str(equipo.get('linea_ubicacion', 'N/A')))
                 clasificacion_equipo = str(equipo.get('clasificacion', 'N/A'))
                 c_tipo.metric("Clasificación", clasificacion_equipo)
-                c_estatus.metric("Estatus", str(equipo.get('resultado_estatus', 'N/A')))
+                c_estatus.metric("Estatus", estatus_mostrar)
                 
                 c_val, c_bal = st.columns(2)
                 res_tierra = equipo.get('resistencia_tierra')
