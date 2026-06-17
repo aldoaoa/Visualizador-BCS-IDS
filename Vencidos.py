@@ -2497,11 +2497,12 @@ elif st.session_state.vista_actual == "Escáner":
             # ==========================================
             elif es_maq:
                 equipo = df_maq_scan.iloc[0]
+                maquina_sel = str(equipo.get('id_maquinaria', ''))
+                linea_ubicacion = str(equipo.get('linea_ubicacion', ''))
                 
                 estatus_op = str(equipo.get('status_operativo', '')).strip().upper()
                 resultado_est = str(equipo.get('resultado_estatus', 'N/A')).strip().upper()
                 
-                # --- NUEVA LÓGICA DE ESTATUS VISUAL ---
                 if estatus_op == "NO OPERATIVO":
                     estatus_mostrar = "🔴 NO OPERATIVO"
                 else:
@@ -2509,7 +2510,7 @@ elif st.session_state.vista_actual == "Escáner":
                 
                 st.markdown(f"### 🏭 Detalles de la Maquinaria")
                 c_linea, c_tipo, c_estatus = st.columns(3)
-                c_linea.metric("Ubicación", str(equipo.get('linea_ubicacion', 'N/A')))
+                c_linea.metric("Ubicación", linea_ubicacion)
                 clasificacion_equipo = str(equipo.get('clasificacion', 'N/A'))
                 c_tipo.metric("Clasificación", clasificacion_equipo)
                 c_estatus.metric("Estatus", estatus_mostrar)
@@ -2547,11 +2548,108 @@ elif st.session_state.vista_actual == "Escáner":
                 st.divider()
 
                 if not st.session_state.modo_lectura:
-                    st.info("💡 Para registrar una nueva validación, utiliza el módulo de maquinaria.")
-                    if st.button("🏭 Ir al Módulo de Maquinaria", use_container_width=True):
-                        st.session_state.vista_actual = "Maquinaria"
-                        limpiar_url_escaneo()
-                        st.rerun()
+                    # --- RUTA 1: VINO DESDE EL ESCÁNER QR ---
+                    if st.session_state.sub_pestana_escaner == "📷 Escáner QR / Manual":
+                        st.info("💡 Para registrar una nueva validación, utiliza el módulo de maquinaria.")
+                        if st.button("🏭 Ir al Módulo de Maquinaria", use_container_width=True, type="primary"):
+                            st.session_state.vista_actual = "Maquinaria"
+                            # Guardamos en memoria el ID y la Línea para que el otro módulo los atrape
+                            st.session_state.nav_linea = linea_ubicacion
+                            st.session_state.nav_maq = maquina_sel
+                            limpiar_url_escaneo()
+                            st.rerun()
+                            
+                    # --- RUTA 2: VINO DESDE LA LISTA DE VENCIMIENTOS ---
+                    else:
+                        st.markdown("##### ⚡ Registrar Medición Directa")
+                        st.caption("Actualiza los parámetros normativos de esta estación sin necesidad de cambiar de módulo.")
+                        
+                        hacer_medicion = st.checkbox(f"✅ Habilitar captura para {maquina_sel}")
+                        
+                        if hacer_medicion:
+                            limite_fijo = 1e9 if str(clasificacion_equipo).strip().upper() == "MOBILIARIO" else 1.0
+                            
+                            with st.form("form_medicion_maq_directa"):
+                                c_amb1, c_amb2, c_amb3 = st.columns(3)
+                                temperatura_maq = c_amb1.number_input("Temperatura (°C)", value=23.5, step=0.1)
+                                humedad_maq = c_amb2.number_input("Humedad (%)", value=45, step=1)
+                                status_maq = c_amb3.selectbox("Estatus Operativo", ["OPERATIVO", "NO OPERATIVO", "MANTENIMIENTO"])
+                                
+                                st.markdown("##### ⚡ 1. Resistencia a Tierra")
+                                col_r1, col_r2 = st.columns(2)
+                                resistencia = col_r1.number_input("Valor (Ohms)", min_value=0.0, step=0.01, format="%.2f", value=None, placeholder="0.0")
+                                limite_str = f"{limite_fijo:.2e} Ω" if limite_fijo > 10 else f"{limite_fijo:.2f} Ω"
+                                col_r2.text_input("Límite Máximo", value=limite_str, disabled=True)
+                                
+                                st.markdown("##### 🔌 2. Tomacorriente")
+                                col_t1, col_t2 = st.columns(2)
+                                aplica_toma = col_t1.checkbox("Aplica medición a la red", value=True)
+                                estado_toma = "N/A"
+                                comentario_toma = ""
+                                if aplica_toma:
+                                    estado_toma = col_t1.radio("Estatus Conexión", ["PASA", "FALLA"], horizontal=True)
+                                    if estado_toma == "FALLA":
+                                        comentario_toma = col_t2.text_input("Comentario Falla (Requerido)")
+                                        
+                                st.markdown("##### 🧲 3. Campo Estático")
+                                c_campo1, c_campo2 = st.columns(2)
+                                voltaje_campo = c_campo1.number_input("Voltaje (V)", min_value=0.0, format="%.2f", step=1.0, value=None, placeholder="0")
+                                comentario_campo = ""
+                                if voltaje_campo is not None and voltaje_campo > 0:
+                                    comentario_campo = c_campo2.text_input("Ubicación carga (Requerido)")
+                                    
+                                obs_maq = st.text_area("Notas / Observaciones Generales")
+                                
+                                if st.form_submit_button("💾 Guardar Validación Directa", use_container_width=True, type="primary"):
+                                    if aplica_toma and estado_toma == "FALLA" and not comentario_toma.strip():
+                                        st.error("⚠️ Debes escribir un comentario justificando la falla del tomacorriente.")
+                                    elif voltaje_campo is not None and voltaje_campo > 0 and not comentario_campo.strip():
+                                        st.error("⚠️ Como detectaste voltaje, debes indicar dónde se encontró la carga electrostática.")
+                                    else:
+                                        with st.spinner("Guardando registro en SQL..."):
+                                            try:
+                                                fecha_hoy = datetime.today().date()
+                                                from dateutil.relativedelta import relativedelta
+                                                proxima_fecha = fecha_hoy + relativedelta(years=1)
+                                                
+                                                # Lógica de estatus oficial
+                                                if resistencia is None or resistencia == 0.0:
+                                                    estatus_calculado = "PENDIENTE"
+                                                elif proxima_fecha < fecha_hoy:
+                                                    estatus_calculado = "VENCIDO"
+                                                else:
+                                                    estatus_calculado = "VIGENTE"
+                                                    
+                                                data_insert = {
+                                                    "linea_ubicacion": linea_ubicacion,
+                                                    "id_maquinaria": maquina_sel,
+                                                    "clasificacion": clasificacion_equipo,
+                                                    "marca": equipo.get('marca', 'N/D'),
+                                                    "status_operativo": status_maq,
+                                                    "temperatura": temperatura_maq,
+                                                    "humedad": humedad_maq,
+                                                    "frecuencia_verificacion": "Anual",
+                                                    "fecha_proxima": proxima_fecha.isoformat(),
+                                                    "resistencia_tierra": float(resistencia) if resistencia is not None and resistencia > 0 else None,
+                                                    "resistencia_max": limite_fijo,
+                                                    "tomacorriente_aplica": aplica_toma,
+                                                    "tomacorriente_estatus": estado_toma,
+                                                    "tomacorriente_comentario": comentario_toma,
+                                                    "campo_estatico_voltaje": float(voltaje_campo) if voltaje_campo is not None else 0.0,
+                                                    "campo_estatico_comentario": comentario_campo,
+                                                    "observaciones": obs_maq,
+                                                    "fecha_medicion": datetime.now().isoformat(),
+                                                    "auditor": st.session_state.usuario_nombre,
+                                                    "resultado_estatus": estatus_calculado
+                                                }
+                                                
+                                                supabase.table("mediciones_maquinaria").insert(data_insert).execute()
+                                                st.success(f"✅ ¡Validación guardada exitosamente para {maquina_sel}!")
+                                                st.cache_data.clear()
+                                                time.sleep(1.5)
+                                                st.rerun()
+                                            except Exception as e:
+                                                st.error(f"Error al guardar: {e}")
 
         else:
             st.error("❌ El ID no se encontró en la base de datos (Mobiliario, Ionizadores o Maquinaria).")
@@ -4943,6 +5041,12 @@ elif st.session_state.vista_actual == "Maquinaria" and not st.session_state.modo
     # Extraer líneas y clasificaciones únicas basadas exclusivamente en las mediciones registradas
     # Asegurar que las líneas vengan del catálogo maestro
     lineas_disp = obtener_catalogo_lineas()
+
+    # --- ATRAPAMOS LA PRESELECCIÓN SI VENIMOS DEL ESCÁNER ---
+    idx_linea = 0
+    nav_linea_val = st.session_state.get("nav_linea")
+    if nav_linea_val and nav_linea_val in lineas_disp:
+        idx_linea = lineas_disp.index(nav_linea_val)
     
     # Extraer clasificaciones únicas de las mediciones registradas
     if not df_med_maq.empty and 'clasificacion' in df_med_maq.columns:
@@ -4955,7 +5059,7 @@ elif st.session_state.vista_actual == "Maquinaria" and not st.session_state.modo
 
     # SECCIÓN A: SELECCIÓN DE LÍNEA Y VISUALIZACIÓN DEL REGISTRO ANTERIOR
     st.markdown("#### 🔍 Consulta de Mediciones Anteriores")
-    linea_sel = st.selectbox("1. Selecciona Línea / Ubicación para revisar historial", options=lineas_disp)
+    linea_sel = st.selectbox("1. Selecciona Línea / Ubicación para revisar historial", options=lineas_disp, index=idx_linea)
 
     # Filtrar el histórico de la línea seleccionada
     # Filtrar el histórico de la línea seleccionada
@@ -5049,7 +5153,6 @@ elif st.session_state.vista_actual == "Maquinaria" and not st.session_state.modo
     
     tab_individual, tab_lote, tab_conductores = st.tabs(["📝 Captura Individual", "🚀 Auditoría Rápida por Línea (Lote)", "⚡ Conductores Aislados"])
     
-    # Obtenemos las máquinas de la línea seleccionada (para ambas pestañas)
     maquinas_en_linea = []
     if not df_med_maq.empty and linea_sel != "Sin registros previos" and 'id_maquinaria' in df_med_maq.columns:
         linea_sel_limpia = str(linea_sel).strip().upper()
@@ -5062,7 +5165,17 @@ elif st.session_state.vista_actual == "Maquinaria" and not st.session_state.modo
         if not maquinas_en_linea:
             maquina_sel = st.text_input("Ingresa el ID de la maquinaria manualmente para iniciar registro:")
         else:
-            maquina_sel = st.selectbox("Selecciona la Maquinaria específica", options=maquinas_en_linea)
+            # --- ATRAPAMOS LA MÁQUINA EXACTA ---
+            idx_maq = 0
+            nav_maq_val = st.session_state.get("nav_maq")
+            if nav_maq_val and nav_maq_val in maquinas_en_linea:
+                idx_maq = maquinas_en_linea.index(nav_maq_val)
+                # Limpiamos las variables de sesión para que no se queden ancladas para siempre
+                del st.session_state["nav_maq"]
+                if "nav_linea" in st.session_state:
+                    del st.session_state["nav_linea"]
+                    
+            maquina_sel = st.selectbox("Selecciona la Maquinaria específica", options=maquinas_en_linea, index=idx_maq)
 
         if maquina_sel:
         # Consultamos el Inventario Maestro solo para traer los límites técnicos fijos
