@@ -821,7 +821,7 @@ else:
 
 # Al no haber muro, la aplicación principal se ejecuta SIEMPRE
 # ==========================================
-# APLICACIÓN PRINCIPAL
+# APLICACIÓN PRINCIPAL // SIDEBAR
 # ==========================================
 RUTA_MAPA = "mapa.jpg" 
 RUTA_COORDENADAS = "coordenadas.csv"
@@ -900,6 +900,8 @@ with st.sidebar:
                                         nuevo_hash = generate_password_hash(pwd_nueva)
                                         supabase.table("usuarios_app").update({"password": nuevo_hash}).eq("id", id_user_db).execute()
                                         st.success("✅ ¡Contraseña actualizada!")
+                                        time.sleep(1.5) # <--- PAUSA AGREGADA
+                                        st.rerun()
                                     else:
                                         st.error("❌ La contraseña actual es incorrecta.")
                                 else:
@@ -1264,8 +1266,10 @@ if st.session_state.vista_actual == "Alta" and not st.session_state.modo_lectura
                         try:
                             supabase.table("inventario_esd").insert(data_insert).execute()
                             st.success(f"✅ ¡Activo {nuevo_id} registrado con éxito en estatus: {estatus_final}!")
-                            st.cache_data.clear()
                             st.balloons()
+                            st.cache_data.clear()
+                            time.sleep(1.5) # <--- PAUSA AGREGADA
+                            st.rerun()
                         except Exception as e:
                             st.error(f"Error SQL: {e}")
                             
@@ -1424,6 +1428,8 @@ if st.session_state.vista_actual == "Alta" and not st.session_state.modo_lectura
                                         st.success("✅ ¡Desactivado de Inventario!")
                                         st.cache_data.clear()
                                         limpiar_url_escaneo()
+                                        st.balloons()
+                                        time.sleep(1.5) # <--- PAUSA AGREGADA
                                         st.rerun()
                                     except Exception as e:
                                         st.error(f"Error: {e}")
@@ -1450,6 +1456,8 @@ if st.session_state.vista_actual == "Alta" and not st.session_state.modo_lectura
                                         st.success("✅ ¡Desactivado de Maquinaria!")
                                         st.cache_data.clear()
                                         limpiar_url_escaneo()
+                                        st.balloons()
+                                        time.sleep(1.5) # <--- PAUSA AGREGADA
                                         st.rerun()
                                     except Exception as e:
                                         st.error(f"Error: {e}")
@@ -2451,6 +2459,8 @@ elif st.session_state.vista_actual == "Escáner":
                                             st.success("💾 ¡Equipo actualizado y medición anterior archivada en el historial!")
                                             st.cache_data.clear()
                                             limpiar_url_escaneo()
+                                            st.balloons()
+                                            time.sleep(1.5) # <--- PAUSA AGREGADA
                                             st.rerun()
                                         except Exception as e:
                                             st.error(f"Error actualizando el equipo en SQL: {e}")
@@ -4140,9 +4150,11 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
                 insertados, totales = ejecutar_automigracion_lineas()
                 if totales > 0:
                     st.success(f"🎉 ¡Migración completada con éxito! Se detectaron {totales} líneas únicas. Se registraron {insertados} nuevas ubicaciones que no existían en el catálogo.")
+                    st.balloons()
                 else:
                     st.info("No se detectaron líneas nuevas o el historial se encuentra vacío.")
                 st.cache_data.clear()
+                time.sleep(2.5) # <--- PAUSA AGREGADA (Más larga para que alcancen a leer los números)
                 st.rerun()
         
         st.divider()
@@ -4160,6 +4172,8 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
                             supabase.table("catalogo_lineas").insert({"nombre_linea": nueva_ub.strip().upper()}).execute()
                             st.success(f"✅ Ubicación '{nueva_ub.upper()}' guardada.")
                             st.cache_data.clear()
+                            st.balloons()
+                            time.sleep(1.5) # <--- PAUSA AGREGADA
                             st.rerun()
                         except Exception as e:
                             st.error("⚠️ Error (¿Quizás la ubicación ya existe?).")
@@ -4280,6 +4294,8 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
                         }).execute()
                         st.success(f"✅ Equipo '{id_eq.upper()}' guardado exitosamente.")
                         st.cache_data.clear()
+                        st.balloons()
+                        time.sleep(1.5) # <--- PAUSA AGREGADA
                         st.rerun()
                     except Exception as e:
                         st.error(f"⚠️ Error al guardar (¿El ID ya existe?): {e}")
@@ -4974,6 +4990,8 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
                                     }).execute()
                                     st.success(f"✅ Usuario '{nuevo_user}' creado exitosamente como {nuevo_rol}.")
                                     st.cache_data.clear()
+                                    st.balloons()
+                                    time.sleep(1.5) # <--- PAUSA AGREGADA
                                     st.rerun()
                                 except Exception as e:
                                     st.error("⚠️ Error: El ID de usuario probablemente ya existe.")
