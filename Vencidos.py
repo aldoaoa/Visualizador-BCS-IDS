@@ -2077,139 +2077,143 @@ elif st.session_state.vista_actual == "Mapa" and not st.session_state.modo_lectu
 # ==========================================
 elif st.session_state.vista_actual == "Escáner":
     if not id_escaneado_url:
-        st.markdown("### 📷 Apunta al Código QR")
-        html_code_qr = """
-        <script src="https://unpkg.com/html5-qrcode"></script>
-        <div id="reader_main" style="width:100%; max-width:500px; margin:auto; border-radius:10px; overflow:hidden; border: 2px solid #0052cc; background-color: #f9f9f9;"></div>
+        # --- NUEVAS PESTAÑAS DE NAVEGACIÓN ---
+        tab_camara, tab_vencimientos = st.tabs(["📷 Escáner QR / Manual", "🚨 Próximos a Vencer"])
         
-        <div style="text-align:center; margin-top:10px; display:flex; justify-content:center; gap:5px; flex-wrap:wrap;">
-            <button type="button" id="cam_wide_main" style="padding:10px; background:#28a745; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">📸 LENTE ESTÁNDAR</button>
-            <button type="button" id="cam_cycle_main" style="padding:10px; background:#555; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">🔄 OTRA CÁMARA</button>
-        </div>
-        <div style="text-align:center; margin-top:10px; display:flex; justify-content:center; gap:5px;">
-            <button type="button" id="zoom_1x_main" style="padding:10px 20px; background:#0052cc; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">🔍 1X (NORMAL)</button>
-            <button type="button" id="zoom_3x_main" style="padding:10px 20px; background:#666; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">🔍 3X (CURVO)</button>
-        </div>
-        <p id="cam-status-main" style="text-align:center; color:#666; font-size: 14px; margin-top: 10px;">Buscando cámaras...</p>
-        
-        <script>
-        let html5QrCodeMain;
-        let rearCamsMain = [];
-        let currentIdxMain = 0;
-        let wideIdMain = null;
-
-        function applyZoomMain(scale) {
-            const vid = document.querySelector("#reader_main video");
-            if (vid) {
-                vid.style.transform = `scale(${scale})`;
-                vid.style.transformOrigin = "center center";
-            }
-            document.getElementById('zoom_1x_main').style.background = (scale === 1) ? "#0052cc" : "#666";
-            document.getElementById('zoom_3x_main').style.background = (scale === 3) ? "#0052cc" : "#666";
-        }
-
-        function startScannerMain(camId) {
-            if(!html5QrCodeMain) html5QrCodeMain = new Html5Qrcode("reader_main");
-            if (html5QrCodeMain.isScanning) {
-                html5QrCodeMain.stop().then(() => { runScanMain(camId); }).catch(e => console.log(e));
-            } else {
-                runScanMain(camId);
-            }
-        }
-
-        function runScanMain(camId) {
-            html5QrCodeMain.start(
-                camId, { fps: 15, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 },
-                (decodedText) => {
-                    html5QrCodeMain.stop();
-                    const url = new URL(window.parent.location.href);
-                    url.searchParams.set("qr_id", decodedText);
-                    window.parent.history.replaceState({}, "", url);
-                    window.parent.location.reload();
-                }, (err) => {} 
-            ).then(() => { 
-                let activeCam = rearCamsMain.find(c => c.id === camId);
-                document.getElementById("cam-status-main").innerText = "Lente activo: " + (activeCam ? activeCam.label : "Cámara");
-                applyZoomMain(1);
-            }).catch(err => {
-                document.getElementById("cam-status-main").innerText = "Error iniciando lente. Intenta 'Otra Cámara'.";
-            });
-        }
-
-        Html5Qrcode.getCameras().then(devices => {
-            if (devices && devices.length) {
-                rearCamsMain = devices.filter(c => c.label.toLowerCase().includes('back') || c.label.toLowerCase().includes('trasera') || c.label.toLowerCase().includes('environment'));
-                if(rearCamsMain.length === 0) rearCamsMain = devices;
-
-                wideIdMain = rearCamsMain[0].id;
-                for (let c of rearCamsMain) {
-                    let lbl = c.label.toLowerCase();
-                    if (lbl.includes('wide') && !lbl.includes('ultra')) {
-                        wideIdMain = c.id; break;
-                    }
-                }
-
-                currentIdxMain = rearCamsMain.findIndex(c => c.id === wideIdMain);
-                if(currentIdxMain === -1) currentIdxMain = 0;
-
-                startScannerMain(wideIdMain);
-
-                document.getElementById('cam_wide_main').addEventListener('click', () => {
-                    currentIdxMain = rearCamsMain.findIndex(c => c.id === wideIdMain);
-                    startScannerMain(wideIdMain);
-                });
-
-                document.getElementById('cam_cycle_main').addEventListener('click', () => {
-                    currentIdxMain = (currentIdxMain + 1) % rearCamsMain.length;
-                    startScannerMain(rearCamsMain[currentIdxMain].id);
-                });
-
-                document.getElementById('zoom_1x_main').addEventListener('click', () => applyZoomMain(1));
-                document.getElementById('zoom_3x_main').addEventListener('click', () => applyZoomMain(3));
-            }
-        }).catch(err => { document.getElementById("cam-status-main").innerText = "Permisos de cámara denegados."; });
-        </script>
-        """
-        components.html(html_code_qr, height=750) 
-        
-        id_manual = st.text_input("O ingresa el ID manual:", key="input_manual")
-        if id_manual:
-            st.query_params["qr_id"] = id_manual
-            st.rerun()
+        with tab_camara:
+            st.markdown("### 📷 Apunta al Código QR")
+            html_code_qr = """
+            <script src="https://unpkg.com/html5-qrcode"></script>
+            <div id="reader_main" style="width:100%; max-width:500px; margin:auto; border-radius:10px; overflow:hidden; border: 2px solid #0052cc; background-color: #f9f9f9;"></div>
+            
+            <div style="text-align:center; margin-top:10px; display:flex; justify-content:center; gap:5px; flex-wrap:wrap;">
+                <button type="button" id="cam_wide_main" style="padding:10px; background:#28a745; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">📸 LENTE ESTÁNDAR</button>
+                <button type="button" id="cam_cycle_main" style="padding:10px; background:#555; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">🔄 OTRA CÁMARA</button>
+            </div>
+            <div style="text-align:center; margin-top:10px; display:flex; justify-content:center; gap:5px;">
+                <button type="button" id="zoom_1x_main" style="padding:10px 20px; background:#0052cc; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">🔍 1X (NORMAL)</button>
+                <button type="button" id="zoom_3x_main" style="padding:10px 20px; background:#666; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">🔍 3X (CURVO)</button>
+            </div>
+            <p id="cam-status-main" style="text-align:center; color:#666; font-size: 14px; margin-top: 10px;">Buscando cámaras...</p>
+            
+            <script>
+            let html5QrCodeMain;
+            let rearCamsMain = [];
+            let currentIdxMain = 0;
+            let wideIdMain = null;
     
-    # --- NUEVA PESTAÑA: EQUIPOS POR VENCER ---
-    with tab_vencimientos:
-        st.markdown("#### 🚨 Equipos Vencidos o por Vencer (7 días)")
-        st.info("Selecciona un equipo de la lista para auditarlo de forma directa sin necesidad de escanear su código QR en piso.")
-        
-        try:
-            # Consultamos la vista que agrupa los equipos de todas las tablas
-            resp_vencidos = supabase.table("v_equipos_por_vencer").select("*").execute()
-            df_vencidos = pd.DataFrame(resp_vencidos.data)
-        except Exception as e:
-            df_vencidos = pd.DataFrame()
-            st.error(f"Error al cargar la tabla de vencimientos: {e}")
+            function applyZoomMain(scale) {
+                const vid = document.querySelector("#reader_main video");
+                if (vid) {
+                    vid.style.transform = `scale(${scale})`;
+                    vid.style.transformOrigin = "center center";
+                }
+                document.getElementById('zoom_1x_main').style.background = (scale === 1) ? "#0052cc" : "#666";
+                document.getElementById('zoom_3x_main').style.background = (scale === 3) ? "#0052cc" : "#666";
+            }
+    
+            function startScannerMain(camId) {
+                if(!html5QrCodeMain) html5QrCodeMain = new Html5Qrcode("reader_main");
+                if (html5QrCodeMain.isScanning) {
+                    html5QrCodeMain.stop().then(() => { runScanMain(camId); }).catch(e => console.log(e));
+                } else {
+                    runScanMain(camId);
+                }
+            }
+    
+            function runScanMain(camId) {
+                html5QrCodeMain.start(
+                    camId, { fps: 15, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 },
+                    (decodedText) => {
+                        html5QrCodeMain.stop();
+                        const url = new URL(window.parent.location.href);
+                        url.searchParams.set("qr_id", decodedText);
+                        window.parent.history.replaceState({}, "", url);
+                        window.parent.location.reload();
+                    }, (err) => {} 
+                ).then(() => { 
+                    let activeCam = rearCamsMain.find(c => c.id === camId);
+                    document.getElementById("cam-status-main").innerText = "Lente activo: " + (activeCam ? activeCam.label : "Cámara");
+                    applyZoomMain(1);
+                }).catch(err => {
+                    document.getElementById("cam-status-main").innerText = "Error iniciando lente. Intenta 'Otra Cámara'.";
+                });
+            }
+    
+            Html5Qrcode.getCameras().then(devices => {
+                if (devices && devices.length) {
+                    rearCamsMain = devices.filter(c => c.label.toLowerCase().includes('back') || c.label.toLowerCase().includes('trasera') || c.label.toLowerCase().includes('environment'));
+                    if(rearCamsMain.length === 0) rearCamsMain = devices;
+    
+                    wideIdMain = rearCamsMain[0].id;
+                    for (let c of rearCamsMain) {
+                        let lbl = c.label.toLowerCase();
+                        if (lbl.includes('wide') && !lbl.includes('ultra')) {
+                            wideIdMain = c.id; break;
+                        }
+                    }
+    
+                    currentIdxMain = rearCamsMain.findIndex(c => c.id === wideIdMain);
+                    if(currentIdxMain === -1) currentIdxMain = 0;
+    
+                    startScannerMain(wideIdMain);
+    
+                    document.getElementById('cam_wide_main').addEventListener('click', () => {
+                        currentIdxMain = rearCamsMain.findIndex(c => c.id === wideIdMain);
+                        startScannerMain(wideIdMain);
+                    });
+    
+                    document.getElementById('cam_cycle_main').addEventListener('click', () => {
+                        currentIdxMain = (currentIdxMain + 1) % rearCamsMain.length;
+                        startScannerMain(rearCamsMain[currentIdxMain].id);
+                    });
+    
+                    document.getElementById('zoom_1x_main').addEventListener('click', () => applyZoomMain(1));
+                    document.getElementById('zoom_3x_main').addEventListener('click', () => applyZoomMain(3));
+                }
+            }).catch(err => { document.getElementById("cam-status-main").innerText = "Permisos de cámara denegados."; });
+            </script>
+            """
+            components.html(html_code_qr, height=750) 
             
-        if not df_vencidos.empty:
-            st.dataframe(df_vencidos, use_container_width=True, hide_index=True)
-            
-            st.divider()
-            st.markdown("##### ⚡ Iniciar Auditoría")
-            
-            # Intentamos detectar dinámicamente la columna que contiene el ID 
-            # (puede llamarse id_producto, id_maquinaria o simplemente id)
-            col_id = next((c for c in df_vencidos.columns if 'id' in c.lower()), df_vencidos.columns[0])
-            
-            c_ven1, c_ven2 = st.columns([2, 1])
-            id_a_auditar = c_ven1.selectbox("Selecciona el ID del equipo a auditar:", options=df_vencidos[col_id].astype(str).unique())
-            
-            if c_ven2.button("📝 Auditar Seleccionado", type="primary", use_container_width=True):
-                # Al inyectar el ID en los query params, el sistema recarga e ingresa 
-                # a la lógica de guardado que ya tienes construida abajo.
-                st.query_params["qr_id"] = id_a_auditar
+            id_manual = st.text_input("O ingresa el ID manual:", key="input_manual")
+            if id_manual:
+                st.query_params["qr_id"] = id_manual
                 st.rerun()
-        else:
-            st.success("🎉 ¡Excelente! No hay equipos vencidos ni próximos a vencer en los siguientes 7 días.")
+    
+        # --- NUEVA PESTAÑA: EQUIPOS POR VENCER ---
+        with tab_vencimientos:
+            st.markdown("#### 🚨 Equipos Vencidos o por Vencer (7 días)")
+            st.info("Selecciona un equipo de la lista para auditarlo de forma directa sin necesidad de escanear su código QR en piso.")
+            
+            try:
+                # Consultamos la vista que agrupa los equipos de todas las tablas
+                resp_vencidos = supabase.table("v_equipos_por_vencer").select("*").execute()
+                df_vencidos = pd.DataFrame(resp_vencidos.data)
+            except Exception as e:
+                df_vencidos = pd.DataFrame()
+                st.error(f"Error al cargar la tabla de vencimientos: {e}")
+                
+            if not df_vencidos.empty:
+                st.dataframe(df_vencidos, use_container_width=True, hide_index=True)
+                
+                st.divider()
+                st.markdown("##### ⚡ Iniciar Auditoría")
+                
+                # Intentamos detectar dinámicamente la columna que contiene el ID 
+                # (puede llamarse id_producto, id_maquinaria o simplemente id)
+                col_id = next((c for c in df_vencidos.columns if 'id' in c.lower()), df_vencidos.columns[0])
+                
+                c_ven1, c_ven2 = st.columns([2, 1])
+                id_a_auditar = c_ven1.selectbox("Selecciona el ID del equipo a auditar:", options=df_vencidos[col_id].astype(str).unique())
+                
+                if c_ven2.button("📝 Auditar Seleccionado", type="primary", use_container_width=True):
+                    # Al inyectar el ID en los query params, el sistema recarga e ingresa 
+                    # a la lógica de guardado que ya tienes construida abajo.
+                    st.query_params["qr_id"] = id_a_auditar
+                    st.rerun()
+            else:
+                st.success("🎉 ¡Excelente! No hay equipos vencidos ni próximos a vencer en los siguientes 7 días.")
 
     # ==========================================
     # LÓGICA DE AUDITORÍA (SI YA HAY UN ID SELECCIONADO/ESCANEADO)
