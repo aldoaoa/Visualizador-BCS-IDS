@@ -363,8 +363,12 @@ def generar_html_reporte_completo(row, index):
     auditor = get_sql_val('auditor')
     
     # Lógica de color para el estatus
+    # Lógica de color infalible para el estatus
     res_upper = str(resultado).upper()
-    res_color = "text-green-600" if "CUMPLE" in res_upper or "PASA" in res_upper or "APROBADO" in res_upper else "text-red-600"
+    if "NO CUMPLE" in res_upper or "RECHAZADO" in res_upper or "FALLA" in res_upper:
+        res_color = "text-red-600"
+    else:
+        res_color = "text-green-600"
 
 # Generar fecha en formato YYYY/MM/DD para el pie de página
     fecha_pie_str = datetime.today().strftime("%Y/%m/%d")
@@ -728,7 +732,11 @@ def generar_html_reporte_esd(row, index):
     # --------------------------------------------------
     resultado_str = safe_str(row.get('resultado', 'N/D'))
     res_upper = resultado_str.upper()
-    res_color = "text-green-600" if "CUMPLE" in res_upper or "PASA" in res_upper or "APROBADO" in res_upper else "text-red-600"
+    
+    if "NO CUMPLE" in res_upper or "RECHAZADO" in res_upper or "FALLA" in res_upper:
+        res_color = "text-red-600"
+    else:
+        res_color = "text-green-600"
     
     html = f"""<!DOCTYPE html>
 <html lang="es">
@@ -3473,8 +3481,13 @@ elif st.session_state.vista_actual == "Validación" and not st.session_state.mod
                             st.write(f"**Medición:** {row.get('medicion_1')} {row.get('unidad')}")
                             st.write(f"**Límite:** < {row.get('limite_referencia')}")
                             
-                            # Coloreamos en pantalla el resultado
-                            color_res = "green" if "CUMPLE" in res.upper() or "APROBADO" in res.upper() or "PASA" in res.upper() else "red"
+                            # Filtro estricto de color para el visor en vivo
+                            res_upper = res.upper()
+                            if "NO CUMPLE" in res_upper or "RECHAZADO" in res_upper or "FALLA" in res_upper:
+                                color_res = "red"
+                            else:
+                                color_res = "green"
+                                
                             st.markdown(f"**Resultado:** <span style='color: {color_res}; font-weight: bold;'>{res}</span>", unsafe_allow_html=True)
 
                         with c_img:
