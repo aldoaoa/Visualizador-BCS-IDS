@@ -3735,14 +3735,25 @@ elif st.session_state.vista_actual == "Validación" and not st.session_state.mod
                                         st.warning("⚠️ ANUNCIO: La bata de este empleado ya estaba validada en el semestre corriente. Busque a otro empleado para el muestreo aleatorio.")
                                         mostrar_notificacion_semestre = True
                                 
-                                # Almacenar en historial el dato que se va a sobreescribir
-                                supabase.table("historial_batas").insert({
-                                    "num_empleado": empleado_sel,
-                                    "fecha_validacion": info_emp['fecha_ultima_validacion'],
-                                    "valor_resistencia": info_emp['valor_resistencia'],
-                                    "auditor": st.session_state.usuario_nombre,
-                                    "estatus_bata": info_emp['estatus_bata']
-                                }).execute()
+                                # --- NUEVO: BLINDAJE CONTRA NAN ---
+                                # Limpiamos los datos históricos antes de guardarlos para evitar colapso de JSON
+                                f_hist_val = info_emp.get('fecha_ultima_validacion')
+                                v_hist_res = info_emp.get('valor_resistencia')
+                                e_hist_bat = info_emp.get('estatus_bata')
+                                
+                                f_hist_clean = f_hist_val if pd.notna(f_hist_val) and str(f_hist_val).strip() else None
+                                v_hist_clean = float(v_hist_res) if pd.notna(v_hist_res) else None
+                                e_hist_clean = str(e_hist_bat) if pd.notna(e_hist_bat) and str(e_hist_bat).strip() else None
+
+                                # Solo insertamos en el historial si realmente había una medición anterior que archivar
+                                if f_hist_clean is not None:
+                                    supabase.table("historial_batas").insert({
+                                        "num_empleado": empleado_sel,
+                                        "fecha_validacion": f_hist_clean,
+                                        "valor_resistencia": v_hist_clean,
+                                        "auditor": st.session_state.usuario_nombre,
+                                        "estatus_bata": e_hist_clean
+                                    }).execute()
                                 
                                 # Actualizar datos de empleado
                                 datos_update = {
