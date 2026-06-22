@@ -6768,15 +6768,15 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
         else:
             ultimo_dia_mes = hoy.replace(month=hoy.month + 1, day=1) - timedelta(days=1)
 
-        # 1. Cargar padrón maestro (SOLO PERSONAL ACTIVO)
+        # 1. Cargar padrón maestro (FUENTE DE LA VERDAD UNIFICADA PARA FECHAS)
         try:
-            resp_maestro = supabase.table("empleados_batas").select("num_empleado, nombre").eq("estatus_empleado", "Activo").execute()
+            resp_maestro = supabase.table("empleados_batas").select("num_empleado, nombre, fecha_ultimo_entrenamiento, fecha_proximo_entrenamiento").eq("estatus_empleado", "Activo").execute()
             df_maestro = pd.DataFrame(resp_maestro.data)
         except Exception as e:
             df_maestro = pd.DataFrame()
             st.error(f"Error al conectar con la base maestra de personal: {e}")
 
-        # 2. Cargar historial completo de exámenes
+        # 2. Cargar historial completo de exámenes (Únicamente para extraer calificaciones y Json)
         try:
             resp_todo_train = supabase.table("entrenamientos_esd").select("num_empleado, fecha_entrenamiento, calificacion_total, detalle_respuestas").execute()
             df_todo_train = pd.DataFrame(resp_todo_train.data)
@@ -6784,28 +6784,28 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
             df_todo_train = pd.DataFrame()
 
         # =====================================================================
-        # 3. FILTRO MAESTRO GLOBAL: Unicidad y Última Evaluación
+        # 3. FILTRO MAESTRO GLOBAL UNIFICADO (FUENTE: EMPLEADOS_BATAS)
         # =====================================================================
         if not df_maestro.empty:
-            # LIMPIEZA A: Asegurar que no haya empleados duplicados en el HC por errores de espacios
             df_maestro['num_empleado'] = df_maestro['num_empleado'].astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
             df_maestro = df_maestro.drop_duplicates(subset=['num_empleado'], keep='first')
+            
+            # Formatear fechas desde la tabla maestra
+            df_maestro['fecha_entrenamiento_oficial'] = pd.to_datetime(df_maestro['fecha_ultimo_entrenamiento'], errors='coerce').dt.date
+            df_maestro['fecha_proximo'] = pd.to_datetime(df_maestro['fecha_proximo_entrenamiento'], errors='coerce').dt.date
             
             if not df_todo_train.empty:
                 df_todo_train['num_empleado'] = df_todo_train['num_empleado'].astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
                 df_todo_train['fecha_entrenamiento'] = pd.to_datetime(df_todo_train['fecha_entrenamiento'], errors='coerce')
                 
-                # LIMPIEZA B: Ordenar cronológicamente y extraer ÚNICAMENTE el intento más reciente
+                # Extraer la última calificación registrada
                 df_recientes = df_todo_train.sort_values('fecha_entrenamiento', ascending=False).drop_duplicates(subset=['num_empleado'], keep='first')
+                df_recientes = df_recientes[['num_empleado', 'calificacion_total', 'detalle_respuestas']]
             else:
-                df_recientes = pd.DataFrame(columns=['num_empleado', 'fecha_entrenamiento', 'calificacion_total', 'detalle_respuestas'])
+                df_recientes = pd.DataFrame(columns=['num_empleado', 'calificacion_total', 'detalle_respuestas'])
 
-            # LIMPIEZA C: Cruzar padrón activo (izq) con su último examen (der)
+            # Unir padrón maestro con su última calificación
             df_merged = pd.merge(df_maestro, df_recientes, on='num_empleado', how='left')
-
-            # CÁLCULO DINÁMICO DE VIGENCIA: Exactamente 1 año (DateOffset) desde la fecha del examen
-            df_merged['fecha_proximo'] = df_merged['fecha_entrenamiento'] + pd.DateOffset(years=1)
-            df_merged['fecha_proximo'] = df_merged['fecha_proximo'].dt.date
             
             # Recalcular calificación real base 10 leyendo el JSON del último intento
             def calcular_nota_real(row):
@@ -6824,7 +6824,7 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
 
             # --- SEGMENTACIÓN DE DATOS PARA MÉTRICAS ---
             
-            # A) Sin Vigencia / Vencidos (No tienen examen O su proyección ya expiró)
+            # A) Sin Vigencia / Vencidos (No tienen fecha oficial de próximo O ya expiró)
             mask_sin_vigencia = df_merged['fecha_proximo'].isna() | (df_merged['fecha_proximo'] < hoy)
             df_sin_vigencia = df_merged[mask_sin_vigencia]
 
@@ -6836,8 +6836,8 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
             mask_mes = (df_merged['fecha_proximo'] >= hoy) & (df_merged['fecha_proximo'] <= ultimo_dia_mes)
             df_vencen_mes = df_merged[mask_mes]
 
-            # D) Notas Críticas: Solo los que SÍ tienen examen y su último intento es <= 7.0
-            mask_tiene_examen = df_merged['fecha_entrenamiento'].notna()
+            # D) Notas Críticas: Solo los que SÍ tienen fecha de entrenamiento oficial y su último intento es <= 7.0
+            mask_tiene_examen = df_merged['fecha_entrenamiento_oficial'].notna()
             df_bajos = df_merged[mask_tiene_examen & (df_merged['nota_real_base_10'] <= 7.0)]
 
             # --- DESPLIEGUE DE KPI CARDS (4 Columnas) ---
@@ -6864,8 +6864,9 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
 
                 st.markdown("##### 🔴 Notas Críticas Activas (≤ 70%)")
                 if not df_bajos.empty:
-                    df_bajos_show = df_bajos[['num_empleado', 'nombre', 'nota_real_base_10', 'fecha_entrenamiento']].copy()
-                    df_bajos_show['fecha_entrenamiento'] = df_bajos_show['fecha_entrenamiento'].dt.strftime('%d-%b-%Y')
+                    # Usamos la fecha oficial unificada para mostrarla en la tabla
+                    df_bajos_show = df_bajos[['num_empleado', 'nombre', 'nota_real_base_10', 'fecha_entrenamiento_oficial']].copy()
+                    df_bajos_show['fecha_entrenamiento_oficial'] = pd.to_datetime(df_bajos_show['fecha_entrenamiento_oficial']).dt.strftime('%d-%b-%Y')
                     df_bajos_show.columns = ['No. Empleado', 'Nombre', 'Calificación Real', 'Último Examen']
                     st.dataframe(df_bajos_show, width="stretch", hide_index=True)
                 else:
@@ -6875,7 +6876,7 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
                 st.markdown(f"##### 📅 Cronograma de Reentrenamientos (Próximos 365 días)")
                 if not df_vencen_anio.empty:
                     df_vencen_anio_show = df_vencen_anio[['num_empleado', 'nombre', 'fecha_proximo']].copy()
-                    df_vencen_anio_show = df_vencen_anio_show.sort_values('fecha_proximo') # Ordenar los más próximos a vencer arriba
+                    df_vencen_anio_show = df_vencen_anio_show.sort_values('fecha_proximo')
                     df_vencen_anio_show.columns = ['No. Empleado', 'Nombre', 'Próximo Reentrenamiento']
                     st.dataframe(df_vencen_anio_show, width="stretch", hide_index=True)
                 else:
