@@ -4419,8 +4419,8 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
         with c_exp1:
             st.markdown("**🛋️ Inventario de Mobiliario (y Piso)**")
             if not df_mob_local.empty:
-                # Convertimos a CSV
-                csv_mob = df_mob_local.to_csv(index=False).encode('utf-8')
+                # CAMBIO: utf-8-sig para compatibilidad total con acentos en Excel
+                csv_mob = df_mob_local.to_csv(index=False).encode('utf-8-sig')
                 st.download_button(
                     label="📥 Descargar Mobiliario.csv",
                     data=csv_mob,
@@ -4435,7 +4435,8 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
         with c_exp2:
             st.markdown("**⚡ Inventario de Ionizadores**")
             if not df_ion_local.empty:
-                csv_ion = df_ion_local.to_csv(index=False).encode('utf-8')
+                # CAMBIO: utf-8-sig
+                csv_ion = df_ion_local.to_csv(index=False).encode('utf-8-sig')
                 st.download_button(
                     label="📥 Descargar Ionizadores.csv",
                     data=csv_ion,
@@ -4453,12 +4454,12 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
         with c_exp3:
             st.markdown("**🛠️ Catálogo de Equipos de Medición**")
             try:
-                # Hacemos una consulta fresca para traer todos los equipos
                 resp_eq_exp = supabase.table("equipos_medicion").select("*").execute()
                 df_eq_exp = pd.DataFrame(resp_eq_exp.data)
                 
                 if not df_eq_exp.empty:
-                    csv_eq = df_eq_exp.to_csv(index=False).encode('utf-8')
+                    # CAMBIO: utf-8-sig
+                    csv_eq = df_eq_exp.to_csv(index=False).encode('utf-8-sig')
                     st.download_button(
                         label="📥 Descargar Equipos.csv",
                         data=csv_eq,
@@ -4475,12 +4476,12 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
         with c_exp4:
             st.markdown("**🏭 Historial de Maquinaria**")
             try:
-                # Traemos todo el histórico de maquinaria
                 resp_maq_exp = supabase.table("mediciones_maquinaria").select("*").order("fecha_medicion", desc=True).execute()
                 df_maq_exp = pd.DataFrame(resp_maq_exp.data)
                 
                 if not df_maq_exp.empty:
-                    csv_maq = df_maq_exp.to_csv(index=False).encode('utf-8')
+                    # CAMBIO: utf-8-sig
+                    csv_maq = df_maq_exp.to_csv(index=False).encode('utf-8-sig')
                     st.download_button(
                         label="📥 Descargar Maquinaria.csv",
                         data=csv_maq,
@@ -6249,7 +6250,7 @@ elif st.session_state.vista_actual == "Sensibilidad" and not st.session_state.mo
                     st.dataframe(df_mostrar.fillna("-"), use_container_width=True, hide_index=True)
 
                     # Exportar a CSV usando el ID único
-                    csv_sen = df_mostrar.to_csv(index=False).encode('utf-8')
+                    csv_sen = df_mostrar.to_csv(index=False).encode('utf-8-sig')
                     st.download_button(
                         label="📥 Descargar Análisis en CSV",
                         data=csv_sen,
