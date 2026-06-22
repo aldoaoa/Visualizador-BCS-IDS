@@ -138,6 +138,111 @@ def limpiar_id(texto):
     # Convierte a texto, quita espacios raros, borra espacios al inicio/fin y lo hace mayúscula
     return str(texto).replace('\xa0', ' ').strip().upper()
 
+def generar_html_reporte_calificaciones(df_calif, auditor):
+    año_actual = datetime.today().strftime("%y")
+    fecha_hoy = datetime.today().strftime("%d-%b-%Y")
+    fecha_pie = datetime.today().strftime("%Y/%m/%d")
+    
+    # Construir las filas de la tabla
+    filas_html = ""
+    for i, row in enumerate(df_calif.to_dict('records'), 1):
+        fecha = str(row.get('Fecha', 'N/D'))
+        elemento = str(row.get('Elemento S20.20', 'N/D'))
+        id_elem = str(row.get('ID Elemento', 'N/D'))
+        notas = str(row.get('Notas', ''))
+        if notas.lower() in ['nan', 'none']: notas = ""
+        subido_por = str(row.get('Subido por', 'N/D'))
+        
+        # Extraer el nombre del archivo de la URL original
+        url_doc = str(row.get('archivo_url_raw', ''))
+        nombre_archivo = url_doc.split('/')[-1].replace('%20', ' ').replace('%28', '(').replace('%29', ')') if '/' in url_doc else 'Reporte_Adjunto.pdf'
+        
+        filas_html += f"""
+        <tr class="text-center border-b border-gray-300 print:border-black">
+            <td class="border-r border-gray-300 p-2 print:border-black">{i}</td>
+            <td class="border-r border-gray-300 p-2 font-mono print:border-black">{fecha}</td>
+            <td class="border-r border-gray-300 p-2 text-left print:border-black">{elemento}</td>
+            <td class="border-r border-gray-300 p-2 font-bold text-left print:border-black">{id_elem}</td>
+            <td class="border-r border-gray-300 p-2 text-left text-xs text-blue-800 font-mono print:text-black print:border-black">{nombre_archivo}</td>
+            <td class="border-r border-gray-300 p-2 text-left text-xs print:border-black">{notas}</td>
+            <td class="p-2 text-xs print:border-black">{subido_por}</td>
+        </tr>
+        """
+        
+    html = f"""<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>BCS-RCAL-{año_actual}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>@media print {{ body {{ -webkit-print-color-adjust: exact; }} }}</style>
+</head>
+<body class="bg-gray-100 p-4 md:p-8 font-sans text-sm print:bg-white print:p-0">
+    <div class="max-w-6xl mx-auto mb-6 bg-white p-4 rounded-lg shadow flex justify-end print:hidden">
+        <button onclick="window.print()" class="bg-blue-600 text-white px-6 py-2 rounded font-bold shadow-sm hover:bg-blue-700 transition">🖨️ Imprimir / Guardar PDF</button>
+    </div>
+    <div class="max-w-6xl mx-auto bg-white shadow-xl print:shadow-none print:w-full print:border print:border-black">
+        <div class="border-b-2 border-gray-800 p-6 flex items-start justify-between print:border-black">
+            <div class="w-1/4">
+                <img src="https://github.com/aldoaoa/Visualizador-BCS-IDS/blob/main/BCS%20LOGO.png?raw=true" alt="BCS Logo" class="h-16 object-contain" />
+            </div>
+            <div class="w-2/4 text-center">
+                <h1 class="text-lg font-bold text-gray-800">REPORTE DE ELEMENTOS CALIFICADOS (ESD)</h1>
+                <p class="text-xs text-gray-600">Cumplimiento Integral ANSI/ESD S20.20</p>
+            </div>
+            <div class="w-1/4 text-right text-sm">
+                <div class="font-bold text-red-700 text-lg mb-2">Folio: BCS-RCAL-{año_actual}</div>
+                <div class="flex justify-end gap-2 mb-1">
+                    <span class="font-bold">Fecha de Emisión:</span><span>{fecha_hoy}</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="p-6 space-y-6">
+            <div>
+                <div class="bg-[#003366] text-white font-bold px-2 py-1 uppercase text-xs print:bg-black">Desglose de Elementos con Calificación de Producto (Certificados)</div>
+                <table class="w-full text-sm border-collapse border border-gray-300 print:border-black">
+                    <tr class="bg-gray-200 border-b border-gray-300 print:bg-transparent print:border-black">
+                        <th class="p-2 border-r border-gray-300 print:border-black w-10">No.</th>
+                        <th class="p-2 border-r border-gray-300 print:border-black w-24">Fecha Reg.</th>
+                        <th class="p-2 border-r border-gray-300 print:border-black text-left">Categoría S20.20</th>
+                        <th class="p-2 border-r border-gray-300 print:border-black text-left">ID Elemento</th>
+                        <th class="p-2 border-r border-gray-300 print:border-black text-left">Evidencia / Certificado</th>
+                        <th class="p-2 border-r border-gray-300 print:border-black text-left">Observaciones</th>
+                        <th class="p-2 w-24">Subido por</th>
+                    </tr>
+                    {filas_html}
+                </table>
+            </div>
+
+            <div class="mt-16 mb-8 pt-8 [page-break-inside:avoid]">
+                <div class="w-1/2 mx-auto text-center border-t-2 border-gray-800 pt-2 print:border-black">
+                    <div class="font-bold uppercase text-sm mb-1">EMITIDO POR:</div>
+                    <div class="text-center font-bold text-gray-700 print:text-black">{auditor}</div>
+                    <div class="text-xs text-gray-500">Coordinador ESD</div>
+                </div>
+            </div>
+            
+            <div class="border-t-[3px] border-b-[3px] border-black mt-16 py-1 text-[11px] font-sans [page-break-inside:avoid]">
+                <div class="flex justify-between items-end">
+                    <div class="text-left leading-tight">
+                        <div>B_010_4_021_QRO_SP Rev. A</div>
+                        <div>Registro de eventos ESD.</div>
+                    </div>
+                    <div class="text-center leading-tight">
+                        <div>Fecha: {fecha_pie}</div>
+                    </div>
+                    <div class="text-right leading-tight">
+                        <div>Ref.B_010_3_002_QRO_SP</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>"""
+    return html, año_actual
+
 def generar_html_reporte_linea(linea, df_linea, auditor, comentarios, db_id):
     año_actual = datetime.today().strftime("%y")
     fecha_hoy = datetime.today().strftime("%d-%b-%Y")
@@ -3564,17 +3669,36 @@ elif st.session_state.vista_actual == "Validación" and not st.session_state.mod
                 df_mostrar = df_rep[['fecha_registro', 'elemento_s20_20', 'id_elemento', 'auditor', 'notas', 'archivo_url']].copy()
                 df_mostrar.columns = ['Fecha', 'Elemento S20.20', 'ID Elemento', 'Subido por', 'Notas', 'Documento']
                 
+                # Guardamos la URL cruda en una columna oculta para que la plantilla HTML pueda extraer el nombre xxx.pdf
+                df_mostrar['archivo_url_raw'] = df_mostrar['Documento']
+                
                 # Convertimos la URL cruda en un botón HTML
                 df_mostrar['Documento'] = df_mostrar['Documento'].apply(hacer_enlace)
                 
-                # Usamos to_html para que Streamlit renderice los links correctamente dentro de una tabla
-                st.write(df_mostrar.to_html(escape=False, index=False, classes='w-full text-sm border-collapse border border-gray-300 text-center mb-6'), unsafe_allow_html=True)
+                # --- BOTÓN DE GENERACIÓN DE REPORTE OFICIAL ---
+                col_btn_rep1, col_btn_rep2 = st.columns([2.5, 1])
+                with col_btn_rep2:
+                    if st.button("📄 Generar Reporte PDF/HTML", use_container_width=True, type="primary"):
+                        html_calif, año_calif = generar_html_reporte_calificaciones(df_mostrar, st.session_state.usuario_nombre)
+                        b64_html = base64.b64encode(html_calif.encode('utf-8')).decode('utf-8')
+                        nombre_oficial = f"BCS-RCAL-{año_calif}"
+                        
+                        href = f'<a href="data:text/html;base64,{b64_html}" download="{nombre_oficial}.html" target="_blank" style="display: block; text-align: center; padding: 10px; background-color: #003366; color: white; text-decoration: none; border-radius: 5px; font-weight: bold; font-size: 14px; margin-bottom: 10px;">📥 Descargar: {nombre_oficial}</a>'
+                        st.markdown(href, unsafe_allow_html=True)
+                
+                # Usamos to_html para que Streamlit renderice los links correctamente dentro de una tabla (Borramos la URL cruda para no mostrarla)
+                st.write(df_mostrar.drop(columns=['archivo_url_raw']).to_html(escape=False, index=False, classes='w-full text-sm border-collapse border border-gray-300 text-center mb-6'), unsafe_allow_html=True)
             else:
                 st.info("Aún no hay reportes de calificación registrados.")
         except Exception as e:
             st.warning(f"No se pudo cargar el historial. Asegúrate de haber creado la tabla SQL. Error: {e}")
 
         st.divider()
+
+        # ==========================================
+        # 2. FORMULARIO DE CAPTURA
+        # ==========================================
+        st.markdown("##### 📝 Cargar Nuevo Reporte")
 
         # ==========================================
         # 2. FORMULARIO DE CAPTURA
