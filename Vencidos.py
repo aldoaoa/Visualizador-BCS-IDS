@@ -7276,9 +7276,9 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
                 c_search1, c_search2 = st.columns([3, 1])
                 # 2. CORRECCIÓN VITAL: Eliminamos el 'value='. Usar solo el 'key' evita que Streamlit borre lo que tecleas
                 c_search1.text_input(
-                    "Número de Empleado / Personnel Number:", 
+                    "ID de Empleado / Personnel ID:", 
                     key="texto_busqueda_empleado",
-                    autocomplete="new-password"
+                    autocomplete="off"
                 )
                 btn_buscar = c_search2.form_submit_button("🔍 Buscar Historial", use_container_width=True)
     
