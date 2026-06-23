@@ -6959,13 +6959,14 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
 
         # 1. Cargar padrón maestro (FUENTE DE LA VERDAD UNIFICADA PARA FECHAS)
         try:
-            resp_maestro = supabase.table("empleados_batas").select("num_empleado, nombre, fecha_ultimo_entrenamiento, fecha_proximo_entrenamiento").eq("estatus_empleado", "Activo").execute()
+            # AGREGADO: 'fecha_ingreso' para poder validar la sanidad de los datos durante el cruce
+            resp_maestro = supabase.table("empleados_batas").select("num_empleado, nombre, fecha_ingreso, fecha_ultimo_entrenamiento, fecha_proximo_entrenamiento").eq("estatus_empleado", "Activo").execute()
             df_maestro = pd.DataFrame(resp_maestro.data)
         except Exception as e:
             df_maestro = pd.DataFrame()
             st.error(f"Error al conectar con la base maestra de personal: {e}")
 
-        # 2. Cargar historial completo de exámenes (Únicamente para extraer calificaciones y Json)
+        # 2. Cargar historial completo de exámenes (Para extraer calificaciones y fechas de rescate)
         try:
             resp_todo_train = supabase.table("entrenamientos_esd").select("num_empleado, fecha_entrenamiento, calificacion_total, detalle_respuestas").execute()
             df_todo_train = pd.DataFrame(resp_todo_train.data)
@@ -6973,7 +6974,7 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
             df_todo_train = pd.DataFrame()
 
         # =====================================================================
-        # 3. FILTRO MAESTRO GLOBAL UNIFICADO (FUENTE: EMPLEADOS_BATAS)
+        # 3. FILTRO MAESTRO GLOBAL UNIFICADO Y AUTO-SANIDAD
         # =====================================================================
         if not df_maestro.empty:
             df_maestro['num_empleado'] = df_maestro['num_empleado'].astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
@@ -6987,14 +6988,31 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
                 df_todo_train['num_empleado'] = df_todo_train['num_empleado'].astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
                 df_todo_train['fecha_entrenamiento'] = pd.to_datetime(df_todo_train['fecha_entrenamiento'], errors='coerce')
                 
-                # Extraer la última calificación registrada
+                # Extraer la última calificación y FECHA registrada
                 df_recientes = df_todo_train.sort_values('fecha_entrenamiento', ascending=False).drop_duplicates(subset=['num_empleado'], keep='first')
-                df_recientes = df_recientes[['num_empleado', 'calificacion_total', 'detalle_respuestas']]
+                
+                # CORRECCIÓN VITAL: Mantener 'fecha_entrenamiento' en el DataFrame cruzado
+                df_recientes = df_recientes[['num_empleado', 'fecha_entrenamiento', 'calificacion_total', 'detalle_respuestas']]
             else:
-                df_recientes = pd.DataFrame(columns=['num_empleado', 'calificacion_total', 'detalle_respuestas'])
+                df_recientes = pd.DataFrame(columns=['num_empleado', 'fecha_entrenamiento', 'calificacion_total', 'detalle_respuestas'])
 
             # Unir padrón maestro con su última calificación
             df_merged = pd.merge(df_maestro, df_recientes, on='num_empleado', how='left')
+            
+            # --- NUEVO: AUTO-SANIDAD DE DATOS (RESCATE DE EXÁMENES DESINCRONIZADOS) ---
+            # Si el empleado tiene la fecha en blanco en el padrón, pero SÍ tiene un examen en el historial, lo rescatamos.
+            if 'fecha_entrenamiento' in df_merged.columns:
+                mask_rescate = df_merged['fecha_entrenamiento_oficial'].isna() & df_merged['fecha_entrenamiento'].notna()
+                
+                # Respetamos la Cronología: NO rescatamos si el examen es más viejo que su fecha de ingreso oficial
+                df_merged['ingreso_dt'] = pd.to_datetime(df_merged['fecha_ingreso'], errors='coerce')
+                mask_valida = df_merged['ingreso_dt'].isna() | (df_merged['fecha_entrenamiento'] >= df_merged['ingreso_dt'])
+                mask_rescate = mask_rescate & mask_valida
+
+                if mask_rescate.any():
+                    df_merged.loc[mask_rescate, 'fecha_entrenamiento_oficial'] = df_merged.loc[mask_rescate, 'fecha_entrenamiento'].dt.date
+                    df_merged.loc[mask_rescate, 'fecha_proximo'] = (df_merged.loc[mask_rescate, 'fecha_entrenamiento'] + pd.DateOffset(years=1)).dt.date
+            # -------------------------------------------------------------------------
             
             # Recalcular calificación real base 10 leyendo el JSON del último intento
             def calcular_nota_real(row):
