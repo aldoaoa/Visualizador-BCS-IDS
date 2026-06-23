@@ -2488,7 +2488,16 @@ elif st.session_state.vista_actual == "Escáner":
                     hacer_medicion = st.checkbox(texto_check)
                     if hacer_medicion:
                         with st.form("form_actualizacion"):
-                            st.text_input("Clasificación (Tipo de Equipo)", value=clasificacion_equipo, disabled=True)
+                            # --- NUEVO: SELECTOR DINÁMICO DE CLASIFICACIÓN ---
+                            clasif_disp = sorted([str(x).strip() for x in df_actual.get('Clasificación', pd.Series()).unique() if pd.notna(x) and str(x).strip() != ''])
+                            if clasificacion_equipo and clasificacion_equipo not in clasif_disp:
+                                clasif_disp = [clasificacion_equipo] + clasif_disp
+                            if not clasif_disp: 
+                                clasif_disp = ["Mesa", "Silla", "Carrito", "Rack", "Tapete", "Otro"] # Respaldo seguro
+                                
+                            idx_c = clasif_disp.index(clasificacion_equipo) if clasificacion_equipo in clasif_disp else 0
+                            nueva_clasif_upd = st.selectbox("Clasificación (Tipo de Equipo)", options=clasif_disp, index=idx_c)
+                            # ------------------------------------------------
                             
                             # --- 1. LÍNEA POR DEFECTO ASEGURADA ---
                             if 'obtener_catalogo_lineas' in globals():
@@ -2520,7 +2529,6 @@ elif st.session_state.vista_actual == "Escáner":
                             
                             if st.form_submit_button("💾 Guardar Actualización e Historial"):
                                 # --- 3. VALIDACIÓN DE CAMPOS ---
-                                # Como los campos inician vacíos (None), debemos evitar que el programa truene si le dan a Guardar accidentalmente.
                                 if es_ion and (v_act is None or bal_act is None):
                                     st.error("⚠️ Debes ingresar los valores de Descarga y Balance.")
                                 elif not es_ion and (base_upd is None or exp_upd is None):
@@ -2539,22 +2547,20 @@ elif st.session_state.vista_actual == "Escáner":
                                         
                                         try:
                                             # --- 4. GUARDAR EL ESTADO ANTERIOR EN LA TABLA HISTORIAL ---
-                                            # Extraemos los valores previos que ya tenemos cargados de la BD
                                             val_previo_hist = str(equipo.get('Valor de verificación', 0))
                                             ubicacion_previa = str(equipo.get('Línea', 'N/D'))
                                             auditor_previo = str(equipo.get('Auditor', st.session_state.usuario_nombre))
                                             
-                                            # Solo guardamos en el historial si realmente existía una medición anterior (evita guardar registros vacíos/nuevos)
                                             if f_val_sql != 'N/A' and f_val_sql != 'Error':
                                                 historial_data = {
                                                     "id_equipo": id_limpio,
-                                                    "tipo_equipo": clasificacion_equipo,
+                                                    "tipo_equipo": clasificacion_equipo, # Aquí guardamos lo que era antes
                                                     "ubicacion": ubicacion_previa,
                                                     "valor_actual": val_previo_hist,
-                                                    "fecha_validacion": f_val_sql, # <--- FECHA ANTERIOR
+                                                    "fecha_validacion": f_val_sql,
                                                     "fecha_vencimiento": f_venc_sql if f_venc_sql != 'N/A' else None,
-                                                    "auditor": auditor_previo, # <--- AUDITOR ANTERIOR
-                                                    "fecha_modificacion": datetime.now().isoformat() # <--- Cuándo se archivó
+                                                    "auditor": auditor_previo,
+                                                    "fecha_modificacion": datetime.now().isoformat()
                                                 }
                                                 if es_ion:
                                                     historial_data["balance_ionizador"] = str(equipo.get('Balance', 0))
@@ -2563,13 +2569,14 @@ elif st.session_state.vista_actual == "Escáner":
 
                                             # --- 5. ACTUALIZAR EL ESTADO NUEVO EN INVENTARIO MAESTRO ---
                                             update_data = {
+                                                "clasificacion": nueva_clasif_upd, # <--- AHORA SE GUARDA EL CAMBIO
                                                 "linea_ubicacion": nueva_linea_upd,
                                                 "valor_actual": float(nuevo_valor_final),
-                                                "fecha_ultima_verif": nueva_fecha.isoformat(), # <--- FECHA NUEVA (HOY)
+                                                "fecha_ultima_verif": nueva_fecha.isoformat(),
                                                 "fecha_proxima_verif": proxy.isoformat(),
                                                 "estatus_verificacion": "VIGENTE",
                                                 "estatus_operativo": "OPERATIVO",
-                                                "auditor_responsable": st.session_state.usuario_nombre, # <--- AUDITOR NUEVO (TÚ)
+                                                "auditor_responsable": st.session_state.usuario_nombre,
                                             }
                                             if es_ion:
                                                 update_data["balance_ionizador"] = float(bal_act)
@@ -2579,8 +2586,7 @@ elif st.session_state.vista_actual == "Escáner":
                                             st.success("💾 ¡Equipo actualizado y medición anterior archivada en el historial!")
                                             st.cache_data.clear()
                                             limpiar_url_escaneo()
-                                            st.balloons()
-                                            time.sleep(1.5) # <--- PAUSA AGREGADA
+                                            time.sleep(1.5)
                                             st.rerun()
                                         except Exception as e:
                                             st.error(f"Error actualizando el equipo en SQL: {e}")
