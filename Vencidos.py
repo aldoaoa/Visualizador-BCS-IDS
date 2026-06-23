@@ -7278,7 +7278,7 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
                 c_search1.text_input(
                     "Número de Empleado / Personnel Number:", 
                     key="texto_busqueda_empleado",
-                    autocomplete="off" # <--- BLOQUEA EL AUTOCOMPLETADO DE CHROME
+                    autocomplete="new-password"
                 )
                 btn_buscar = c_search2.form_submit_button("🔍 Buscar Historial", use_container_width=True)
     
