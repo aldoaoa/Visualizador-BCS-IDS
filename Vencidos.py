@@ -1170,21 +1170,47 @@ st.divider()
 if st.session_state.vista_actual == "Alta" and not st.session_state.modo_lectura:
     st.markdown("### Gestión de Inventario ESD")
     
-    with st.expander("📋 Directorio de IDs Existentes (Click para abrir/cerrar)", expanded=False):
-        tipo_dir = st.radio("Ver directorio de:", ["Mobiliario", "Ionizadores"], horizontal=True)
-        df_dir = df_mob_local if tipo_dir == "Mobiliario" else df_ion_local
+    with st.expander("📋 Directorio de IDs Existentes (Todos los Estatus)", expanded=False):
+        tipo_dir = st.radio("Ver directorio de:", ["Mobiliario", "Ionizadores", "Maquinaria", "Equipos de Medición"], horizontal=True)
         
-        st.info("💡 **Tip:** Haz clic en el título de una columna para ordenar (A-Z) o usa la lupa (🔍) para buscar un ID específico.")
-        if not df_dir.empty and 'Id de producto' in df_dir.columns and 'Línea' in df_dir.columns:
-            if 'Estatus operativo' in df_dir.columns:
-                df_clean = df_dir[df_dir['Estatus operativo'].astype(str).str.strip().str.upper() != 'NO OPERATIVO']
-            else:
-                df_clean = df_dir.copy()
-                
-            df_clean = df_clean[['Línea', 'Id de producto', 'Clasificación']].dropna(subset=['Id de producto'])
-            st.dataframe(df_clean, use_container_width=True, hide_index=True)
+        st.info("💡 **Tip:** Aquí se muestran TODOS los equipos (Operativos y dados de Baja) para que verifiques disponibilidad. Haz clic en las columnas para ordenar.")
+        
+        df_dir = pd.DataFrame()
+        if tipo_dir == "Mobiliario":
+            df_dir = df_mob_local.copy() if df_mob_local is not None else pd.DataFrame()
+        elif tipo_dir == "Ionizadores":
+            df_dir = df_ion_local.copy() if df_ion_local is not None else pd.DataFrame()
+        elif tipo_dir == "Maquinaria":
+            try:
+                resp_m = supabase.table("mediciones_maquinaria").select("linea_ubicacion, id_maquinaria, clasificacion, status_operativo").execute()
+                df_dir = pd.DataFrame(resp_m.data)
+                if not df_dir.empty:
+                    df_dir = df_dir.rename(columns={'linea_ubicacion':'Línea', 'id_maquinaria':'Id de producto', 'clasificacion':'Clasificación', 'status_operativo':'Estatus operativo'})
+            except: pass
         else:
-            st.warning("No hay datos disponibles aún en esta categoría.")
+            try:
+                resp_e = supabase.table("equipos_medicion").select("id_equipo, tipo_equipo").execute()
+                df_dir = pd.DataFrame(resp_e.data)
+                if not df_dir.empty:
+                    df_dir = df_dir.rename(columns={'id_equipo':'Id de producto', 'tipo_equipo':'Clasificación'})
+                    df_dir['Línea'] = 'Laboratorio / N/A'
+                    df_dir['Estatus operativo'] = 'OPERATIVO'
+            except: pass
+            
+        if not df_dir.empty and 'Id de producto' in df_dir.columns:
+            # Quitamos el filtro restrictivo para que incluya las bajas
+            cols_to_show = [c for c in ['Línea', 'Id de producto', 'Clasificación', 'Estatus operativo'] if c in df_dir.columns]
+            df_clean = df_dir[cols_to_show].dropna(subset=['Id de producto']).copy()
+            
+            # Resaltamos visualmente los que están dados de baja
+            if 'Estatus operativo' in df_clean.columns:
+                df_clean['Estatus operativo'] = df_clean['Estatus operativo'].apply(
+                    lambda x: "🔴 DADO DE BAJA" if str(x).strip().upper() in ["NO OPERATIVO", "BAJA"] else f"🟢 {x}"
+                )
+                
+            st.dataframe(df_clean.sort_values(by='Id de producto'), use_container_width=True, hide_index=True)
+        else:
+            st.warning("No hay datos disponibles en esta categoría.")
     
     st.divider()
     
@@ -1210,42 +1236,74 @@ if st.session_state.vista_actual == "Alta" and not st.session_state.modo_lectura
             df_target_alta = df_ion_local
         else:
             df_target_alta = df_mon_local
-        
+            
         lineas_disponibles = obtener_catalogo_lineas()
+        
+        # --- CAMBIO CLAVE: LÍNEA AFUERA DEL FORMULARIO ---
+        # Al estar afuera, cuando cambias de línea, el sistema reacciona y calcula el ID antes de que des click en guardar.
+        nueva_linea = st.selectbox("📍 1. Selecciona la Línea (Ubicación) de destino", options=lineas_disponibles)
+        
+        # Lógica de Autocompletado del siguiente ID
+        sugerencia_id = ""
+        if tipo_alta == "Mobiliario":
+            df_linea_mob = pd.DataFrame()
+            if df_target_alta is not None and not df_target_alta.empty and 'Línea' in df_target_alta.columns:
+                df_linea_mob = df_target_alta[df_target_alta['Línea'] == nueva_linea]
+                
+            if not df_linea_mob.empty:
+                ids_actuales = df_linea_mob['Id de producto'].dropna().tolist()
+                max_num = 0
+                prefijo_comun = "MOB-"
+                width_ceros = 2 # Por si usan 01 o 001
+                
+                for id_str in ids_actuales:
+                    import re
+                    # Extrae cualquier letra/guión al inicio y los números finales
+                    match = re.search(r'^(.*?)(\d+)$', str(id_str).strip())
+                    if match:
+                        num = int(match.group(2))
+                        if num > max_num:
+                            max_num = num
+                            prefijo_comun = match.group(1)
+                            width_ceros = len(match.group(2))
+                            
+                if max_num > 0:
+                    sugerencia_id = f"{prefijo_comun}{max_num + 1:0{width_ceros}d}"
+                else:
+                    sugerencia_id = f"{nueva_linea[:3].upper()}-01"
+            else:
+                sugerencia_id = f"{nueva_linea[:3].upper()}-01"
+        else:
+            sugerencia_id = "ION-001" if tipo_alta == "Ionizador" else "MON-001"
+
+        if tipo_alta == "Mobiliario":
+            st.info(f"💡 Siguiente ID detectado automáticamente para **{nueva_linea}**: `{sugerencia_id}`")
 
         with st.form("form_alta_equipo"):
             col1, col2 = st.columns(2)
-            nueva_linea = col1.selectbox("Línea (Ubicación)", options=lineas_disponibles)
             
-            # Prefijo dinámico para ayudar al usuario
-            prefijo = "MOB-001" if tipo_alta == "Mobiliario" else ("ION-001" if tipo_alta == "Ionizador" else "MON-001")
-            nuevo_id = col2.text_input(f"ID de Producto (Ej: {prefijo})")
+            # El ID se llena solito con la sugerencia, pero te deja borrarlo y escribir otro si lo necesitas.
+            nuevo_id = col1.text_input("2. ID de Producto a registrar", value=sugerencia_id)
             
             # --- CAMPOS PARA MOBILIARIO ---
             if tipo_alta == "Mobiliario":
-                # [CORRECCIÓN APLICADA AQUÍ: SANGRÍA]
-                tipos_disponibles = sorted([str(x).strip() for x in df_target_alta.get('Clasificación', pd.Series()).unique() if pd.notna(x) and str(x).strip() != ''])
-                nuevo_tipo = col1.selectbox("Tipo / Clasificación", options=tipos_disponibles if tipos_disponibles else ["Mesa", "Silla"])
+                tipos_disponibles = sorted([str(x).strip() for x in df_target_alta.get('Clasificación', pd.Series()).unique() if pd.notna(x) and str(x).strip() != '']) if df_target_alta is not None and not df_target_alta.empty else []
+                nuevo_tipo = col2.selectbox("Tipo / Clasificación", options=tipos_disponibles if tipos_disponibles else ["Mesa", "Silla"])
                 
-                with col2:
-                    # Sustituimos el bloque de base/exponente por un text_input limpio
+                with col1:
                     valor_alta_txt = st.text_input("Valor inicial (Ohms)", placeholder="Ej: 1e9 o 5.5e8")
-                    
-                    # Procesamos el texto ingresado
                     valor_alta = parsear_resistencia(valor_alta_txt)
                     
-                    # Validación visual inmediata en el formulario
                     if valor_alta == "ERROR":
                         st.error("❌ Formato inválido. Usa números o notación (ej: 1e9).")
-                        valor_alta = None  # Evita que el error pase a la base de datos
+                        valor_alta = None 
                     elif valor_alta is not None and valor_alta >= 1e9:
-                        # Opcional: Una advertencia visual si excede el límite normativo de 1e9
                         st.warning("⚠️ Atención: El valor ingresado excede el límite de 1e9 Ohms.")
+            
+                fabricante_opc = col2.selectbox("Fabricante", options=["BCS", "Otro", "N/A"])
+                fabricante_final = col2.text_input("Especifique Fabricante") if fabricante_opc == "Otro" else fabricante_opc
                 
-                fabricante_opc = col1.selectbox("Fabricante", options=["BCS", "Otro", "N/A"])
-                fabricante_final = col1.text_input("Especifique Fabricante") if fabricante_opc == "Otro" else fabricante_opc
-                
-                frecuencia_alta = col2.selectbox("Frecuencia", options=["Anual", "Semestral", "Trimestral", "Mensual"], index=0)
+                frecuencia_alta = col1.selectbox("Frecuencia", options=["Anual", "Semestral", "Trimestral", "Mensual"], index=0)
                 col3, col4 = st.columns(2)
                 nuevo_minimo = col3.number_input("Mínimo", value=0.00, format="%.2e")
                 limite_alta = col4.text_input("Límite Maximo", value="1.00E+09")
