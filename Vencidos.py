@@ -7090,15 +7090,35 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
                     st.success("🎉 Ningún usuario activo tiene calificación reprobatoria en su evaluación más reciente.")
 
             with col_tablas2:
-                st.markdown(f"##### 📅 Cronograma de Reentrenamientos (Próximos 365 días)")
-                if not df_vencen_anio.empty:
-                    df_vencen_anio_show = df_vencen_anio[['num_empleado', 'nombre', 'fecha_proximo']].copy()
-                    df_vencen_anio_show = df_vencen_anio_show.sort_values('fecha_proximo')
-                    df_vencen_anio_show.columns = ['No. Empleado', 'Nombre', 'Próximo Reentrenamiento']
-                    st.dataframe(df_vencen_anio_show, width="stretch", hide_index=True)
-                else:
-                    st.info("No hay reentrenamientos proyectados en los próximos 12 meses.")
+                st.markdown("##### 📅 Cronograma de Reentrenamientos")
+                
+                # --- NUEVO: SELECTOR DE PROYECCIÓN DINÁMICA ---
+                from dateutil.relativedelta import relativedelta
+                opciones_tiempo = {
+                    "Próximo Mes": 1, 
+                    "Próximos 3 Meses": 3, 
+                    "Próximos 6 Meses": 6, 
+                    "Próximos 12 Meses": 12
+                }
+                filtro_meses = st.selectbox("⏳ Rango de proyección:", options=list(opciones_tiempo.keys()), index=3)
+                
+                # Calcular el límite de fecha basado en la selección
+                meses_delta = opciones_tiempo[filtro_meses]
+                limite_dinamico = hoy + relativedelta(months=meses_delta)
+                
+                # Filtrar el padrón maestro según la nueva ventana de tiempo
+                mask_dinamica = (df_merged['fecha_proximo'] >= hoy) & (df_merged['fecha_proximo'] <= limite_dinamico)
+                df_vencen_dinamico = df_merged[mask_dinamica]
 
+                if not df_vencen_dinamico.empty:
+                    df_vencen_show = df_vencen_dinamico[['num_empleado', 'nombre', 'fecha_proximo']].copy()
+                    df_vencen_show = df_vencen_show.sort_values('fecha_proximo') # Ordenar los más próximos a vencer arriba
+                    df_vencen_show.columns = ['No. Empleado', 'Nombre', 'Próximo Reentrenamiento']
+                    
+                    st.dataframe(df_vencen_show, width="stretch", hide_index=True)
+                    st.caption(f"Mostrando {len(df_vencen_show)} vencimientos proyectados hasta el {limite_dinamico.strftime('%d-%b-%Y')}.")
+                else:
+                    st.info(f"No hay reentrenamientos proyectados para el rango de '{filtro_meses}'.")
             # =====================================================================
             # NUEVA SECCIÓN: RESUMEN DE CALIFICACIONES POR SEMANA
             # =====================================================================
