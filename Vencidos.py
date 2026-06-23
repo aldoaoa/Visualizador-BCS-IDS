@@ -6999,17 +6999,27 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
             # Unir padrón maestro con su última calificación
             df_merged = pd.merge(df_maestro, df_recientes, on='num_empleado', how='left')
             
-            # --- NUEVO: AUTO-SANIDAD DE DATOS (RESCATE DE EXÁMENES DESINCRONIZADOS) ---
-            # Si el empleado tiene la fecha en blanco en el padrón, pero SÍ tiene un examen en el historial, lo rescatamos.
+            # --- NUEVO: AUTO-SANIDAD DE DATOS (RESCATE DE EXÁMENES DESINCRONIZADOS Y SOBREESCRITOS) ---
             if 'fecha_entrenamiento' in df_merged.columns:
-                mask_rescate = df_merged['fecha_entrenamiento_oficial'].isna() & df_merged['fecha_entrenamiento'].notna()
+                df_merged['ingreso_dt'] = pd.to_datetime(df_merged['fecha_ingreso'], errors='coerce')
+                
+                # Convertimos la fecha oficial a datetime para compararla matemáticamente
+                f_oficial_dt = pd.to_datetime(df_merged['fecha_entrenamiento_oficial'], errors='coerce')
+                
+                # Condición 1: Está en blanco pero sí hay examen registrado en el historial
+                cond1 = df_merged['fecha_entrenamiento_oficial'].isna() & df_merged['fecha_entrenamiento'].notna()
+                
+                # Condición 2: La fecha oficial en la ficha quedó "atrasada" por subir un Excel viejo después de uno nuevo
+                cond2 = df_merged['fecha_entrenamiento'].notna() & f_oficial_dt.notna() & (f_oficial_dt.dt.date < df_merged['fecha_entrenamiento'].dt.date)
+                
+                mask_rescate = cond1 | cond2
                 
                 # Respetamos la Cronología: NO rescatamos si el examen es más viejo que su fecha de ingreso oficial
-                df_merged['ingreso_dt'] = pd.to_datetime(df_merged['fecha_ingreso'], errors='coerce')
                 mask_valida = df_merged['ingreso_dt'].isna() | (df_merged['fecha_entrenamiento'] >= df_merged['ingreso_dt'])
                 mask_rescate = mask_rescate & mask_valida
 
                 if mask_rescate.any():
+                    # Si detecta desfase, sobreescribe en vivo con la fecha real del examen más reciente
                     df_merged.loc[mask_rescate, 'fecha_entrenamiento_oficial'] = df_merged.loc[mask_rescate, 'fecha_entrenamiento'].dt.date
                     df_merged.loc[mask_rescate, 'fecha_proximo'] = (df_merged.loc[mask_rescate, 'fecha_entrenamiento'] + pd.DateOffset(years=1)).dt.date
             # -------------------------------------------------------------------------
