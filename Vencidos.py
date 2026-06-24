@@ -689,7 +689,7 @@ def cargar_datos_cloud():
         
     except Exception as e:
         st.error(f"Error conectando a la base de datos: {e}")
-        return None, None, None, None, None
+        return None, None, None, None, None, None
 
 
 # ==========================================
