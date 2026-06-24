@@ -2508,8 +2508,12 @@ elif st.session_state.vista_actual == "Escáner":
                 else:
                     c_val.metric("Resistencia", f"{float(val_previo):.2E} Ω" if pd.notna(val_previo) else "N/A")
 
+                # Extracción del ID literal para evitar fallos de lectura por mayúsculas/espacios
+                id_exacto_db = str(equipo.get('Id de producto', id_limpio))
+
                 try:
-                    resp_fechas = supabase.table("inventario_esd").select("fecha_ultima_verif, fecha_proxima_verif").eq("id_producto", id_limpio).execute()
+                    # Usamos el id_exacto_db en lugar del id_limpio
+                    resp_fechas = supabase.table("inventario_esd").select("fecha_ultima_verif, fecha_proxima_verif").eq("id_producto", id_exacto_db).execute()
                     if resp_fechas.data:
                         f_val_sql = resp_fechas.data[0].get('fecha_ultima_verif', 'N/A')
                         f_venc_sql = resp_fechas.data[0].get('fecha_proxima_verif', 'N/A')
