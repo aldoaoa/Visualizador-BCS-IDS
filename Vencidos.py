@@ -2627,7 +2627,7 @@ elif st.session_state.vista_actual == "Escáner":
 
                                             # --- 5. ACTUALIZAR EL ESTADO NUEVO EN INVENTARIO MAESTRO ---
                                             update_data = {
-                                                "clasificacion": nueva_clasif_upd, # <--- AHORA SE GUARDA EL CAMBIO
+                                                "clasificacion": nueva_clasif_upd,
                                                 "linea_ubicacion": nueva_linea_upd,
                                                 "valor_actual": float(nuevo_valor_final),
                                                 "fecha_ultima_verif": nueva_fecha.isoformat(),
@@ -2639,13 +2639,20 @@ elif st.session_state.vista_actual == "Escáner":
                                             if es_ion:
                                                 update_data["balance_ionizador"] = float(bal_act)
                                             
-                                            supabase.table("inventario_esd").update(update_data).eq("id_producto", id_limpio).execute()
+                                            # --- EL TRUCO ESTÁ AQUÍ: Extraer el ID literal de la base de datos ---
+                                            id_exacto_db = str(equipo.get('Id de producto', id_limpio))
                                             
-                                            st.success("💾 ¡Equipo actualizado y medición anterior archivada en el historial!")
-                                            st.cache_data.clear()
-                                            limpiar_url_escaneo()
-                                            time.sleep(1.5)
-                                            st.rerun()
+                                            res_upd = supabase.table("inventario_esd").update(update_data).eq("id_producto", id_exacto_db).execute()
+                                            
+                                            # Verificación de seguridad: ¿Se actualizó realmente alguna fila?
+                                            if len(res_upd.data) == 0:
+                                                st.error(f"❌ Fallo silencioso evitado: El ID '{id_exacto_db}' tiene un formato especial (minúsculas o espacios) en la base de datos que impidió la actualización. Búscalo en la pestaña de Alta/Baja para corregirlo.")
+                                            else:
+                                                st.success("💾 ¡Equipo actualizado exitosamente!")
+                                                st.cache_data.clear()
+                                                limpiar_url_escaneo()
+                                                time.sleep(1.5)
+                                                st.rerun()
                                         except Exception as e:
                                             st.error(f"Error actualizando el equipo en SQL: {e}")
                 # --- NUEVO: LISTADO DE OTROS EQUIPOS EN LA MISMA LÍNEA ---
