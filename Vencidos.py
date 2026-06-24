@@ -2486,49 +2486,7 @@ elif st.session_state.vista_actual == "Escáner":
                 
                 texto_check = "✅ REACTIVAR" if estatus_op == "NO OPERATIVO" else "✅ Registrar medición"
 
-                '''
-                st.markdown(f"### 📊 Detalles del Equipo")
-                c_linea, c_tipo, c_estatus = st.columns(3)
-                c_linea.metric("Ubicación", str(equipo.get('Línea', 'N/A')))
-                clasificacion_equipo = str(equipo.get('Clasificación', 'N/A'))
-                c_tipo.metric("Clasificación", clasificacion_equipo)
-                c_estatus.metric("Estatus", estatus_mostrar)
-                
-                c_val, c_bal = st.columns(2)
-                val_previo = equipo.get('Valor de verificación', 0)
-                if es_ion:
-                    c_val.metric("Descarga", f"{float(val_previo):.2f} s" if pd.notna(val_previo) else "N/A")
-                    
-                    # --- NUEVO: FORMATEO DEL BALANCE CON UNIDAD DE VOLTS ---
-                    bal_previo = equipo.get('Balance')
-                    if pd.notna(bal_previo) and str(bal_previo).strip() not in ['', 'N/A', 'nan', 'None']:
-                        c_bal.metric("Balance", f"{float(bal_previo):.2f} V")
-                    else:
-                        c_bal.metric("Balance", "N/A")
-                    # -------------------------------------------------------
-                else:
-                    c_val.metric("Resistencia", f"{float(val_previo):.2E} Ω" if pd.notna(val_previo) else "N/A")
-
-                # Extracción del ID literal para evitar fallos de lectura por mayúsculas/espacios
-                id_exacto_db = str(equipo.get('Id de producto', id_limpio))
-
-                try:
-                    # Usamos el id_exacto_db en lugar del id_limpio
-                    resp_fechas = supabase.table("inventario_esd").select("fecha_ultima_verif, fecha_proxima_verif").eq("id_producto", id_exacto_db).execute()
-                    if resp_fechas.data:
-                        f_val_sql = resp_fechas.data[0].get('fecha_ultima_verif', 'N/A')
-                        f_venc_sql = resp_fechas.data[0].get('fecha_proxima_verif', 'N/A')
-                    else:
-                        f_val_sql, f_venc_sql = "N/A", "N/A"
-                except Exception as e:
-                    f_val_sql, f_venc_sql = "Error", "Error"
-
-                c_fval, c_fvenc = st.columns(2)
-                c_fval.metric("Fecha de Validación", str(f_val_sql)[:10] if f_val_sql != "N/A" else "N/A")
-                c_fvenc.metric("Fecha de Vencimiento", str(f_venc_sql)[:10] if f_venc_sql != "N/A" else "N/A")
-                '''
-
-                # === COMIENZA REEMPLAZO: AJUSTE DE LECTURA Y ESTATUS DINÁMICO ===
+               # === COMIENZA REEMPLAZO: AJUSTE DE LECTURA Y ESTATUS DINÁMICO ===
                 id_exacto_db = str(equipo.get('Id de producto', id_limpio))
 
                 # 1. Consultar de forma segura las fechas usando el ID exacto y literal de la base de datos
