@@ -6691,167 +6691,303 @@ elif st.session_state.vista_actual == "Tierras" and not st.session_state.modo_le
         except Exception as e:
             st.error(f"Error al cargar el historial: {e}")
 
-# --- PESTAÑA 3: VALIDACIÓN DE PISO (CAPTURAS VISUALES) ---
+    # --- PESTAÑA 3: VALIDACIÓN DE PISO Y TAPETES ---
     with tab_piso:
-        st.markdown("#### 🗺️ Validación Semestral de Piso ESD")
-        st.info("Medición de Resistencia a Tierra (RTG). Límite de aprobación: < 1.0x10^9 Ω.")
-        
-        # 1. DICCIONARIOS DE RECURSOS
-        diagramas_cuartos = {
-            "Cuarto 1": "https://raw.githubusercontent.com/aldoaoa/Visualizador-BCS-IDS/refs/heads/testing/1.png",
-            "Cuarto 2": "https://raw.githubusercontent.com/aldoaoa/Visualizador-BCS-IDS/refs/heads/testing/2.png",
-            "Cuarto 3": "https://raw.githubusercontent.com/aldoaoa/Visualizador-BCS-IDS/refs/heads/testing/3.png",
-            "Cuarto 4": "https://raw.githubusercontent.com/aldoaoa/Visualizador-BCS-IDS/refs/heads/testing/4.png",
-            "Cuarto 5": "https://raw.githubusercontent.com/aldoaoa/Visualizador-BCS-IDS/refs/heads/testing/5.png",
-            "Cuarto 6": "https://raw.githubusercontent.com/aldoaoa/Visualizador-BCS-IDS/refs/heads/testing/6.png"
-        }
-
-        COORDENADAS_PISOS = {
-            "Cuarto 1": {1: (53, 649), 2: (241, 656), 3: (508, 651), 4: (576, 568), 5: (484, 567), 6: (242, 567), 7: (56, 472), 8: (241, 466), 9: (471, 466), 10: (533, 381), 11: (243, 384), 12: (242, 259), 13: (593, 258), 14: (205, 173), 15: (561, 66)},
-            "Cuarto 2": {1: (38, 404), 2: (174, 365), 3: (154, 277), 4: (255, 222), 5: (109, 65), 6: (346, 85), 7: (523, 90), 8: (579, 211), 9: (334, 201), 10: (330, 380), 11: (253, 461), 12: (251, 585), 13: (588, 385), 14: (590, 511), 15: (482, 595)},
-            "Cuarto 3": {1: (74, 585), 2: (128, 422), 3: (126, 199), 4: (263, 93), 5: (329, 37), 6: (614, 71), 7: (545, 180), 8: (341, 259), 9: (233, 338), 10: (280, 474), 11: (225, 586), 12: (424, 394), 13: (424, 543), 14: (549, 472), 15: (633, 380)},
-            "Cuarto 4": {1: (71, 425), 2: (84, 271), 3: (117, 59), 4: (375, 60), 5: (503, 65), 6: (581, 205), 7: (547, 328), 8: (175, 335), 9: (274, 381), 10: (434, 375), 11: (415, 466), 12: (174, 557), 13: (598, 517), 14: (293, 629), 15: (568, 629)},
-            "Cuarto 5": {1: (50, 81), 2: (107, 309), 3: (176, 569), 4: (293, 487), 5: (523, 563), 6: (826, 488), 7: (923, 376), 8: (682, 369), 9: (391, 276), 10: (733, 239), 11: (389, 145), 12: (718, 128), 13: (905, 215), 14: (860, 89), 15: (963, 547)},
-            "Cuarto 6": {1: (92, 567), 2: (135, 466), 3: (112, 313), 4: (147, 167), 5: (185, 40), 6: (370, 42), 7: (708, 46), 8: (702, 196), 9: (368, 197), 10: (705, 295), 11: (370, 297), 12: (602, 387), 13: (707, 587), 14: (437, 587), 15: (247, 596)}
-        }
-
-        # Obtenemos equipos
-        try:
-            resp_eq_piso = supabase.table("equipos_medicion").select("id_equipo").execute()
-            equipos_piso = sorted([str(x['id_equipo']).strip() for x in resp_eq_piso.data if x.get('id_equipo')])
-        except:
-            equipos_piso = ["Error al cargar equipos"]
-
-        if not equipos_piso:
-            equipos_piso = ["Sin equipos registrados"]
-
-        cuarto_sel = st.selectbox("1. Selecciona el Cuarto a Validar:", options=list(diagramas_cuartos.keys()))
-        
-        # Inicializar borrador
-        if "borrador_piso" not in st.session_state:
-            st.session_state.borrador_piso = {}
-
-        # 2. DESCARGAR LA IMAGEN PARA RECORTES DINÁMICOS
-        import requests
-        from PIL import Image
-        from io import BytesIO
-        
-        img_url = diagramas_cuartos[cuarto_sel]
-        img_pil = None
-        img_w, img_h = 0, 0
-        try:
-            response = requests.get(img_url)
-            img_pil = Image.open(BytesIO(response.content))
-            img_w, img_h = img_pil.size
-        except Exception as e:
-            st.error("No se pudo cargar la imagen del cuarto de referencia.")
-
-        # --- SECCIÓN A: MAPA GENERAL ESTÁTICO (REFERENCIA) ---
-        with st.expander("👁️ Ver Mapa General del Cuarto", expanded=False):
-            if img_pil:
-                st.image(img_pil, use_container_width=True)
-
-        # --- SECCIÓN B: FORMULARIO DE CAPTURA VISUAL ---
-        st.markdown("#### 📝 Captura Dinámica de Auditoría")
-        with st.form("form_validacion_piso"):
-            c_met1, c_met2, c_met3 = st.columns(3)
-            equipo_piso_sel = c_met1.selectbox("Equipo de Medición:", options=equipos_piso)
-            temp_piso = c_met2.text_input("Temperatura (°C):", value="23.5")
-            hum_piso = c_met3.text_input("Humedad (% RH):", value="45")
-            
-            st.markdown("##### 📍 Captura de Puntos (Ohms)")
-            st.caption("Si la medición está en formato científico, introdúcela como base y exponente (Ej: 5.2e7 -> 52000000). Deja en 0 los puntos que no apliquen.")
-            st.divider()
-            
-            puntos_rtg = {}
-            coords_map = COORDENADAS_PISOS.get(cuarto_sel, {})
-            
-            # Generamos las filas y columnas del formulario
-            for fila in range(3):
-                cols = st.columns(5)
-                for col_idx in range(5):
-                    punto_num = (fila * 5) + col_idx + 1
-                    llave_unica = f"{cuarto_sel}_{punto_num}"
-                    valor_previo = st.session_state.borrador_piso.get(llave_unica, None)
-                    
-                    with cols[col_idx]:
-                        # 3. RECORTAR LA IMAGEN PARA EL PUNTO ESPECÍFICO
-                        if img_pil and punto_num in coords_map:
-                            cx, cy = coords_map[punto_num]
-                            
-                            # Definimos una "caja de recorte" de 200x200 píxeles centrada en el punto
-                            box_size = 200 
-                            left = max(0, cx - box_size)
-                            upper = max(0, cy - box_size)
-                            right = min(img_w, cx + box_size)
-                            lower = min(img_h, cy + box_size)
-                            
-                            cropped_img = img_pil.crop((left, upper, right, lower))
-                            # Mostramos el recorte con el número del punto como título
-                            st.image(cropped_img, use_container_width=True, caption=f"📍 Punto {punto_num}")
-                        else:
-                            st.markdown(f"**📍 Punto {punto_num}**")
-                            
-                        # El input de captura justo debajo de la imagen
-                        val = st.number_input("Ohms:", min_value=0.0, format="%.2e", step=1e6, value=valor_previo, placeholder="0.0", label_visibility="collapsed", key=f"input_{cuarto_sel}_{punto_num}")
-                        puntos_rtg[punto_num] = val
-
-            st.divider()
-            c_btn1, c_btn2 = st.columns(2)
-            btn_borrador = c_btn1.form_submit_button("📝 Guardar Borrador (Temporal)", use_container_width=True)
-            submit_piso = c_btn2.form_submit_button("💾 Guardar Validación Final", type="primary", use_container_width=True)
-
-        # Lógica formularios (Borrador / Guardado)
-        if btn_borrador:
-            for p_num, p_val in puntos_rtg.items():
-                # BLINDAJE: Validamos que el punto no sea None antes de evaluar si es mayor a 0
-                if p_val is not None and p_val > 0: 
-                    st.session_state.borrador_piso[f"{cuarto_sel}_{p_num}"] = p_val
-            st.success("✅ Progreso guardado temporalmente.")
-
-        if submit_piso:
-            # BLINDAJE: También protegemos el diccionario de guardado final contra los None
-            puntos_a_guardar = {k: v for k, v in puntos_rtg.items() if v is not None and v > 0}
-            
-            if not puntos_a_guardar:
-                st.error("⚠️ Registra al menos un punto.")
-            else:
-                with st.spinner(f"Guardando..."):
-                    registros_db = []
-                    fecha_reg = datetime.now().isoformat()
-                    for p_num, p_val in puntos_a_guardar.items():
-                        estatus = "VIGENTE" if p_val < 1.0e9 else "VENCIDO"
-                        registros_db.append({
-                            "cuarto": cuarto_sel, "punto": p_num, "medicion_ohms": p_val,
-                            "temperatura": temp_piso, "humedad": hum_piso, "equipo_medicion": equipo_piso_sel,
-                            "estatus": estatus, "auditor": st.session_state.usuario_nombre, "fecha_medicion": fecha_reg
-                        })
-                    try:
-                        supabase.table("validacion_piso").insert(registros_db).execute()
-                        for p_num in range(1, 16): st.session_state.borrador_piso.pop(f"{cuarto_sel}_{p_num}", None)
-                        st.success(f"✅ ¡Datos guardados!")
-                        st.balloons()
-                        time.sleep(1.5)
-                        st.rerun()
-                    except Exception as e: st.error(f"Error SQL: {e}")
-
-        # --- SECCIÓN C: TABLA HISTÓRICA COMPLETA ---
+        st.markdown("#### 🗺️ Control de Sistemas de Piso (EPA)")
+        modo_piso = st.radio("Selecciona el tipo de superficie a evaluar:", ["🗺️ Cuadrícula General (Piso Fijo)", "🟦 Tapetes Antifatiga / Estación"], horizontal=True, label_visibility="collapsed")
         st.divider()
-        st.markdown("#### 📂 Historial de Mediciones (Tabla)")
-        try:
-            resp_piso_hist = supabase.table("validacion_piso").select("*").eq("cuarto", cuarto_sel).order("fecha_medicion", desc=True).limit(500).execute()
-            df_piso_hist = pd.DataFrame(resp_piso_hist.data)
+
+        # =======================================================
+        # MODO A: PISO FIJO (CÓDIGO ORIGINAL DEL MAPA DE CALOR)
+        # =======================================================
+        if modo_piso == "🗺️ Cuadrícula General (Piso Fijo)":
+            st.info("Medición de Resistencia a Tierra (RTG). Límite de aprobación: < 1.0x10^9 Ω.")
             
-            if not df_piso_hist.empty:
-                df_mostrar = df_piso_hist[['fecha_medicion', 'cuarto', 'punto', 'medicion_ohms', 'estatus', 'auditor']].copy()
-                df_mostrar['fecha_medicion'] = pd.to_datetime(df_mostrar['fecha_medicion']).dt.strftime('%d-%b-%Y')
-                df_mostrar['medicion_ohms'] = df_mostrar['medicion_ohms'].apply(lambda x: f"{float(x):.2e} Ω")
-                df_mostrar.columns = ['Fecha', 'Cuarto', 'Punto', 'Resistencia', 'Estatus', 'Auditor']
-                st.dataframe(df_mostrar, use_container_width=True, hide_index=True)
-            else:
-                st.info(f"No hay mediciones históricas registradas para el {cuarto_sel}.")
-        except Exception as e:
-            st.error(f"Error al cargar historial: {e}")
+            # 1. DICCIONARIOS DE RECURSOS
+            diagramas_cuartos = {
+                "Cuarto 1": "https://raw.githubusercontent.com/aldoaoa/Visualizador-BCS-IDS/refs/heads/testing/1.png",
+                "Cuarto 2": "https://raw.githubusercontent.com/aldoaoa/Visualizador-BCS-IDS/refs/heads/testing/2.png",
+                "Cuarto 3": "https://raw.githubusercontent.com/aldoaoa/Visualizador-BCS-IDS/refs/heads/testing/3.png",
+                "Cuarto 4": "https://raw.githubusercontent.com/aldoaoa/Visualizador-BCS-IDS/refs/heads/testing/4.png",
+                "Cuarto 5": "https://raw.githubusercontent.com/aldoaoa/Visualizador-BCS-IDS/refs/heads/testing/5.png",
+                "Cuarto 6": "https://raw.githubusercontent.com/aldoaoa/Visualizador-BCS-IDS/refs/heads/testing/6.png"
+            }
+
+            COORDENADAS_PISOS = {
+                "Cuarto 1": {1: (53, 649), 2: (241, 656), 3: (508, 651), 4: (576, 568), 5: (484, 567), 6: (242, 567), 7: (56, 472), 8: (241, 466), 9: (471, 466), 10: (533, 381), 11: (243, 384), 12: (242, 259), 13: (593, 258), 14: (205, 173), 15: (561, 66)},
+                "Cuarto 2": {1: (38, 404), 2: (174, 365), 3: (154, 277), 4: (255, 222), 5: (109, 65), 6: (346, 85), 7: (523, 90), 8: (579, 211), 9: (334, 201), 10: (330, 380), 11: (253, 461), 12: (251, 585), 13: (588, 385), 14: (590, 511), 15: (482, 595)},
+                "Cuarto 3": {1: (74, 585), 2: (128, 422), 3: (126, 199), 4: (263, 93), 5: (329, 37), 6: (614, 71), 7: (545, 180), 8: (341, 259), 9: (233, 338), 10: (280, 474), 11: (225, 586), 12: (424, 394), 13: (424, 543), 14: (549, 472), 15: (633, 380)},
+                "Cuarto 4": {1: (71, 425), 2: (84, 271), 3: (117, 59), 4: (375, 60), 5: (503, 65), 6: (581, 205), 7: (547, 328), 8: (175, 335), 9: (274, 381), 10: (434, 375), 11: (415, 466), 12: (174, 557), 13: (598, 517), 14: (293, 629), 15: (568, 629)},
+                "Cuarto 5": {1: (50, 81), 2: (107, 309), 3: (176, 569), 4: (293, 487), 5: (523, 563), 6: (826, 488), 7: (923, 376), 8: (682, 369), 9: (391, 276), 10: (733, 239), 11: (389, 145), 12: (718, 128), 13: (905, 215), 14: (860, 89), 15: (963, 547)},
+                "Cuarto 6": {1: (92, 567), 2: (135, 466), 3: (112, 313), 4: (147, 167), 5: (185, 40), 6: (370, 42), 7: (708, 46), 8: (702, 196), 9: (368, 197), 10: (705, 295), 11: (370, 297), 12: (602, 387), 13: (707, 587), 14: (437, 587), 15: (247, 596)}
+            }
+
+            # Obtenemos equipos
+            try:
+                resp_eq_piso = supabase.table("equipos_medicion").select("id_equipo").execute()
+                equipos_piso = sorted([str(x['id_equipo']).strip() for x in resp_eq_piso.data if x.get('id_equipo')])
+            except:
+                equipos_piso = ["Error al cargar equipos"]
+
+            if not equipos_piso:
+                equipos_piso = ["Sin equipos registrados"]
+
+            cuarto_sel = st.selectbox("1. Selecciona el Cuarto a Validar:", options=list(diagramas_cuartos.keys()))
+            
+            # Inicializar borrador
+            if "borrador_piso" not in st.session_state:
+                st.session_state.borrador_piso = {}
+
+            # 2. DESCARGAR LA IMAGEN PARA RECORTES DINÁMICOS
+            import requests
+            from PIL import Image
+            from io import BytesIO
+            
+            img_url = diagramas_cuartos[cuarto_sel]
+            img_pil = None
+            img_w, img_h = 0, 0
+            try:
+                response = requests.get(img_url)
+                img_pil = Image.open(BytesIO(response.content))
+                img_w, img_h = img_pil.size
+            except Exception as e:
+                st.error("No se pudo cargar la imagen del cuarto de referencia.")
+
+            # --- SECCIÓN A: MAPA GENERAL ESTÁTICO (REFERENCIA) ---
+            with st.expander("👁️ Ver Mapa General del Cuarto", expanded=False):
+                if img_pil:
+                    st.image(img_pil, use_container_width=True)
+
+            # --- SECCIÓN B: FORMULARIO DE CAPTURA VISUAL ---
+            st.markdown("#### 📝 Captura Dinámica de Auditoría")
+            with st.form("form_validacion_piso"):
+                c_met1, c_met2, c_met3 = st.columns(3)
+                equipo_piso_sel = c_met1.selectbox("Equipo de Medición:", options=equipos_piso)
+                temp_piso = c_met2.text_input("Temperatura (°C):", value="23.5")
+                hum_piso = c_met3.text_input("Humedad (% RH):", value="45")
+                
+                st.markdown("##### 📍 Captura de Puntos (Ohms)")
+                st.caption("Si la medición está en formato científico, introdúcela como base y exponente (Ej: 5.2e7 -> 52000000). Deja en 0 los puntos que no apliquen.")
+                st.divider()
+                
+                puntos_rtg = {}
+                coords_map = COORDENADAS_PISOS.get(cuarto_sel, {})
+                
+                # Generamos las filas y columnas del formulario
+                for fila in range(3):
+                    cols = st.columns(5)
+                    for col_idx in range(5):
+                        punto_num = (fila * 5) + col_idx + 1
+                        llave_unica = f"{cuarto_sel}_{punto_num}"
+                        valor_previo = st.session_state.borrador_piso.get(llave_unica, None)
+                        
+                        with cols[col_idx]:
+                            # 3. RECORTAR LA IMAGEN PARA EL PUNTO ESPECÍFICO
+                            if img_pil and punto_num in coords_map:
+                                cx, cy = coords_map[punto_num]
+                                
+                                # Definimos una "caja de recorte" de 200x200 píxeles centrada en el punto
+                                box_size = 200 
+                                left = max(0, cx - box_size)
+                                upper = max(0, cy - box_size)
+                                right = min(img_w, cx + box_size)
+                                lower = min(img_h, cy + box_size)
+                                
+                                cropped_img = img_pil.crop((left, upper, right, lower))
+                                # Mostramos el recorte con el número del punto como título
+                                st.image(cropped_img, use_container_width=True, caption=f"📍 Punto {punto_num}")
+                            else:
+                                st.markdown(f"**📍 Punto {punto_num}**")
+                                
+                            # El input de captura justo debajo de la imagen
+                            val = st.number_input("Ohms:", min_value=0.0, format="%.2e", step=1e6, value=valor_previo, placeholder="0.0", label_visibility="collapsed", key=f"input_{cuarto_sel}_{punto_num}")
+                            puntos_rtg[punto_num] = val
+
+                st.divider()
+                c_btn1, c_btn2 = st.columns(2)
+                btn_borrador = c_btn1.form_submit_button("📝 Guardar Borrador (Temporal)", use_container_width=True)
+                submit_piso = c_btn2.form_submit_button("💾 Guardar Validación Final", type="primary", use_container_width=True)
+
+            # Lógica formularios (Borrador / Guardado)
+            if btn_borrador:
+                for p_num, p_val in puntos_rtg.items():
+                    if p_val is not None and p_val > 0: 
+                        st.session_state.borrador_piso[f"{cuarto_sel}_{p_num}"] = p_val
+                st.success("✅ Progreso guardado temporalmente.")
+
+            if submit_piso:
+                puntos_a_guardar = {k: v for k, v in puntos_rtg.items() if v is not None and v > 0}
+                
+                if not puntos_a_guardar:
+                    st.error("⚠️ Registra al menos un punto.")
+                else:
+                    with st.spinner(f"Guardando..."):
+                        registros_db = []
+                        fecha_reg = datetime.now().isoformat()
+                        for p_num, p_val in puntos_a_guardar.items():
+                            estatus = "VIGENTE" if p_val < 1.0e9 else "VENCIDO"
+                            registros_db.append({
+                                "cuarto": cuarto_sel, "punto": p_num, "medicion_ohms": p_val,
+                                "temperatura": temp_piso, "humedad": hum_piso, "equipo_medicion": equipo_piso_sel,
+                                "estatus": estatus, "auditor": st.session_state.usuario_nombre, "fecha_medicion": fecha_reg
+                            })
+                        try:
+                            supabase.table("validacion_piso").insert(registros_db).execute()
+                            for p_num in range(1, 16): st.session_state.borrador_piso.pop(f"{cuarto_sel}_{p_num}", None)
+                            st.success(f"✅ ¡Datos guardados!")
+                            st.balloons()
+                            time.sleep(1.5)
+                            st.rerun()
+                        except Exception as e: st.error(f"Error SQL: {e}")
+
+            # --- SECCIÓN C: TABLA HISTÓRICA COMPLETA ---
+            st.divider()
+            st.markdown("#### 📂 Historial de Mediciones (Tabla)")
+            try:
+                resp_piso_hist = supabase.table("validacion_piso").select("*").eq("cuarto", cuarto_sel).order("fecha_medicion", desc=True).limit(500).execute()
+                df_piso_hist = pd.DataFrame(resp_piso_hist.data)
+                
+                if not df_piso_hist.empty:
+                    df_mostrar = df_piso_hist[['fecha_medicion', 'cuarto', 'punto', 'medicion_ohms', 'estatus', 'auditor']].copy()
+                    df_mostrar['fecha_medicion'] = pd.to_datetime(df_mostrar['fecha_medicion']).dt.strftime('%d-%b-%Y')
+                    df_mostrar['medicion_ohms'] = df_mostrar['medicion_ohms'].apply(lambda x: f"{float(x):.2e} Ω")
+                    df_mostrar.columns = ['Fecha', 'Cuarto', 'Punto', 'Resistencia', 'Estatus', 'Auditor']
+                    st.dataframe(df_mostrar, use_container_width=True, hide_index=True)
+                else:
+                    st.info(f"No hay mediciones históricas registradas para el {cuarto_sel}.")
+            except Exception as e:
+                st.error(f"Error al cargar historial: {e}")
+
+
+        # =======================================================
+        # MODO B: TAPETES ANTIFATIGA / ESTACIÓN (INVENTARIO MAESTRO)
+        # =======================================================
+        elif modo_piso == "🟦 Tapetes Antifatiga / Estación":
+            st.info("Los tapetes se registran e impactan directamente el Inventario Maestro de Mobiliario, pero se evalúan desde aquí para centralizar los sistemas de piso. Límite: < 1.0x10^9 Ω.")
+            
+            # 1. Traer los tapetes que ya existen en el inventario general
+            try:
+                resp_tpt = supabase.table("inventario_esd").select("id_producto, linea_ubicacion, valor_actual, fecha_ultima_verif, estatus_verificacion").eq("clasificacion", "Tapete de piso").execute()
+                tapetes_existentes = pd.DataFrame(resp_tpt.data)
+            except:
+                tapetes_existentes = pd.DataFrame()
+
+            c_tpt1, c_tpt2 = st.columns(2)
+            linea_tpt = c_tpt1.selectbox("1. Línea / Ubicación:", options=obtener_catalogo_lineas(), key="tpt_linea")
+            
+            # 2. LÓGICA DE AUTOCOMPLETADO Y GENERACIÓN DE ID
+            operacion_base = c_tpt2.text_input("2. Estación / Operación (Ej: OP-850)", placeholder="Ingresa la operación para buscar o generar un ID...")
+            
+            id_tpt_propuesto = ""
+            if operacion_base:
+                op_limpia = str(operacion_base).strip().upper()
+                if not tapetes_existentes.empty:
+                    # Buscamos si ya existen tapetes vinculados a esa operación (Ej: OP-850-TPT...)
+                    tpt_relacionados = tapetes_existentes[tapetes_existentes['id_producto'].str.startswith(f"{op_limpia}-TPT", na=False)]
+                    if not tpt_relacionados.empty:
+                        # Extraemos la secuencia numérica del final
+                        nums = tpt_relacionados['id_producto'].str.extract(r'-TPT(\d+)$')[0].dropna().astype(int)
+                        if not nums.empty:
+                            siguiente = nums.max() + 1
+                            id_tpt_propuesto = f"{op_limpia}-TPT{siguiente}"
+                        else:
+                            id_tpt_propuesto = f"{op_limpia}-TPT2" # Si existía OP-850-TPT, sigue el TPT2
+                    else:
+                        id_tpt_propuesto = f"{op_limpia}-TPT1"
+                else:
+                    id_tpt_propuesto = f"{op_limpia}-TPT1"
+
+            # 3. SELECTOR / CREADOR FINAL
+            lista_ids_tpt = sorted(tapetes_existentes['id_producto'].dropna().unique().tolist()) if not tapetes_existentes.empty else []
+            
+            # Inyectamos la sugerencia matemática hasta arriba para que sea la predeterminada
+            if id_tpt_propuesto and id_tpt_propuesto not in lista_ids_tpt:
+                lista_ids_tpt = [id_tpt_propuesto] + lista_ids_tpt
+                
+            id_tpt_final = st.selectbox("3. ID del Tapete (Selecciona uno existente o usa el sugerido):", options=lista_ids_tpt, index=0 if lista_ids_tpt else None)
+            
+            st.divider()
+
+            # 4. FORMULARIO DE MEDICIÓN
+            if id_tpt_final:
+                # Verificamos si este ID ya existe para mostrar su historial reciente
+                es_nuevo = True
+                if not tapetes_existentes.empty and id_tpt_final in tapetes_existentes['id_producto'].values:
+                    es_nuevo = False
+                    datos_previos = tapetes_existentes[tapetes_existentes['id_producto'] == id_tpt_final].iloc[0]
+                    col_info1, col_info2, col_info3 = st.columns(3)
+                    col_info1.metric("Última Medición", str(datos_previos.get('fecha_ultima_verif'))[:10])
+                    val_prev_float = float(datos_previos.get('valor_actual')) if pd.notna(datos_previos.get('valor_actual')) else 0.0
+                    col_info2.metric("Valor Anterior", f"{val_prev_float:.2e} Ω")
+                    col_info3.metric("Estatus Actual", str(datos_previos.get('estatus_verificacion')))
+
+                with st.form("form_val_tapetes"):
+                    titulo_form = "✨ Registrar Nuevo Tapete" if es_nuevo else "🔄 Actualizar Tapete Existente"
+                    st.markdown(f"##### {titulo_form}: `{id_tpt_final}`")
+                    
+                    c_amb1, c_amb2 = st.columns(2)
+                    temp_tpt = c_amb1.number_input("Temperatura (°C)", value=23.5, step=0.1)
+                    hum_tpt = c_amb2.number_input("Humedad (%)", value=45, step=1)
+                    
+                    c_val1, c_val2 = st.columns(2)
+                    res_tpt = c_val1.number_input("Resistencia a Tierra (Ω)", min_value=0.0, format="%.2e", step=1e6, value=None, placeholder="Ej: 5.0e7")
+                    c_val2.text_input("Límite Permitido", value="1.00e+09 Ω", disabled=True)
+                    
+                    notas_tpt = st.text_input("Observaciones (Opcional)")
+                    
+                    if st.form_submit_button("💾 Guardar Validación de Tapete en Inventario", type="primary", use_container_width=True):
+                        if res_tpt is None:
+                            st.error("⚠️ Debes capturar el valor de resistencia de la medición actual.")
+                        else:
+                            with st.spinner("Integrando al padrón maestro de Mobiliario..."):
+                                from dateutil.relativedelta import relativedelta
+                                lim_tpt = 1e9
+                                estatus_tpt = "VIGENTE" if res_tpt < lim_tpt else "VENCIDO"
+                                fecha_hoy = datetime.now()
+                                prox_fecha = (fecha_hoy + relativedelta(years=1)).isoformat()
+                                
+                                # Payload inteligente (UPSERT): Si no existe lo crea, si existe lo actualiza
+                                payload_tpt = {
+                                    "id_producto": id_tpt_final,
+                                    "categoria": "Mobiliario",
+                                    "clasificacion": "Tapete de piso",
+                                    "linea_ubicacion": linea_tpt,
+                                    "estatus_operativo": "OPERATIVO",
+                                    "limite_minimo": 0.0,
+                                    "limite_maximo": lim_tpt,
+                                    "unidad_medida": "Ohms",
+                                    "valor_actual": float(res_tpt),
+                                    "fecha_ultima_verif": fecha_hoy.isoformat(),
+                                    "fecha_proxima_verif": prox_fecha,
+                                    "estatus_verificacion": estatus_tpt,
+                                    "frecuencia": "Anual",
+                                    "auditor_responsable": st.session_state.usuario_nombre,
+                                    "comentarios": notas_tpt
+                                }
+                                
+                                try:
+                                    # Acción 1: Actualizar o insertar en el Inventario de Activos
+                                    supabase.table("inventario_esd").upsert(payload_tpt).execute()
+                                    
+                                    # Acción 2: Dejar huella en el historial para gráficas de degradación y auditorías pasadas
+                                    supabase.table("historial_mediciones").insert({
+                                        "id_equipo": id_tpt_final,
+                                        "tipo_equipo": "Tapete de piso",
+                                        "ubicacion": linea_tpt,
+                                        "valor_actual": float(res_tpt),
+                                        "fecha_validacion": fecha_hoy.isoformat(),
+                                        "fecha_vencimiento": prox_fecha,
+                                        "auditor": st.session_state.usuario_nombre,
+                                        "fecha_modificacion": fecha_hoy.isoformat()
+                                    }).execute()
+                                    
+                                    st.success(f"✅ Tapete {id_tpt_final} asimilado con éxito. Estatus: {estatus_tpt}")
+                                    st.balloons()
+                                    st.cache_data.clear()
+                                    time.sleep(1.5)
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Error al integrar el tapete en la base de datos: {e}")
     # --- PESTAÑA 4: CHECADORES INTEGRADOS (NUEVO) ---
     with tab_checadores:
         st.markdown("#### 🛂 Verificación Mensual de Checadores Integrados")
