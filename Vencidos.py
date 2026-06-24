@@ -2485,7 +2485,8 @@ elif st.session_state.vista_actual == "Escáner":
                     estatus_mostrar = estatus_verif
                 
                 texto_check = "✅ REACTIVAR" if estatus_op == "NO OPERATIVO" else "✅ Registrar medición"
-                
+
+                '''
                 st.markdown(f"### 📊 Detalles del Equipo")
                 c_linea, c_tipo, c_estatus = st.columns(3)
                 c_linea.metric("Ubicación", str(equipo.get('Línea', 'N/A')))
@@ -2525,6 +2526,80 @@ elif st.session_state.vista_actual == "Escáner":
                 c_fval, c_fvenc = st.columns(2)
                 c_fval.metric("Fecha de Validación", str(f_val_sql)[:10] if f_val_sql != "N/A" else "N/A")
                 c_fvenc.metric("Fecha de Vencimiento", str(f_venc_sql)[:10] if f_venc_sql != "N/A" else "N/A")
+                '''
+
+                # === COMIENZA REEMPLAZO: AJUSTE DE LECTURA Y ESTATUS DINÁMICO ===
+                id_exacto_db = str(equipo.get('Id de producto', id_limpio))
+
+                # 1. Consultar de forma segura las fechas usando el ID exacto y literal de la base de datos
+                try:
+                    resp_fechas = supabase.table("inventario_esd").select("fecha_ultima_verif, fecha_proxima_verif").eq("id_producto", id_exacto_db).execute()
+                    if resp_fechas.data:
+                        f_val_sql = resp_fechas.data[0].get('fecha_ultima_verif')
+                        f_venc_sql = resp_fechas.data[0].get('fecha_proxima_verif')
+                    else:
+                        f_val_sql, f_venc_sql = None, None
+                except Exception as e:
+                    f_val_sql, f_venc_sql = "Error", "Error"
+
+                # 2. Calcular el Estatus de Inspección real en tiempo real (Python gobierna la visualización)
+                from datetime import datetime, date
+                estatus_op = str(equipo.get('Estatus operativo', '')).strip().upper()
+
+                if estatus_op == "NO OPERATIVO":
+                    estatus_real = "NO OPERATIVO"
+                    color_estatus = "red"
+                elif f_venc_sql and str(f_venc_sql).lower() not in ['n/a', 'none', 'nan', '']:
+                    try:
+                        fecha_vencimiento = datetime.strptime(str(f_venc_sql)[:10], '%Y-%m-%d').date()
+                        fecha_val_date = datetime.strptime(str(f_val_sql)[:10], '%Y-%m-%d').date() if f_val_sql else None
+                        hoy = date.today()
+
+                        if fecha_val_date and fecha_val_date > hoy:
+                            estatus_real = "ERROR: FECHA FUTURA"
+                            color_estatus = "orange"
+                        elif fecha_vencimiento < hoy:
+                            estatus_real = "VENCIDO"
+                            color_estatus = "red"
+                        else:
+                            estatus_real = "VIGENTE"
+                            color_estatus = "green"
+                    except ValueError:
+                        estatus_real = "ERROR FORMATO"
+                        color_estatus = "orange"
+                else:
+                    estatus_real = "PENDIENTE"
+                    color_estatus = "orange"
+
+                # 3. Despliegue de los paneles métricos unificados
+                st.markdown(f"### 📊 Detalles del Equipo")
+                c_linea, c_tipo, c_estatus = st.columns(3)
+                c_linea.metric("Ubicación", str(equipo.get('Línea', 'N/A')))
+                clasificacion_equipo = str(equipo.get('Clasificación', 'N/A'))
+                c_tipo.metric("Clasificación", clasificacion_equipo)
+                
+                # Despliegue estilizado de estatus usando notación nativa de color de Streamlit
+                c_estatus.markdown(f"**Estatus Real:**\n## :{color_estatus}[{estatus_real}]")
+                
+                c_val, c_bal = st.columns(2)
+                val_previo = equipo.get('Valor de verificación', 0)
+                if es_ion:
+                    c_val.metric("Descarga", f"{float(val_previo):.2f} s" if pd.notna(val_previo) else "N/A")
+                    bal_previo = equipo.get('Balance')
+                    if pd.notna(bal_previo) and str(bal_previo).strip() not in ['', 'N/A', 'nan', 'None']:
+                        c_bal.metric("Balance", f"{float(bal_previo):.2f} V")
+                    else:
+                        c_bal.metric("Balance", "N/A")
+                else:
+                    c_val.metric("Resistencia", f"{float(val_previo):.2E} Ω" if pd.notna(val_previo) else "N/A")
+
+                c_fval, c_fvenc = st.columns(2)
+                c_fval.metric("Fecha de Última Validación", str(f_val_sql)[:10] if f_val_sql else "N/A")
+                c_fvenc.metric("Fecha de Próximo Vencimiento", str(f_venc_sql)[:10] if f_venc_sql else "N/A")
+                
+                if estatus_real == "VENCIDO":
+                    st.error("⚠️ Alerta de Calidad: Este elemento ha excedido su periodo de vigencia y requiere validación inmediata.")
+                #### TERMINA CAMBIO DE VENCIMIENTOS ACTUALIZADOS 6/24/2026
                 
                 with st.expander("🕰️ Consultar Historial de Mediciones Anteriores"):
                     try:
