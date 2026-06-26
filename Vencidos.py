@@ -4578,6 +4578,7 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
             df_eq_list = pd.DataFrame(resp_eq_list.data)
             
             if not df_eq_list.empty:
+                df_eq_list['fecha_proxima_calibracion'] = pd.to_datetime(df_eq_list['fecha_proxima_calibracion'], errors='coerce')
                 # Editor interactivo
                 editor_eq = st.data_editor(
                     df_eq_list,
