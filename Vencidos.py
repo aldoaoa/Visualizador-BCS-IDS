@@ -6128,14 +6128,29 @@ elif st.session_state.vista_actual == "Schedule" and not st.session_state.modo_l
         else:
             st.warning("No hay registros disponibles para mostrar en el cronograma.")
 
-    # --- SUB-PESTAÑA 2: ACCIONES URGENTES (TABLA INTEGRAL EDITABLE EN VIVO) ---
+    # --- SUB-PESTAÑA 2: ACCIONES URGENTES Y PREVENTIVAS (TABLA INTEGRAL EDITABLE EN VIVO) ---
     with tab_urgentes:
         st.markdown("#### 🚨 Mesa de Control y Actualización")
-        st.caption("Escribe el nuevo valor de resistencia (puedes usar **1e9**). Al guardar, el sistema evaluará el límite, cambiará el estatus y actualizará las fechas automáticamente.")
+        
+        # --- NUEVO: SELECTOR DE VISUALIZACIÓN ---
+        filtro_urgentes = st.radio(
+            "Selecciona el modo de visualización:", 
+            ["🚨 Solo Vencidos y Pendientes (Acción Inmediata)", "⚠️ Próximos a Vencer (7 días + Equipos de Medición)"],
+            horizontal=True
+        )
+        st.caption("Escribe el nuevo valor de resistencia (ej: **1e9**) o la nueva fecha. Al guardar, el sistema evaluará el límite, cambiará el estatus y actualizará las fechas automáticamente.")
 
-        with st.spinner("Evaluando fechas de vencimiento y compilando activos pendientes..."):
-            from datetime import datetime
+        with st.spinner("Evaluando fechas de vencimiento y compilando activos..."):
+            from datetime import datetime, timedelta
             hoy = datetime.today().date()
+            
+            # --- NUEVA LÓGICA DE TIEMPO Y TABLAS ---
+            if "Próximos" in filtro_urgentes:
+                limite_alerta = hoy + timedelta(days=7)
+                incluir_equipos = True
+            else:
+                limite_alerta = hoy
+                incluir_equipos = False
 
             # 1. Extraer Inventario Completo Operativo
             try:
@@ -6153,7 +6168,17 @@ elif st.session_state.vista_actual == "Schedule" and not st.session_state.modo_l
             except:
                 df_maq_u = pd.DataFrame()
 
-            # 3. Consolidar registros que requieren atención
+            # 3. Extraer Equipos de Medición (Solo si el filtro lo demanda)
+            if incluir_equipos:
+                try:
+                    resp_eq_u = supabase.table("equipos_medicion").select("*").execute()
+                    df_eq_u = pd.DataFrame(resp_eq_u.data) if resp_eq_u.data else pd.DataFrame()
+                except:
+                    df_eq_u = pd.DataFrame()
+            else:
+                df_eq_u = pd.DataFrame()
+
+            # 4. Consolidar registros que requieren atención
             lista_urgentes = []
 
             # --- MAPEO DESDE INVENTARIO ---
@@ -6163,7 +6188,6 @@ elif st.session_state.vista_actual == "Schedule" and not st.session_state.modo_l
                     est = str(valor_original).strip().upper()
                     es_nulo = pd.isna(valor_original) or est in ['', 'NONE', 'NAN', 'NULL', 'N/A', 'N/D']
 
-                    # Validación matemática estricta de la fecha
                     f_prox_str = str(r.get('fecha_proxima_verif', ''))[:10]
                     vencido_por_fecha = False
                     f_prox_date = None
@@ -6171,18 +6195,22 @@ elif st.session_state.vista_actual == "Schedule" and not st.session_state.modo_l
                     if f_prox_str and f_prox_str not in ['NONE', 'NAN', 'N/D', 'NULL', '']:
                         try:
                             f_prox_date = datetime.strptime(f_prox_str, "%Y-%m-%d").date()
-                            if f_prox_date < hoy:
+                            if f_prox_date <= limite_alerta: # Evaluación expansiva a 7 días
                                 vencido_por_fecha = True
                         except:
                             pass
 
-                    # REGLA DE ORO: Entra si dice VENCIDO/PENDIENTE, si no tiene datos, O si ya caducó por fecha
+                    # REGLA DE ORO
                     if 'VENCIDO' in est or 'PENDIENTE' in est or es_nulo or vencido_por_fecha:
                         val_previo = r.get('valor_actual')
                         val_str = f"{val_previo:.2e}" if pd.notna(val_previo) else ""
                         
-                        # Corrección visual en vivo: Si decía VIGENTE pero ya caducó, lo mostramos como VENCIDO
-                        estatus_mostrar = "VENCIDO" if vencido_por_fecha and est == "VIGENTE" else ("PENDIENTE" if es_nulo else est)
+                        if f_prox_date and f_prox_date < hoy:
+                            estatus_mostrar = "VENCIDO"
+                        elif f_prox_date and f_prox_date <= limite_alerta:
+                            estatus_mostrar = "POR VENCER" if est == "VIGENTE" else est
+                        else:
+                            estatus_mostrar = "PENDIENTE" if es_nulo else est
                         
                         lista_urgentes.append({
                             "Tabla Origen": "inventario_esd",
@@ -6192,7 +6220,7 @@ elif st.session_state.vista_actual == "Schedule" and not st.session_state.modo_l
                             "Clasificación": r.get('clasificacion', 'N/D'),
                             "Ubicación / Línea": r.get('linea_ubicacion', 'N/D'),
                             "Vencimiento": f_prox_str if f_prox_str else "Sin Fecha",
-                            "_fecha_sort": f_prox_date if f_prox_date else datetime.min.date(), # Columna de ordenamiento
+                            "_fecha_sort": f_prox_date if f_prox_date else datetime.min.date(),
                             "Estatus": estatus_mostrar,
                             "Fecha Medición": str(r.get('fecha_ultima_verif', ''))[:10] if r.get('fecha_ultima_verif') else "",
                             "Resistencia / Descarga (Ω/s)": val_str,
@@ -6211,7 +6239,6 @@ elif st.session_state.vista_actual == "Schedule" and not st.session_state.modo_l
                     est = str(valor_original).strip().upper()
                     es_nulo = pd.isna(valor_original) or est in ['', 'NONE', 'NAN', 'NULL', 'N/A', 'N/D']
                     
-                    # Validación matemática estricta de la fecha
                     f_prox_str = str(r.get('fecha_proxima', ''))[:10]
                     vencido_por_fecha = False
                     f_prox_date = None
@@ -6219,7 +6246,7 @@ elif st.session_state.vista_actual == "Schedule" and not st.session_state.modo_l
                     if f_prox_str and f_prox_str not in ['NONE', 'NAN', 'N/D', 'NULL', '']:
                         try:
                             f_prox_date = datetime.strptime(f_prox_str, "%Y-%m-%d").date()
-                            if f_prox_date < hoy:
+                            if f_prox_date <= limite_alerta: # Evaluación expansiva a 7 días
                                 vencido_por_fecha = True
                         except:
                             pass
@@ -6228,7 +6255,12 @@ elif st.session_state.vista_actual == "Schedule" and not st.session_state.modo_l
                         val_previo = r.get('resistencia_tierra')
                         val_str = f"{val_previo:.2e}" if pd.notna(val_previo) else ""
                         
-                        estatus_mostrar = "VENCIDO" if vencido_por_fecha and est == "VIGENTE" else ("PENDIENTE" if es_nulo else est)
+                        if f_prox_date and f_prox_date < hoy:
+                            estatus_mostrar = "VENCIDO"
+                        elif f_prox_date and f_prox_date <= limite_alerta:
+                            estatus_mostrar = "POR VENCER" if est == "VIGENTE" else est
+                        else:
+                            estatus_mostrar = "PENDIENTE" if es_nulo else est
                         
                         lista_urgentes.append({
                             "Tabla Origen": "mediciones_maquinaria",
@@ -6250,6 +6282,49 @@ elif st.session_state.vista_actual == "Schedule" and not st.session_state.modo_l
                             "Notas / Observaciones": r.get('observaciones', '')
                         })
 
+            # --- MAPEO DESDE EQUIPOS DE MEDICIÓN ---
+            if incluir_equipos and not df_eq_u.empty:
+                for _, r in df_eq_u.iterrows():
+                    f_prox_str = str(r.get('fecha_proxima_calibracion', ''))[:10]
+                    vencido_por_fecha = False
+                    f_prox_date = None
+                    
+                    if f_prox_str and f_prox_str not in ['NONE', 'NAN', 'N/D', 'NULL', '']:
+                        try:
+                            f_prox_date = datetime.strptime(f_prox_str, "%Y-%m-%d").date()
+                            if f_prox_date <= limite_alerta:
+                                vencido_por_fecha = True
+                        except:
+                            pass
+                    
+                    if vencido_por_fecha or f_prox_str in ['NONE', 'NAN', 'N/D', 'NULL', '']:
+                        if f_prox_date and f_prox_date < hoy:
+                            estatus_mostrar = "VENCIDO"
+                        elif f_prox_date and f_prox_date <= limite_alerta:
+                            estatus_mostrar = "POR VENCER"
+                        else:
+                            estatus_mostrar = "PENDIENTE"
+
+                        lista_urgentes.append({
+                            "Tabla Origen": "equipos_medicion",
+                            "Columna_Llave": "id_equipo",
+                            "ID Activo": r.get('id_equipo'),
+                            "Categoría": "Equipo de Medición",
+                            "Clasificación": r.get('tipo_equipo', 'N/D'),
+                            "Ubicación / Línea": "Laboratorio / Calidad",
+                            "Vencimiento": f_prox_str if f_prox_str else "Sin Fecha",
+                            "_fecha_sort": f_prox_date if f_prox_date else datetime.min.date(),
+                            "Estatus": estatus_mostrar,
+                            "Fecha Medición": "", # Se usa para capturar nueva fecha
+                            "Resistencia / Descarga (Ω/s)": None,
+                            "Balance (V)": None,
+                            "Campo Estático (V)": None,
+                            "Tomacorriente": None,
+                            "Temp (°C)": None,
+                            "Humedad (%)": None,
+                            "Notas / Observaciones": r.get('reporte_calibracion', '') # Se usa para reporte nuevo
+                        })
+
             df_urg_source = pd.DataFrame(lista_urgentes)
 
             if df_urg_source.empty:
@@ -6264,18 +6339,18 @@ elif st.session_state.vista_actual == "Schedule" and not st.session_state.modo_l
                     column_config={
                         "Tabla Origen": None,
                         "Columna_Llave": None,
-                        "_fecha_sort": None, # Se oculta esta columna técnica
+                        "_fecha_sort": None,
                         "ID Activo": st.column_config.TextColumn("ID Activo", disabled=True),
                         "Categoría": st.column_config.TextColumn("Categoría", disabled=True),
                         "Clasificación": st.column_config.TextColumn("Clasificación", disabled=True),
                         "Ubicación / Línea": st.column_config.TextColumn("Ubicación", disabled=True),
-                        "Vencimiento": st.column_config.TextColumn("Vencimiento", disabled=True), # Agregada a la vista
-                        "Estatus": st.column_config.SelectboxColumn("Estatus", options=["PENDIENTE", "VENCIDO", "VIGENTE"], required=True),
+                        "Vencimiento": st.column_config.TextColumn("Vencimiento", disabled=True),
+                        "Estatus": st.column_config.SelectboxColumn("Estatus", options=["PENDIENTE", "VENCIDO", "POR VENCER", "VIGENTE"], required=True),
                         "Tomacorriente": st.column_config.SelectboxColumn("Tomacorriente", options=["PASA", "FALLA", "N/A"]),
-                        "Resistencia / Descarga (Ω/s)": st.column_config.TextColumn("Resistencia (Ω) [Ej: 1e9]", help="Admite notación científica. Ej: 1e9 o 5.5e8"),
+                        "Resistencia / Descarga (Ω/s)": st.column_config.TextColumn("Resistencia (Ω)", help="Admite notación científica. Ej: 1e9 o 5.5e8"),
                         "Campo Estático (V)": st.column_config.NumberColumn("Campo Estático (V)", format="%.1f"),
                         "Balance (V)": st.column_config.NumberColumn("Balance (V)", format="%.1f"),
-                        "Fecha Medición": st.column_config.TextColumn("Fecha (YYYY-MM-DD)")
+                        "Fecha Medición": st.column_config.TextColumn("Fecha (YYYY-MM-DD)", help="Para Equipos de Medición, ingresa aquí la fecha en que se calibró.")
                     },
                     hide_index=True,
                     use_container_width=True,
@@ -6308,78 +6383,79 @@ elif st.session_state.vista_actual == "Schedule" and not st.session_state.modo_l
                                 
                                 payload_update = {}
                                 
-                                # --- MAGIA: AUTO-EVALUACIÓN DE RESISTENCIA ---
-                                if "Resistencia / Descarga (Ω/s)" in c_celdas:
-                                    val_r_raw = c_celdas["Resistencia / Descarga (Ω/s)"]
-                                    if val_r_raw is not None and str(val_r_raw).strip() != "":
+                                # --- LÓGICA ESPECIAL PARA EQUIPOS DE MEDICIÓN ---
+                                if tabla_destino == "equipos_medicion":
+                                    if "Fecha Medición" in c_celdas and c_celdas["Fecha Medición"]:
                                         try:
-                                            # Parseamos el string a float matemático (soporta "1e9")
-                                            val_r_float = float(val_r_raw)
-                                            payload_update["valor_actual" if tabla_destino == "inventario_esd" else "resistencia_tierra"] = val_r_float
-                                            
-                                            # Evaluación contra límites normativos
-                                            if tabla_destino == "mediciones_maquinaria":
-                                                # Maquinaria: Máximo 1 ohm
-                                                estatus_calc = "VIGENTE" if val_r_float <= 1.0 else "VENCIDO"
-                                            else:
-                                                # Mobiliario: Máximo 1e9 ohms
-                                                estatus_calc = "VIGENTE" if val_r_float < 1.0e9 else "VENCIDO"
-                                            
-                                            # Sobrescribimos el estatus en la cola de guardado para automatizarlo
-                                            c_celdas["Estatus"] = estatus_calc
-                                            
-                                            # Estampamos la fecha actual automáticamente si no la escribieron
-                                            if "Fecha Medición" not in c_celdas:
-                                                c_celdas["Fecha Medición"] = datetime.today().strftime("%Y-%m-%d")
+                                            f_base = datetime.strptime(c_celdas["Fecha Medición"], "%Y-%m-%d").date()
+                                            payload_update["fecha_proxima_calibracion"] = (f_base + relativedelta(years=1)).isoformat()
+                                        except: pass
+                                    if "Notas / Observaciones" in c_celdas:
+                                        payload_update["reporte_calibracion"] = c_celdas["Notas / Observaciones"]
+                                else:
+                                    # --- AUTO-EVALUACIÓN PARA INVENTARIO Y MAQUINARIA ---
+                                    if "Resistencia / Descarga (Ω/s)" in c_celdas:
+                                        val_r_raw = c_celdas["Resistencia / Descarga (Ω/s)"]
+                                        if val_r_raw is not None and str(val_r_raw).strip() != "":
+                                            try:
+                                                val_r_float = float(val_r_raw)
+                                                payload_update["valor_actual" if tabla_destino == "inventario_esd" else "resistencia_tierra"] = val_r_float
                                                 
-                                        except ValueError:
-                                            st.error(f"❌ Valor inválido en {id_activo_txt}: '{val_r_raw}'. Usa formato numérico.")
-                                            errores += 1
-                                            continue
+                                                if tabla_destino == "mediciones_maquinaria":
+                                                    estatus_calc = "VIGENTE" if val_r_float <= 1.0 else "VENCIDO"
+                                                else:
+                                                    estatus_calc = "VIGENTE" if val_r_float < 1.0e9 else "VENCIDO"
+                                                
+                                                c_celdas["Estatus"] = estatus_calc
+                                                if "Fecha Medición" not in c_celdas:
+                                                    c_celdas["Fecha Medición"] = datetime.today().strftime("%Y-%m-%d")
+                                                    
+                                            except ValueError:
+                                                st.error(f"❌ Valor inválido en {id_activo_txt}: '{val_r_raw}'. Usa formato numérico.")
+                                                errores += 1
+                                                continue
 
-                                # Mapeo del resto de columnas (procesando lo autocalculado o manual)
-                                if "Estatus" in c_celdas:
-                                    nuevo_est = c_celdas["Estatus"]
-                                    if tabla_destino == "inventario_esd":
-                                        payload_update["estatus_verificacion"] = nuevo_est
-                                    else:
-                                        payload_update["resultado_estatus"] = nuevo_est
-                                        
-                                    if nuevo_est in ["VIGENTE", "APROBADO"]:
-                                        # Base de cálculo: Fecha que se captura o Fecha de hoy
-                                        fecha_str = c_celdas.get("Fecha Medición", datetime.today().strftime("%Y-%m-%d"))
-                                        try:
-                                            f_base = datetime.strptime(fecha_str, "%Y-%m-%d").date()
-                                        except:
-                                            f_base = datetime.today().date()
+                                    if "Estatus" in c_celdas:
+                                        nuevo_est = c_celdas["Estatus"]
+                                        if tabla_destino == "inventario_esd":
+                                            payload_update["estatus_verificacion"] = nuevo_est
+                                        else:
+                                            payload_update["resultado_estatus"] = nuevo_est
                                             
-                                        payload_update["fecha_proxima" if tabla_destino == "mediciones_maquinaria" else "fecha_proxima_verif"] = (f_base + relativedelta(years=1)).isoformat()
-                                
-                                if "Fecha Medición" in c_celdas:
-                                    payload_update["fecha_ultima_verif" if tabla_destino == "inventario_esd" else "fecha_medicion"] = c_celdas["Fecha Medición"]
+                                        if nuevo_est in ["VIGENTE", "APROBADO"]:
+                                            fecha_str = c_celdas.get("Fecha Medición", datetime.today().strftime("%Y-%m-%d"))
+                                            try:
+                                                f_base = datetime.strptime(fecha_str, "%Y-%m-%d").date()
+                                            except:
+                                                f_base = datetime.today().date()
+                                                
+                                            payload_update["fecha_proxima" if tabla_destino == "mediciones_maquinaria" else "fecha_proxima_verif"] = (f_base + relativedelta(years=1)).isoformat()
                                     
-                                if "Balance (V)" in c_celdas and tabla_destino == "inventario_esd":
-                                    val_b = c_celdas["Balance (V)"]
-                                    payload_update["balance_ionizador"] = float(val_b) if val_b else None
-                                    
-                                if "Campo Estático (V)" in c_celdas and tabla_destino == "mediciones_maquinaria":
-                                    val_c = c_celdas["Campo Estático (V)"]
-                                    payload_update["campo_estatico_voltaje"] = float(val_c) if val_c else None
-                                    
-                                if "Tomacorriente" in c_celdas and tabla_destino == "mediciones_maquinaria":
-                                    payload_update["tomacorriente_estatus"] = c_celdas["Tomacorriente"]
-                                    
-                                if "Ubicación / Línea" in c_celdas:
-                                    payload_update["linea_ubicacion"] = str(c_celdas["Ubicación / Línea"]).strip().upper()
-                                    
-                                if "Temp (°C)" in c_celdas:
-                                    payload_update["temperatura"] = str(c_celdas["Temp (°C)"])
-                                    
-                                if "Humedad (%)" in c_celdas:
-                                    payload_update["humedad"] = str(c_celdas["Humedad (%)"])
+                                    if "Fecha Medición" in c_celdas:
+                                        payload_update["fecha_ultima_verif" if tabla_destino == "inventario_esd" else "fecha_medicion"] = c_celdas["Fecha Medición"]
                                         
-                                if "Notas / Observaciones" in c_celdas:
-                                    payload_update["comentarios" if tabla_destino == "inventario_esd" else "observaciones"] = c_celdas["Notas / Observaciones"]
+                                    if "Balance (V)" in c_celdas and tabla_destino == "inventario_esd":
+                                        val_b = c_celdas["Balance (V)"]
+                                        payload_update["balance_ionizador"] = float(val_b) if val_b else None
+                                        
+                                    if "Campo Estático (V)" in c_celdas and tabla_destino == "mediciones_maquinaria":
+                                        val_c = c_celdas["Campo Estático (V)"]
+                                        payload_update["campo_estatico_voltaje"] = float(val_c) if val_c else None
+                                        
+                                    if "Tomacorriente" in c_celdas and tabla_destino == "mediciones_maquinaria":
+                                        payload_update["tomacorriente_estatus"] = c_celdas["Tomacorriente"]
+                                        
+                                    if "Ubicación / Línea" in c_celdas:
+                                        payload_update["linea_ubicacion"] = str(c_celdas["Ubicación / Línea"]).strip().upper()
+                                        
+                                    if "Temp (°C)" in c_celdas:
+                                        payload_update["temperatura"] = str(c_celdas["Temp (°C)"])
+                                        
+                                    if "Humedad (%)" in c_celdas:
+                                        payload_update["humedad"] = str(c_celdas["Humedad (%)"])
+                                            
+                                    if "Notas / Observaciones" in c_celdas:
+                                        payload_update["comentarios" if tabla_destino == "inventario_esd" else "observaciones"] = c_celdas["Notas / Observaciones"]
 
                                 # Inyección en la BD
                                 if payload_update:
