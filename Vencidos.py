@@ -5150,6 +5150,155 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
                         else:
                             st.error(f"Operación finalizada con {errores_c} fallas de comunicación con Supabase.")
 
+
+        # =====================================================================
+        # NUEVA HERRAMIENTA: BACKFILL DE HISTORIAL (PREVIEW + CONFIRMACIÓN)
+        # =====================================================================
+        st.divider()
+        st.markdown("### ⏪ Reconstrucción de Historial (Backfill)")
+        st.info("Genera automáticamente un registro histórico en el pasado para aquellos equipos que **no tienen historial previo**. Las fechas se calculan a 1 año atrás con una variación aleatoria de ±15 días.")
+
+        # Inicializamos la variable en memoria para guardar el simulacro
+        if "preview_backfill" not in st.session_state:
+            st.session_state.preview_backfill = None
+
+        if st.button("🔍 Paso 1: Analizar y Previsualizar Historial Faltante", use_container_width=True):
+            import random
+            from datetime import datetime, timedelta
+            from dateutil.relativedelta import relativedelta
+
+            with st.spinner("Escaneando bases de datos y simulando fechas retroactivas..."):
+                try:
+                    # 1. Obtener los IDs que YA tienen historial para no duplicarlos
+                    resp_hist = supabase.table("historial_mediciones").select("id_equipo").execute()
+                    ids_con_historial = set([str(x['id_equipo']).strip().upper() for x in resp_hist.data if x.get('id_equipo')])
+
+                    # 2. Obtener todo el Inventario y Maquinaria actual
+                    resp_inv = supabase.table("inventario_esd").select("*").not_.eq("estatus_operativo", "NO OPERATIVO").execute()
+                    resp_maq = supabase.table("mediciones_maquinaria").select("*").not_.eq("status_operativo", "NO OPERATIVO").execute()
+                    
+                    datos_inv = resp_inv.data if resp_inv.data else []
+                    datos_maq = resp_maq.data if resp_maq.data else []
+
+                    registros_historicos_nuevos = []
+                    
+                    # Función auxiliar para calcular las fechas retroactivas
+                    def calcular_fechas_retroactivas(fecha_actual_str):
+                        try:
+                            fecha_base = datetime.strptime(str(fecha_actual_str)[:10], "%Y-%m-%d").date()
+                            fecha_hace_un_ano = fecha_base - relativedelta(years=1)
+                            offset = random.randint(-15, 15)
+                            fecha_historica_val = fecha_hace_un_ano + timedelta(days=offset)
+                            fecha_historica_venc = fecha_historica_val + relativedelta(years=1)
+                            return fecha_historica_val.isoformat(), fecha_historica_venc.isoformat()
+                        except:
+                            return None, None
+
+                    # --- PROCESAR INVENTARIO ---
+                    for item in datos_inv:
+                        id_item = str(item.get('id_producto')).strip().upper()
+                        fecha_actual = item.get('fecha_ultima_verif')
+                        
+                        if id_item not in ids_con_historial and fecha_actual and str(fecha_actual).lower() not in ['nan', 'none', '']:
+                            f_val_hist, f_venc_hist = calcular_fechas_retroactivas(fecha_actual)
+                            
+                            if f_val_hist:
+                                val_actual = item.get('valor_actual')
+                                bal_actual = item.get('balance_ionizador')
+                                val_hist = float(val_actual) * random.uniform(0.99, 1.01) if pd.notna(val_actual) and val_actual else None
+                                
+                                reg = {
+                                    "id_equipo": id_item,
+                                    "tipo_equipo": item.get('clasificacion', 'Mobiliario'),
+                                    "ubicacion": item.get('linea_ubicacion', 'N/D'),
+                                    "valor_actual": val_hist,
+                                    "fecha_validacion": f_val_hist,
+                                    "fecha_vencimiento": f_venc_hist,
+                                    "auditor": item.get('auditor_responsable', 'Sistema (Backfill)'),
+                                    "fecha_modificacion": datetime.now().isoformat()
+                                }
+                                if item.get('categoria') == 'Ionizador':
+                                    reg["balance_ionizador"] = float(bal_actual) if pd.notna(bal_actual) else None
+                                    
+                                registros_historicos_nuevos.append(reg)
+
+                    # --- PROCESAR MAQUINARIA ---
+                    if datos_maq:
+                        df_maq_temp = pd.DataFrame(datos_maq).sort_values('fecha_medicion', ascending=False).drop_duplicates(subset=['id_maquinaria'])
+                        datos_maq_unicos = df_maq_temp.to_dict('records')
+                        
+                        for maq in datos_maq_unicos:
+                            id_maq = str(maq.get('id_maquinaria')).strip().upper()
+                            fecha_actual = maq.get('fecha_medicion')
+                            
+                            if id_maq not in ids_con_historial and fecha_actual and str(fecha_actual).lower() not in ['nan', 'none', '']:
+                                f_val_hist, f_venc_hist = calcular_fechas_retroactivas(fecha_actual)
+                                
+                                if f_val_hist:
+                                    val_rtg = maq.get('resistencia_tierra')
+                                    val_hist = float(val_rtg) * random.uniform(0.99, 1.01) if pd.notna(val_rtg) and val_rtg else None
+                                    
+                                    registros_historicos_nuevos.append({
+                                        "id_equipo": id_maq,
+                                        "tipo_equipo": maq.get('clasificacion', 'Maquinaria'),
+                                        "ubicacion": maq.get('linea_ubicacion', 'N/D'),
+                                        "valor_actual": val_hist,
+                                        "fecha_validacion": f_val_hist,
+                                        "fecha_vencimiento": f_venc_hist,
+                                        "auditor": maq.get('auditor', 'Sistema (Backfill)'),
+                                        "fecha_modificacion": datetime.now().isoformat()
+                                    })
+
+                    # Guardamos el resultado en memoria para mostrar el Preview
+                    st.session_state.preview_backfill = registros_historicos_nuevos
+
+                except Exception as e:
+                    st.error(f"Ocurrió un error general durante el escaneo: {e}")
+
+        # --- MOSTRAR PREVIEW Y BOTÓN DE CONFIRMACIÓN ---
+        if st.session_state.preview_backfill is not None:
+            lista_preview = st.session_state.preview_backfill
+            
+            if len(lista_preview) == 0:
+                st.success("✨ ¡Todo al corriente! No se encontraron equipos huérfanos. Todos tus activos operativos ya cuentan con historial previo.")
+                st.session_state.preview_backfill = None # Limpiamos memoria
+            else:
+                st.warning(f"⚠️ Se detectaron **{len(lista_preview)}** equipos sin historial. A continuación se muestra la simulación de los registros que se crearán en la tabla 'historial_mediciones':")
+                
+                # Preparamos un DataFrame amigable para la vista previa
+                df_preview = pd.DataFrame(lista_preview)
+                df_mostrar = df_preview[['id_equipo', 'ubicacion', 'fecha_validacion', 'valor_actual']].copy()
+                df_mostrar.columns = ['ID Equipo', 'Ubicación', 'Fecha Histórica Simulada', 'Valor Simulado (Ω/s)']
+                
+                # Formato visual
+                df_mostrar['Fecha Histórica Simulada'] = pd.to_datetime(df_mostrar['Fecha Histórica Simulada']).dt.strftime('%d-%b-%Y')
+                df_mostrar['Valor Simulado (Ω/s)'] = df_mostrar['Valor Simulado (Ω/s)'].apply(lambda x: f"{x:.2e}" if pd.notna(x) else "N/D")
+                
+                st.dataframe(df_mostrar, use_container_width=True, hide_index=True)
+                
+                # Botón de confirmación final
+                if st.button("💾 Paso 2: Confirmar y Guardar Historiales en SQL", type="primary"):
+                    with st.spinner("Inyectando registros en la base de datos..."):
+                        errores = 0
+                        # Inserción en lotes por seguridad
+                        for i in range(0, len(lista_preview), 300):
+                            lote = lista_preview[i:i+300]
+                            try:
+                                supabase.table("historial_mediciones").insert(lote).execute()
+                            except Exception as e:
+                                st.error(f"Error insertando lote: {e}")
+                                errores += 1
+                        
+                        if errores == 0:
+                            st.success(f"✅ ¡Backfill definitivo exitoso! Se reconstruyó el historial de **{len(lista_preview)}** equipos.")
+                            st.session_state.preview_backfill = None # Vaciamos el preview
+                            st.cache_data.clear()
+                            time.sleep(1.5)
+                            st.rerun()
+                        else:
+                            st.warning(f"Se generaron historiales, pero ocurrieron {errores} errores de red con Supabase.")
+
+        
         # =====================================================================
         # HERRAMIENTA 3: AUDITORÍA TÉCNICA Y MESA DE CONTROL DE DESVIACIONES
         # =====================================================================
