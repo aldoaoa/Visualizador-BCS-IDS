@@ -5167,13 +5167,13 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
             from datetime import datetime, timedelta
             from dateutil.relativedelta import relativedelta
 
-            with st.spinner("Escaneando bases de datos y simulando fechas retroactivas..."):
+            with st.spinner("Aplicando modelos matemáticos y fechas retroactivas por categoría..."):
                 try:
-                    # 1. Obtener los IDs que YA tienen historial para no duplicarlos
+                    # 1. Obtener los IDs que YA tienen historial
                     resp_hist = supabase.table("historial_mediciones").select("id_equipo").execute()
                     ids_con_historial = set([str(x['id_equipo']).strip().upper() for x in resp_hist.data if x.get('id_equipo')])
 
-                    # 2. Obtener todo el Inventario y Maquinaria actual
+                    # 2. Obtener todo el Inventario y Maquinaria
                     resp_inv = supabase.table("inventario_esd").select("*").not_.eq("estatus_operativo", "NO OPERATIVO").execute()
                     resp_maq = supabase.table("mediciones_maquinaria").select("*").not_.eq("status_operativo", "NO OPERATIVO").execute()
                     
@@ -5182,78 +5182,115 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
 
                     registros_historicos_nuevos = []
                     
-                    # Función auxiliar para calcular las fechas retroactivas
-                    def calcular_fechas_retroactivas(fecha_actual_str):
+                    # --- FUNCIÓN GENERADORA INTELIGENTE POR CATEGORÍA ---
+                    def generar_registros_por_norma(item_data, es_maq=False):
+                        regs = []
+                        if es_maq:
+                            id_item = str(item_data.get('id_maquinaria')).strip().upper()
+                            fecha_actual = item_data.get('fecha_medicion')
+                            val_actual = item_data.get('resistencia_tierra')
+                            bal_actual = None
+                            categoria = "Maquinaria"
+                            clasificacion = item_data.get('clasificacion', 'Maquinaria')
+                            ubicacion = item_data.get('linea_ubicacion', 'N/D')
+                            auditor = item_data.get('auditor', 'Sistema (Backfill)')
+                        else:
+                            id_item = str(item_data.get('id_producto')).strip().upper()
+                            fecha_actual = item_data.get('fecha_ultima_verif')
+                            val_actual = item_data.get('valor_actual')
+                            bal_actual = item_data.get('balance_ionizador')
+                            categoria = item_data.get('categoria', 'Mobiliario')
+                            clasificacion = item_data.get('clasificacion', 'Mobiliario')
+                            ubicacion = item_data.get('linea_ubicacion', 'N/D')
+                            auditor = item_data.get('auditor_responsable', 'Sistema (Backfill)')
+
+                        # Omitir si ya tiene historial o no tiene una fecha actual de donde partir
+                        if id_item in ids_con_historial or not fecha_actual or str(fecha_actual).lower() in ['nan', 'none', '']:
+                            return regs
+
                         try:
-                            fecha_base = datetime.strptime(str(fecha_actual_str)[:10], "%Y-%m-%d").date()
-                            fecha_hace_un_ano = fecha_base - relativedelta(years=1)
-                            offset = random.randint(-15, 15)
-                            fecha_historica_val = fecha_hace_un_ano + timedelta(days=offset)
-                            fecha_historica_venc = fecha_historica_val + relativedelta(years=1)
-                            return fecha_historica_val.isoformat(), fecha_historica_venc.isoformat()
+                            fecha_base = datetime.strptime(str(fecha_actual)[:10], "%Y-%m-%d").date()
                         except:
-                            return None, None
+                            return regs
 
-                    # --- PROCESAR INVENTARIO ---
-                    for item in datos_inv:
-                        id_item = str(item.get('id_producto')).strip().upper()
-                        fecha_actual = item.get('fecha_ultima_verif')
-                        
-                        if id_item not in ids_con_historial and fecha_actual and str(fecha_actual).lower() not in ['nan', 'none', '']:
-                            f_val_hist, f_venc_hist = calcular_fechas_retroactivas(fecha_actual)
-                            
-                            if f_val_hist:
-                                val_actual = item.get('valor_actual')
-                                bal_actual = item.get('balance_ionizador')
-                                val_hist = float(val_actual) * random.uniform(0.99, 1.01) if pd.notna(val_actual) and val_actual else None
+                        # REGLA A: IONIZADORES (4 Registros retroactivos, valores enteros +-2)
+                        if categoria == 'Ionizador':
+                            for i in range(1, 5): # Esto genera i = 1, 2, 3, 4 (es decir: 3, 6, 9 y 12 meses atrás)
+                                meses_atras = i * 3
+                                fecha_ref = fecha_base - relativedelta(months=meses_atras)
+                                offset = random.randint(-10, 10) # Variación de +-10 días sin caducar el periodo
+                                fecha_hist_val = fecha_ref + timedelta(days=offset)
+                                fecha_hist_venc = fecha_hist_val + relativedelta(months=3)
+
+                                val_h, bal_h = None, None
+                                if pd.notna(val_actual) and val_actual is not None:
+                                    val_h = max(0, int(float(val_actual)) + random.randint(-2, 2))
+                                if pd.notna(bal_actual) and bal_actual is not None:
+                                    bal_h = int(float(bal_actual)) + random.randint(-2, 2)
+
+                                regs.append({
+                                    "id_equipo": id_item, "tipo_equipo": clasificacion, "ubicacion": ubicacion,
+                                    "valor_actual": float(val_h) if val_h is not None else None,
+                                    "balance_ionizador": float(bal_h) if bal_h is not None else None,
+                                    "fecha_validacion": fecha_hist_val.isoformat(),
+                                    "fecha_vencimiento": fecha_hist_venc.isoformat(),
+                                    "auditor": auditor, "fecha_modificacion": datetime.now().isoformat()
+                                })
                                 
-                                reg = {
-                                    "id_equipo": id_item,
-                                    "tipo_equipo": item.get('clasificacion', 'Mobiliario'),
-                                    "ubicacion": item.get('linea_ubicacion', 'N/D'),
-                                    "valor_actual": val_hist,
-                                    "fecha_validacion": f_val_hist,
-                                    "fecha_vencimiento": f_venc_hist,
-                                    "auditor": item.get('auditor_responsable', 'Sistema (Backfill)'),
-                                    "fecha_modificacion": datetime.now().isoformat()
-                                }
-                                if item.get('categoria') == 'Ionizador':
-                                    reg["balance_ionizador"] = float(bal_actual) if pd.notna(bal_actual) else None
-                                    
-                                registros_historicos_nuevos.append(reg)
+                        # REGLA B: MAQUINARIA (1 Registro, +- 0.2 ohms con 3 decimales)
+                        elif es_maq:
+                            fecha_ref = fecha_base - relativedelta(years=1)
+                            offset = random.randint(-15, 15)
+                            fecha_hist_val = fecha_ref + timedelta(days=offset)
+                            fecha_hist_venc = fecha_hist_val + relativedelta(years=1)
 
-                    # --- PROCESAR MAQUINARIA ---
+                            val_h = None
+                            if pd.notna(val_actual) and val_actual is not None:
+                                variacion = random.uniform(-0.2, 0.2)
+                                val_h = max(0.0, round(float(val_actual) + variacion, 3))
+                            
+                            regs.append({
+                                "id_equipo": id_item, "tipo_equipo": clasificacion, "ubicacion": ubicacion,
+                                "valor_actual": val_h, "fecha_validacion": fecha_hist_val.isoformat(),
+                                "fecha_vencimiento": fecha_hist_venc.isoformat(), "auditor": auditor,
+                                "fecha_modificacion": datetime.now().isoformat()
+                            })
+                            
+                        # REGLA C: MOBILIARIO (1 Registro, +- 1e2 con 2 decimales)
+                        else:
+                            fecha_ref = fecha_base - relativedelta(years=1)
+                            offset = random.randint(-15, 15)
+                            fecha_hist_val = fecha_ref + timedelta(days=offset)
+                            fecha_hist_venc = fecha_hist_val + relativedelta(years=1)
+
+                            val_h = None
+                            if pd.notna(val_actual) and val_actual is not None:
+                                variacion = random.uniform(-100.0, 100.0) # +- 1e2
+                                val_h = max(0.0, round(float(val_actual) + variacion, 2))
+
+                            regs.append({
+                                "id_equipo": id_item, "tipo_equipo": clasificacion, "ubicacion": ubicacion,
+                                "valor_actual": val_h, "fecha_validacion": fecha_hist_val.isoformat(),
+                                "fecha_vencimiento": fecha_hist_venc.isoformat(), "auditor": auditor,
+                                "fecha_modificacion": datetime.now().isoformat()
+                            })
+                        return regs
+
+                    # --- PROCESAR TABLAS ---
+                    for item in datos_inv:
+                        registros_historicos_nuevos.extend(generar_registros_por_norma(item, es_maq=False))
+
                     if datos_maq:
                         df_maq_temp = pd.DataFrame(datos_maq).sort_values('fecha_medicion', ascending=False).drop_duplicates(subset=['id_maquinaria'])
                         datos_maq_unicos = df_maq_temp.to_dict('records')
-                        
                         for maq in datos_maq_unicos:
-                            id_maq = str(maq.get('id_maquinaria')).strip().upper()
-                            fecha_actual = maq.get('fecha_medicion')
-                            
-                            if id_maq not in ids_con_historial and fecha_actual and str(fecha_actual).lower() not in ['nan', 'none', '']:
-                                f_val_hist, f_venc_hist = calcular_fechas_retroactivas(fecha_actual)
-                                
-                                if f_val_hist:
-                                    val_rtg = maq.get('resistencia_tierra')
-                                    val_hist = float(val_rtg) * random.uniform(0.99, 1.01) if pd.notna(val_rtg) and val_rtg else None
-                                    
-                                    registros_historicos_nuevos.append({
-                                        "id_equipo": id_maq,
-                                        "tipo_equipo": maq.get('clasificacion', 'Maquinaria'),
-                                        "ubicacion": maq.get('linea_ubicacion', 'N/D'),
-                                        "valor_actual": val_hist,
-                                        "fecha_validacion": f_val_hist,
-                                        "fecha_vencimiento": f_venc_hist,
-                                        "auditor": maq.get('auditor', 'Sistema (Backfill)'),
-                                        "fecha_modificacion": datetime.now().isoformat()
-                                    })
+                            registros_historicos_nuevos.extend(generar_registros_por_norma(maq, es_maq=True))
 
                     # Guardamos el resultado en memoria para mostrar el Preview
                     st.session_state.preview_backfill = registros_historicos_nuevos
 
                 except Exception as e:
-                    st.error(f"Ocurrió un error general durante el escaneo: {e}")
+                    st.error(f"Ocurrió un error general durante la formulación estadística: {e}")
 
         # --- MOSTRAR PREVIEW Y BOTÓN DE CONFIRMACIÓN ---
         if st.session_state.preview_backfill is not None:
@@ -5261,26 +5298,23 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
             
             if len(lista_preview) == 0:
                 st.success("✨ ¡Todo al corriente! No se encontraron equipos huérfanos. Todos tus activos operativos ya cuentan con historial previo.")
-                st.session_state.preview_backfill = None # Limpiamos memoria
+                st.session_state.preview_backfill = None 
             else:
-                st.warning(f"⚠️ Se detectaron **{len(lista_preview)}** equipos sin historial. A continuación se muestra la simulación de los registros que se crearán en la tabla 'historial_mediciones':")
+                st.warning(f"⚠️ Se detectaron equipos sin historial. A continuación se muestra la simulación de los **{len(lista_preview)} registros orgánicos** que se crearán:")
                 
-                # Preparamos un DataFrame amigable para la vista previa
                 df_preview = pd.DataFrame(lista_preview)
                 df_mostrar = df_preview[['id_equipo', 'ubicacion', 'fecha_validacion', 'valor_actual']].copy()
-                df_mostrar.columns = ['ID Equipo', 'Ubicación', 'Fecha Histórica Simulada', 'Valor Simulado (Ω/s)']
+                df_mostrar.columns = ['ID Equipo', 'Ubicación', 'Fecha Histórica Simulada', 'Valor Simulado']
                 
-                # Formato visual
+                # Formato visual inteligente: si el valor es mayor a 1000 muestra e9, si no muestra decimales
                 df_mostrar['Fecha Histórica Simulada'] = pd.to_datetime(df_mostrar['Fecha Histórica Simulada']).dt.strftime('%d-%b-%Y')
-                df_mostrar['Valor Simulado (Ω/s)'] = df_mostrar['Valor Simulado (Ω/s)'].apply(lambda x: f"{x:.2e}" if pd.notna(x) else "N/D")
+                df_mostrar['Valor Simulado'] = df_mostrar['Valor Simulado'].apply(lambda x: f"{x:.2e} Ω" if pd.notna(x) and x > 1000 else (f"{x:.3f}" if pd.notna(x) else "N/D"))
                 
                 st.dataframe(df_mostrar, use_container_width=True, hide_index=True)
                 
-                # Botón de confirmación final
                 if st.button("💾 Paso 2: Confirmar y Guardar Historiales en SQL", type="primary"):
-                    with st.spinner("Inyectando registros en la base de datos..."):
+                    with st.spinner("Inyectando registros matemáticos en la base de datos..."):
                         errores = 0
-                        # Inserción en lotes por seguridad
                         for i in range(0, len(lista_preview), 300):
                             lote = lista_preview[i:i+300]
                             try:
@@ -5290,8 +5324,8 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
                                 errores += 1
                         
                         if errores == 0:
-                            st.success(f"✅ ¡Backfill definitivo exitoso! Se reconstruyó el historial de **{len(lista_preview)}** equipos.")
-                            st.session_state.preview_backfill = None # Vaciamos el preview
+                            st.success(f"✅ ¡Backfill orgánico exitoso! Se reconstruyó la trazabilidad de **{len(lista_preview)}** eventos de medición.")
+                            st.session_state.preview_backfill = None 
                             st.cache_data.clear()
                             time.sleep(1.5)
                             st.rerun()
