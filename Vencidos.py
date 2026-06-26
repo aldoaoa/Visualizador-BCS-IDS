@@ -4569,16 +4569,67 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
                     st.error("El ID del equipo es obligatorio.")
         
         st.divider()
-        st.markdown("#### 📋 Equipos Registrados")
+        st.markdown("#### 📋 Equipos Registrados (Edición Rápida)")
+        st.info("Edita directamente la fecha de próxima calibración o el número de reporte en las celdas. Presiona 'Guardar Cambios' al finalizar.")
+        
         try:
-            resp_eq_list = supabase.table("equipos_medicion").select("id_equipo, tipo_equipo, fabricante, fecha_proxima_calibracion").order("id_equipo").execute()
+            # Traemos exactamente los campos que solicitaste
+            resp_eq_list = supabase.table("equipos_medicion").select("id_equipo, tipo_equipo, fecha_proxima_calibracion, reporte_calibracion").order("id_equipo").execute()
             df_eq_list = pd.DataFrame(resp_eq_list.data)
+            
             if not df_eq_list.empty:
-                st.dataframe(df_eq_list, use_container_width=True, hide_index=True)
+                # Editor interactivo
+                editor_eq = st.data_editor(
+                    df_eq_list,
+                    column_config={
+                        "id_equipo": st.column_config.TextColumn("ID Equipo", disabled=True),
+                        "tipo_equipo": st.column_config.TextColumn("Tipo de Equipo", disabled=True),
+                        "fecha_proxima_calibracion": st.column_config.DateColumn("Próxima Calibración (Edítame)"),
+                        "reporte_calibracion": st.column_config.TextColumn("Reporte Calibración (Edítame)")
+                    },
+                    hide_index=True,
+                    use_container_width=True,
+                    key="editor_equipos_medicion"
+                )
+                
+                # Botón de guardado masivo
+                if st.button("💾 Guardar Cambios de Calibración", type="primary"):
+                    cambios_eq = st.session_state.editor_equipos_medicion.get("edited_rows", {})
+                    
+                    if cambios_eq:
+                        with st.spinner("Actualizando catálogo de equipos en SQL..."):
+                            errores_eq = 0
+                            for idx_str, edits in cambios_eq.items():
+                                idx = int(idx_str)
+                                id_target = df_eq_list.iloc[idx]["id_equipo"]
+                                payload_eq = {}
+                                
+                                # Extraemos solo las celdas que el usuario modificó
+                                if "fecha_proxima_calibracion" in edits:
+                                    payload_eq["fecha_proxima_calibracion"] = edits["fecha_proxima_calibracion"]
+                                if "reporte_calibracion" in edits:
+                                    payload_eq["reporte_calibracion"] = edits["reporte_calibracion"]
+                                    
+                                if payload_eq:
+                                    try:
+                                        supabase.table("equipos_medicion").update(payload_eq).eq("id_equipo", id_target).execute()
+                                    except Exception as e:
+                                        st.error(f"Error al actualizar el equipo {id_target}: {e}")
+                                        errores_eq += 1
+                                        
+                            if errores_eq == 0:
+                                st.success("✅ ¡Catálogo de equipos actualizado correctamente!")
+                                st.cache_data.clear()
+                                time.sleep(1.5)
+                                st.rerun()
+                            else:
+                                st.warning("Se actualizaron algunos equipos, pero hubo errores en la base de datos.")
+                    else:
+                        st.info("No se ha detectado ninguna modificación en la tabla.")
             else:
                 st.info("No hay equipos registrados aún.")
         except Exception as e:
-            st.error(f"Error al cargar equipos: {e}")
+            st.error(f"Error al cargar la tabla de equipos: {e}")
 
     # --- PESTAÑA 3: MAQUINARIA / OPERACIONES ---
     with tab_maquinaria:
