@@ -4725,7 +4725,93 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
                     st.warning("No hay registros de Maquinaria.")
             except Exception as e:
                 st.error(f"Error al obtener maquinaria: {e}")
+        # ... (Aquí termina el bloque de descarga de Maquinaria) ...
 
+        # =====================================================================
+        # NUEVA HERRAMIENTA: DETECCIÓN Y RESOLUCIÓN DE DUPLICADOS CROSS-MÓDULO
+        # =====================================================================
+        st.divider()
+        st.markdown("### 🕵️ Auditoría de IDs Duplicados (Cross-Módulo)")
+        st.info("Escanea la base de datos en busca de IDs que existan simultáneamente en el **Inventario General** (Mobiliario/Tapetes/Ionizadores) y en **Maquinaria**. Permite purgar el registro incorrecto.")
+
+        if "duplicados_cross" not in st.session_state:
+            st.session_state.duplicados_cross = None
+
+        if st.button("🔍 Escanear Duplicados Cross-Módulo", use_container_width=True, type="secondary"):
+            with st.spinner("Cruzando tablas maestras..."):
+                try:
+                    resp_inv_dup = supabase.table("inventario_esd").select("id_producto, categoria, linea_ubicacion").execute()
+                    resp_maq_dup = supabase.table("mediciones_maquinaria").select("id_maquinaria, linea_ubicacion").execute()
+                    
+                    df_inv_dup = pd.DataFrame(resp_inv_dup.data)
+                    df_maq_dup = pd.DataFrame(resp_maq_dup.data)
+                    
+                    if not df_inv_dup.empty and not df_maq_dup.empty:
+                        # Normalizar IDs para comparación exacta (mayúsculas y sin espacios muertos)
+                        df_inv_dup['id_clean'] = df_inv_dup['id_producto'].astype(str).str.strip().str.upper()
+                        df_maq_dup['id_clean'] = df_maq_dup['id_maquinaria'].astype(str).str.strip().str.upper()
+                        
+                        # Set intersection (matemática pura y rápida)
+                        ids_inv = set(df_inv_dup['id_clean'])
+                        ids_maq = set(df_maq_dup['id_clean'])
+                        duplicados = list(ids_inv.intersection(ids_maq))
+                        
+                        # Construir tabla de detalles para la vista
+                        detalles_duplicados = []
+                        for dup in duplicados:
+                            inv_info = df_inv_dup[df_inv_dup['id_clean'] == dup].iloc[0]
+                            maq_info = df_maq_dup[df_maq_dup['id_clean'] == dup].iloc[0]
+                            detalles_duplicados.append({
+                                "ID Duplicado": dup,
+                                "Registro en Inventario": f"{inv_info['categoria']} ({inv_info['linea_ubicacion']})",
+                                "Registro en Maquinaria": f"Maquinaria ({maq_info['linea_ubicacion']})"
+                            })
+                            
+                        st.session_state.duplicados_cross = detalles_duplicados
+                    else:
+                        st.session_state.duplicados_cross = []
+                        
+                except Exception as e:
+                    st.error(f"Error al escanear duplicados: {e}")
+
+        # --- CONSOLA DE RESOLUCIÓN (UI) ---
+        if st.session_state.duplicados_cross is not None:
+            lista_dups = st.session_state.duplicados_cross
+            
+            if len(lista_dups) == 0:
+                st.success("✨ ¡Base de datos limpia! No se detectaron IDs cruzados entre Inventario y Maquinaria.")
+            else:
+                st.error(f"⚠️ **Atención: Se detectaron {len(lista_dups)} IDs duplicados.**")
+                df_mostrar_dups = pd.DataFrame(lista_dups)
+                st.dataframe(df_mostrar_dups, use_container_width=True, hide_index=True)
+                
+                st.markdown("#### 🗑️ Consola de Resolución")
+                with st.form("form_resolver_dups"):
+                    c_res1, c_res2 = st.columns(2)
+                    id_a_borrar = c_res1.selectbox("1. Selecciona el ID a resolver:", options=[d["ID Duplicado"] for d in lista_dups])
+                    
+                    accion_borrar = c_res2.radio("2. ¿De dónde deseas ELIMINAR permanentemente este ID?", 
+                        ["Eliminar de Inventario General", "Eliminar de Maquinaria"]
+                    )
+                    
+                    st.warning("⚠️ **Advertencia:** Esta acción es irreversible y borrará el registro completo de la tabla seleccionada.")
+                    
+                    if st.form_submit_button("💥 Confirmar Eliminación", type="primary", use_container_width=True):
+                        with st.spinner(f"Eliminando {id_a_borrar}..."):
+                            try:
+                                # Eliminación directa vía API de Supabase
+                                if accion_borrar == "Eliminar de Inventario General":
+                                    supabase.table("inventario_esd").delete().eq("id_producto", id_a_borrar).execute()
+                                else:
+                                    supabase.table("mediciones_maquinaria").delete().eq("id_maquinaria", id_a_borrar).execute()
+                                
+                                st.success(f"✅ ¡El ID '{id_a_borrar}' ha sido purgado exitosamente de {accion_borrar.split(' de ')[1]}!")
+                                st.session_state.duplicados_cross = None # Reseteamos la memoria para forzar un re-escaneo limpio
+                                st.cache_data.clear()
+                                time.sleep(1.5)
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Error al intentar eliminar el registro en SQL: {e}")
         # =====================================================================
         # HERRAMIENTA DE SANEAMIENTO Y ESTANDARIZACIÓN DE ESTATUS (3 OFICIALES)
         # =====================================================================
