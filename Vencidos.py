@@ -87,10 +87,10 @@ def parsear_resistencia(valor_str):
         return "ERROR"
 
 def ejecutar_automigracion_lineas():
-    """Extrae líneas únicas de las tablas históricas y las inserta en catalogo_lineas."""
+    """Extrae líneas únicas de todas las tablas y las inserta en catalogo_lineas."""
     lineas_encontradas = set()
 
-    # 1. Extraer ubicaciones de la tabla de validación general
+    # 1. Extraer de Validación General
     try:
         resp_val = supabase.table("validacion_esd").select("ubicacion").execute()
         if resp_val.data:
@@ -98,10 +98,9 @@ def ejecutar_automigracion_lineas():
                 linea = str(reg.get("ubicacion", "")).strip().upper()
                 if linea and linea not in ["NONE", "NAN", "NULL", "N/D", "", "SIN REGISTROS"]:
                     lineas_encontradas.add(linea)
-    except Exception as e:
-        st.write(f"Nota informativa (Validación): {e}")
+    except Exception as e: pass
 
-    # 2. Extraer ubicaciones de la tabla de Event Meter
+    # 2. Extraer de Event Meter
     try:
         resp_em = supabase.table("event_meter").select("linea_ubicacion").execute()
         if resp_em.data:
@@ -109,19 +108,36 @@ def ejecutar_automigracion_lineas():
                 linea = str(reg.get("linea_ubicacion", "")).strip().upper()
                 if linea and linea not in ["NONE", "NAN", "NULL", "N/D", "", "SIN REGISTROS"]:
                     lineas_encontradas.add(linea)
-    except Exception as e:
-        st.write(f"Nota informativa (Event Meter): {e}")
+    except Exception as e: pass
 
-    # 3. Insertar registros en la tabla catálogo maestro
+    # --- NUEVO: 3. Extraer de Inventario ESD (Mobiliario, Ionizadores, etc.) ---
+    try:
+        resp_inv = supabase.table("inventario_esd").select("linea_ubicacion").execute()
+        if resp_inv.data:
+            for reg in resp_inv.data:
+                linea = str(reg.get("linea_ubicacion", "")).strip().upper()
+                if linea and linea not in ["NONE", "NAN", "NULL", "N/D", "", "SIN REGISTROS"]:
+                    lineas_encontradas.add(linea)
+    except Exception as e: pass
+
+    # --- NUEVO: 4. Extraer de Maquinaria ---
+    try:
+        resp_maq = supabase.table("mediciones_maquinaria").select("linea_ubicacion").execute()
+        if resp_maq.data:
+            for reg in resp_maq.data:
+                linea = str(reg.get("linea_ubicacion", "")).strip().upper()
+                if linea and linea not in ["NONE", "NAN", "NULL", "N/D", "", "SIN REGISTROS"]:
+                    lineas_encontradas.add(linea)
+    except Exception as e: pass
+
+    # 5. Insertar registros en la tabla catálogo maestro (Ignorando los que ya existen)
     nuevos_registros = 0
     for linea_nombre in sorted(lineas_encontradas):
         try:
-            # Si el registro ya existe, la base de datos lanzará un error por el constraint UNIQUE,
-            # lo cual es perfecto ya que el bloque except lo controlará sin detener el ciclo.
             supabase.table("catalogo_lineas").insert({"nombre_linea": linea_nombre}).execute()
             nuevos_registros += 1
         except:
-            pass # Ya existía en el catálogo maestro, se omite de forma segura.
+            pass # Ya existía (quizás lo agregaste manual), se omite de forma segura.
 
     return nuevos_registros, len(lineas_encontradas)
     
