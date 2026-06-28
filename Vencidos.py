@@ -5325,11 +5325,27 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
                 
                 if st.button("💾 Paso 2: Confirmar y Guardar Historiales en SQL", type="primary"):
                     with st.spinner("Inyectando registros matemáticos en la base de datos..."):
+                        import math
                         errores = 0
+                        
                         for i in range(0, len(lista_preview), 300):
                             lote = lista_preview[i:i+300]
+                            
+                            # 🧹 PURGADOR DEFINITIVO DE NANs (Escudo final para cumplimiento JSON)
+                            lote_limpio = []
+                            for reg in lote:
+                                reg_limpio = {}
+                                for k, v in reg.items():
+                                    # Detecta cualquier tipo de NaN, NaT o nulo (sea texto o número) y lo vuelve None
+                                    if pd.isna(v) or (isinstance(v, float) and math.isnan(v)):
+                                        reg_limpio[k] = None
+                                    else:
+                                        reg_limpio[k] = v
+                                lote_limpio.append(reg_limpio)
+
                             try:
-                                supabase.table("historial_mediciones").insert(lote).execute()
+                                # Insertamos el lote ya purificado
+                                supabase.table("historial_mediciones").insert(lote_limpio).execute()
                             except Exception as e:
                                 st.error(f"Error insertando lote: {e}")
                                 errores += 1
