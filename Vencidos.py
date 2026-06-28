@@ -2580,12 +2580,29 @@ elif st.session_state.vista_actual == "Escáner":
                         resp_hist = supabase.table("historial_mediciones").select("*").eq("id_equipo", id_limpio).order("fecha_modificacion", desc=True).execute()
                         df_historial = pd.DataFrame(resp_hist.data)
                         if not df_historial.empty:
+                            
+                            # --- NUEVO: FORMATEO DINÁMICO ---
+                            def formatear_valor_historial(val, es_ionizador):
+                                try:
+                                    v = float(val)
+                                    if es_ionizador:
+                                        return f"{v:.2f}" # Ionizadores se miden en segundos (números pequeños)
+                                    else:
+                                        return f"{v:.2e}" # Resistencias en notación científica estricta
+                                except:
+                                    return "N/D"
+
                             if es_ion and 'balance_ionizador' in df_historial.columns:
                                 df_historial = df_historial[['fecha_modificacion', 'valor_actual', 'balance_ionizador', 'fecha_validacion', 'ubicacion', 'auditor']]
                                 df_historial.columns = ['Actualizado el', 'T. Descarga (s)', 'Balance (V)', 'Fecha Val.', 'Ubicación', 'Auditor']
+                                df_historial['T. Descarga (s)'] = df_historial['T. Descarga (s)'].apply(lambda x: formatear_valor_historial(x, True))
                             else:
                                 df_historial = df_historial[['fecha_modificacion', 'valor_actual', 'fecha_validacion', 'ubicacion', 'auditor']]
                                 df_historial.columns = ['Actualizado el', 'Valor', 'Fecha Val.', 'Ubicación', 'Auditor']
+                                df_historial['Valor'] = df_historial['Valor'].apply(lambda x: formatear_valor_historial(x, False))
+                            
+                            # Formateo limpio de la fecha de actualización
+                            df_historial['Actualizado el'] = pd.to_datetime(df_historial['Actualizado el'], errors='coerce').dt.strftime('%d-%b-%Y %H:%M')
                             
                             st.dataframe(df_historial, use_container_width=True, hide_index=True)
                         else:
@@ -2789,14 +2806,14 @@ elif st.session_state.vista_actual == "Escáner":
                     def formatear_res_hist(val):
                         try:
                             v = float(val)
-                            return f"{v:.2f}" if v < 10 else f"{v:.2E}"
+                            return f"{v:.2f}" if v < 10 else f"{v:.2e}" # <--- Forzado a minúscula (.2e)
                         except:
                             return "N/D"
                             
                     if 'Resistencia (Ω)' in df_maq_hist.columns:
                         df_maq_hist['Resistencia (Ω)'] = df_maq_hist['Resistencia (Ω)'].apply(formatear_res_hist)
                         
-                    df_maq_hist['Fecha'] = pd.to_datetime(df_maq_hist['Fecha'], format='ISO8601', errors='coerce').dt.strftime('%d-%b-%Y')
+                    df_maq_hist['Fecha'] = pd.to_datetime(df_maq_hist['Fecha'], format='ISO8601', errors='coerce').dt.strftime('%d-%b-%Y %H:%M')
                     st.dataframe(df_maq_hist.fillna("N/D"), use_container_width=True, hide_index=True)
 
                 st.divider()
