@@ -5590,7 +5590,138 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
                                 st.rerun()
                             else:
                                 st.warning("Se guardaron algunos datos, pero hubo errores. Revisa los mensajes arriba.")
-                                
+
+        # =====================================================================
+        # HERRAMIENTA 4: CORRECCIÓN MASIVA DE FECHAS FUTURAS (VIAJEROS DEL TIEMPO)
+        # =====================================================================
+        st.divider()
+        st.markdown("### 🛸 Auditoría de Fechas Futuras")
+        st.info("Detecta registros cuyas fechas de validación se grabaron erróneamente en el futuro (desfases de captura). Edita la fecha correcta directamente en la tabla y guarda todos los cambios en lote.")
+
+        if "simulacro_futuro" not in st.session_state:
+            st.session_state.simulacro_futuro = None
+
+        col_btn_f1, col_btn_f2 = st.columns([1, 3])
+        if col_btn_f1.button("🔍 Escanear Fechas Futuras", type="secondary", use_container_width=True):
+            with st.spinner("Buscando viajeros del tiempo en la base de datos..."):
+                from datetime import datetime
+                hoy = datetime.today().date()
+                fechas_anomalas = []
+
+                # 1. Escanear Inventario (Mobiliario, Ionizadores, Monitores, Tapetes)
+                try:
+                    resp_inv_f = supabase.table("inventario_esd").select("id_producto, fecha_ultima_verif, frecuencia, categoria").execute()
+                    for r in resp_inv_f.data:
+                        f_val_str = str(r.get('fecha_ultima_verif', ''))[:10]
+                        if f_val_str and f_val_str not in ['NONE', 'NAN', 'N/D', 'NULL', '']:
+                            try:
+                                f_val_date = datetime.strptime(f_val_str, "%Y-%m-%d").date()
+                                if f_val_date > hoy: # SI LA FECHA ES MAYOR A HOY
+                                    fechas_anomalas.append({
+                                        "_tabla": "inventario_esd", "_pk_col": "id_producto", "_id": r.get('id_producto'),
+                                        "_col_fec": "fecha_ultima_verif", "_col_prox": "fecha_proxima_verif", "_frec": r.get('frecuencia', 'Anual'),
+                                        "Módulo": "Inventario", "Categoría": r.get('categoria', 'N/D'),
+                                        "ID Activo": r.get('id_producto'),
+                                        "Fecha Errónea (Futura)": f_val_str,
+                                        "Fecha Corregida": f_val_str # Este es el campo que el usuario editará
+                                    })
+                            except: pass
+                except: pass
+
+                # 2. Escanear Maquinaria
+                try:
+                    resp_maq_f = supabase.table("mediciones_maquinaria").select("id_maquinaria, fecha_medicion, frecuencia_verificacion").execute()
+                    for r in resp_maq_f.data:
+                        f_val_str = str(r.get('fecha_medicion', ''))[:10]
+                        if f_val_str and f_val_str not in ['NONE', 'NAN', 'N/D', 'NULL', '']:
+                            try:
+                                f_val_date = datetime.strptime(f_val_str, "%Y-%m-%d").date()
+                                if f_val_date > hoy: # SI LA FECHA ES MAYOR A HOY
+                                    fechas_anomalas.append({
+                                        "_tabla": "mediciones_maquinaria", "_pk_col": "id_maquinaria", "_id": r.get('id_maquinaria'),
+                                        "_col_fec": "fecha_medicion", "_col_prox": "fecha_proxima", "_frec": r.get('frecuencia_verificacion', 'Anual'),
+                                        "Módulo": "Maquinaria", "Categoría": "Maquinaria",
+                                        "ID Activo": r.get('id_maquinaria'),
+                                        "Fecha Errónea (Futura)": f_val_str,
+                                        "Fecha Corregida": f_val_str # Este es el campo que el usuario editará
+                                    })
+                            except: pass
+                except: pass
+
+                st.session_state.simulacro_futuro = pd.DataFrame(fechas_anomalas)
+
+        # --- MOSTRAR EDITOR EN VIVO ---
+        if st.session_state.simulacro_futuro is not None:
+            df_futuro = st.session_state.simulacro_futuro
+            
+            if df_futuro.empty:
+                st.success("✨ ¡Cronología perfecta! No se detectaron validaciones con fechas en el futuro.")
+            else:
+                st.warning(f"⚠️ **Se detectaron {len(df_futuro)} registros provenientes del futuro.** Edita la columna 'Fecha Corregida' (haciendo doble clic) y guarda los cambios.")
+                
+                # Convertimos la columna a Date puro para que el editor despliegue el calendario
+                df_futuro['Fecha Corregida'] = pd.to_datetime(df_futuro['Fecha Corregida'], errors='coerce').dt.date
+                
+                df_editor_futuro = st.data_editor(
+                    df_futuro,
+                    column_config={
+                        "_tabla": None, "_pk_col": None, "_id": None, "_col_fec": None, "_col_prox": None, "_frec": None, # Ocultamos metadatos
+                        "Módulo": st.column_config.TextColumn("Módulo", disabled=True),
+                        "Categoría": st.column_config.TextColumn("Categoría", disabled=True),
+                        "ID Activo": st.column_config.TextColumn("ID Activo", disabled=True),
+                        "Fecha Errónea (Futura)": st.column_config.TextColumn("Fecha Actual en BD", disabled=True),
+                        "Fecha Corregida": st.column_config.DateColumn("Fecha Corregida (Edítame)", required=True)
+                    },
+                    hide_index=True,
+                    use_container_width=True,
+                    key="editor_fechas_futuras"
+                )
+
+                # --- GUARDADO EN LOTE (BATCH UPDATE) ---
+                if st.button("💾 Guardar Correcciones de Fechas", type="primary"):
+                    cambios = st.session_state.editor_fechas_futuras.get("edited_rows", {})
+                    
+                    if not cambios:
+                        st.info("No se ha modificado ninguna fecha.")
+                    else:
+                        with st.spinner("Sincronizando fechas y recalculando vencimientos..."):
+                            from datetime import datetime
+                            errores = 0
+                            
+                            for idx_str, edits in cambios.items():
+                                if "Fecha Corregida" in edits:
+                                    idx = int(idx_str)
+                                    fila = df_futuro.iloc[idx]
+                                    nueva_fecha_str = edits["Fecha Corregida"]
+                                    
+                                    try:
+                                        # El date_input de Streamlit devuelve un string 'YYYY-MM-DD', calculamos matemáticamente
+                                        f_base = datetime.strptime(nueva_fecha_str, "%Y-%m-%d").date()
+                                        freq = str(fila["_frec"])
+                                        
+                                        # Reutilizamos tu función maestra para calcular la próxima verificación
+                                        f_prox = calcular_proxima_fecha(f_base, freq)
+                                        
+                                        payload = {
+                                            fila["_col_fec"]: nueva_fecha_str,
+                                            fila["_col_prox"]: f_prox.isoformat()
+                                        }
+                                        
+                                        # Actualizar en Supabase dinámicamente
+                                        supabase.table(fila["_tabla"]).update(payload).eq(fila["_pk_col"], fila["_id"]).execute()
+                                    except Exception as e:
+                                        st.error(f"Error actualizando ID {fila['_id']}: {e}")
+                                        errores += 1
+
+                            if errores == 0:
+                                st.success("✅ ¡Todas las fechas han sido corregidas y sus vencimientos recalculados exitosamente!")
+                                st.session_state.simulacro_futuro = None # Limpiamos tabla
+                                st.cache_data.clear()
+                                time.sleep(1.5)
+                                st.rerun()
+                            else:
+                                st.warning("Se aplicaron los cambios con algunos errores. Revisa la base de datos.")
+        
     # --- PESTAÑA 5: USUARIOS (PANEL DE ADMINISTRACIÓN) ---
         with tab_usuarios:
             st.markdown("#### 🔐 Administración de Usuarios")
