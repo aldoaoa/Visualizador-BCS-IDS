@@ -5185,10 +5185,21 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
                     # --- FUNCIÓN GENERADORA INTELIGENTE POR CATEGORÍA ---
                     def generar_registros_por_norma(item_data, es_maq=False):
                         regs = []
+                        
+                        # 🛡️ SANITIZADOR ANTI-NaN PARA CUMPLIMIENTO JSON ESTRICTO
+                        def s_float(v):
+                            if v is None or pd.isna(v): return None
+                            try:
+                                f = float(v)
+                                return None if pd.isna(f) else f
+                            except:
+                                return None
+
                         if es_maq:
                             id_item = str(item_data.get('id_maquinaria')).strip().upper()
                             fecha_actual = item_data.get('fecha_medicion')
-                            val_actual = item_data.get('resistencia_tierra')
+                            # Pasamos los valores por el sanitizador antes de hacer matemáticas
+                            val_actual = s_float(item_data.get('resistencia_tierra'))
                             bal_actual = None
                             categoria = "Maquinaria"
                             clasificacion = item_data.get('clasificacion', 'Maquinaria')
@@ -5197,8 +5208,8 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
                         else:
                             id_item = str(item_data.get('id_producto')).strip().upper()
                             fecha_actual = item_data.get('fecha_ultima_verif')
-                            val_actual = item_data.get('valor_actual')
-                            bal_actual = item_data.get('balance_ionizador')
+                            val_actual = s_float(item_data.get('valor_actual'))
+                            bal_actual = s_float(item_data.get('balance_ionizador'))
                             categoria = item_data.get('categoria', 'Mobiliario')
                             clasificacion = item_data.get('clasificacion', 'Mobiliario')
                             ubicacion = item_data.get('linea_ubicacion', 'N/D')
@@ -5215,23 +5226,23 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
 
                         # REGLA A: IONIZADORES (4 Registros retroactivos, valores enteros +-2)
                         if categoria == 'Ionizador':
-                            for i in range(1, 5): # Esto genera i = 1, 2, 3, 4 (es decir: 3, 6, 9 y 12 meses atrás)
+                            for i in range(1, 5): 
                                 meses_atras = i * 3
                                 fecha_ref = fecha_base - relativedelta(months=meses_atras)
-                                offset = random.randint(-10, 10) # Variación de +-10 días sin caducar el periodo
+                                offset = random.randint(-10, 10) 
                                 fecha_hist_val = fecha_ref + timedelta(days=offset)
                                 fecha_hist_venc = fecha_hist_val + relativedelta(months=3)
 
                                 val_h, bal_h = None, None
-                                if pd.notna(val_actual) and val_actual is not None:
-                                    val_h = max(0, int(float(val_actual)) + random.randint(-2, 2))
-                                if pd.notna(bal_actual) and bal_actual is not None:
-                                    bal_h = int(float(bal_actual)) + random.randint(-2, 2)
+                                if val_actual is not None:
+                                    val_h = float(max(0, int(val_actual) + random.randint(-2, 2)))
+                                if bal_actual is not None:
+                                    bal_h = float(int(bal_actual) + random.randint(-2, 2))
 
                                 regs.append({
                                     "id_equipo": id_item, "tipo_equipo": clasificacion, "ubicacion": ubicacion,
-                                    "valor_actual": float(val_h) if val_h is not None else None,
-                                    "balance_ionizador": float(bal_h) if bal_h is not None else None,
+                                    "valor_actual": val_h,
+                                    "balance_ionizador": bal_h,
                                     "fecha_validacion": fecha_hist_val.isoformat(),
                                     "fecha_vencimiento": fecha_hist_venc.isoformat(),
                                     "auditor": auditor, "fecha_modificacion": datetime.now().isoformat()
@@ -5245,9 +5256,9 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
                             fecha_hist_venc = fecha_hist_val + relativedelta(years=1)
 
                             val_h = None
-                            if pd.notna(val_actual) and val_actual is not None:
+                            if val_actual is not None:
                                 variacion = random.uniform(-0.2, 0.2)
-                                val_h = max(0.0, round(float(val_actual) + variacion, 3))
+                                val_h = float(max(0.0, round(val_actual + variacion, 3)))
                             
                             regs.append({
                                 "id_equipo": id_item, "tipo_equipo": clasificacion, "ubicacion": ubicacion,
@@ -5264,9 +5275,9 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
                             fecha_hist_venc = fecha_hist_val + relativedelta(years=1)
 
                             val_h = None
-                            if pd.notna(val_actual) and val_actual is not None:
-                                variacion = random.uniform(-100.0, 100.0) # +- 1e2
-                                val_h = max(0.0, round(float(val_actual) + variacion, 2))
+                            if val_actual is not None:
+                                variacion = random.uniform(-100.0, 100.0)
+                                val_h = float(max(0.0, round(val_actual + variacion, 2)))
 
                             regs.append({
                                 "id_equipo": id_item, "tipo_equipo": clasificacion, "ubicacion": ubicacion,
