@@ -8621,16 +8621,24 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
             st.divider()
             
             if len(lista_anomalias) == 0:
-                st.success("✨ ¡Cumplimiento cronológico perfecto! No se detectaron brechas mayores a 365 días ni reentrenamientos desfasados.")
+                st.success("✨ ¡Cumplimiento cronológico perfecto!")
+                st.session_state.anomalias_entrenamiento = None
             else:
-                st.warning(f"⚠️ **Atención: Se encontraron {len(lista_anomalias)} registros anómalos.** Puedes editar tanto la fecha del examen previo como la del examen actual. Presiona Guardar al finalizar.")
+                st.warning(f"⚠️ **Atención: Se encontraron {len(lista_anomalias)} registros anómalos.**")
                 
+                # Convertir lista a DataFrame
                 df_anomalias = pd.DataFrame(lista_anomalias)
-                # Forzar columnas de edición a ser fecha nativa
+                
+                # Asegurar que las columnas existan aunque no haya casos mixtos
+                if 'Nueva Fecha Previa' not in df_anomalias.columns:
+                    df_anomalias['Nueva Fecha Previa'] = pd.to_datetime(df_anomalias['Fecha Examen Previo'])
+                if 'Nueva Fecha (Correcta)' not in df_anomalias.columns:
+                    df_anomalias['Nueva Fecha (Correcta)'] = pd.to_datetime(df_anomalias['Fecha Siguiente Examen'])
+                
                 df_anomalias['Nueva Fecha Previa'] = pd.to_datetime(df_anomalias['Nueva Fecha Previa']).dt.date
                 df_anomalias['Nueva Fecha (Correcta)'] = pd.to_datetime(df_anomalias['Nueva Fecha (Correcta)']).dt.date
                 
-                # Reorganizamos las columnas para que la lectura de izquierda a derecha sea natural
+                # Ordenar columnas
                 cols_order = [
                     "id_bd_actual", "id_bd_previo", "No. Empleado", "Nombre", "Fecha Ingreso", 
                     "Motivo de Alerta", "Es Primer Examen?", "Fecha Examen Previo", "Nueva Fecha Previa", 
@@ -8641,63 +8649,48 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
                 editor_train = st.data_editor(
                     df_anomalias,
                     column_config={
-                        "id_bd_actual": None, 
-                        "id_bd_previo": None, 
+                        "id_bd_actual": None, "id_bd_previo": None,
                         "No. Empleado": st.column_config.TextColumn("No. Empleado", disabled=True),
                         "Nombre": st.column_config.TextColumn("Nombre", disabled=True),
                         "Fecha Ingreso": st.column_config.TextColumn("Ingreso", disabled=True),
                         "Motivo de Alerta": st.column_config.TextColumn("Motivo", disabled=True),
-                        "Es Primer Examen?": st.column_config.TextColumn("¿Fue 1er Examen?", disabled=True),
+                        "Es Primer Examen?": st.column_config.TextColumn("1er Examen?", disabled=True),
                         "Fecha Examen Previo": st.column_config.TextColumn("Fecha Examen Previo", disabled=True),
                         "Nueva Fecha Previa": st.column_config.DateColumn("Edita Fecha Previa", required=True),
                         "Nota Previa": st.column_config.NumberColumn("Nota Previa", disabled=True),
                         "Días Gap": st.column_config.NumberColumn("Días Gap", disabled=True),
                         "Fecha Siguiente Examen": st.column_config.TextColumn("Fecha Siguiente Examen", disabled=True),
-                        "Nueva Fecha (Correcta)": st.column_config.DateColumn("Edita Fecha Siguiente", required=True),
+                        "Nueva Fecha (Correcta)": st.column_config.DateColumn("Edita Fecha Sig.", required=True),
                         "Nota Siguiente Examen": st.column_config.NumberColumn("Nota Sig.", disabled=True),
                     },
                     hide_index=True,
-                    use_container_width=True,
+                    width='stretch',
                     key="editor_train_audit"
                 )
                 
-                if st.button("💾 Guardar Correcciones de Entrenamiento", type="primary", use_container_width=True):
+                if st.button("💾 Guardar Correcciones", type="primary", use_container_width=True):
                     cambios = st.session_state.editor_train_audit.get("edited_rows", {})
-                    
                     if not cambios:
-                        st.info("No se ha modificado ninguna fecha.")
+                        st.info("No hay cambios pendientes.")
                     else:
-                        with st.spinner("Actualizando línea del tiempo en SQL..."):
+                        with st.spinner("Sincronizando SQL..."):
                             errores = 0
                             for idx_str, edits in cambios.items():
                                 idx = int(idx_str)
-                                fila_original = df_anomalias.iloc[idx]
+                                fila = df_anomalias.iloc[idx]
                                 
-                                # Si se editó la fecha del examen actual
+                                # Actualizar fecha del examen actual
                                 if "Nueva Fecha (Correcta)" in edits:
-                                    id_actual = fila_original['id_bd_actual']
-                                    nueva_f_actual = edits["Nueva Fecha (Correcta)"]
                                     try:
-                                        supabase.table("entrenamientos_esd").update({"fecha_entrenamiento": f"{nueva_f_actual}T00:00:00"}).eq("id", id_actual).execute()
-                                    except Exception as e:
-                                        st.error(f"Error actualizando el registro actual de {fila_original['Nombre']}: {e}")
-                                        errores += 1
-
-                                # Si se editó la fecha del examen previo
+                                        supabase.table("entrenamientos_esd").update({"fecha_entrenamiento": str(edits["Nueva Fecha (Correcta)"]) + "T00:00:00"}).eq("id", fila['id_bd_actual']).execute()
+                                    except: errores += 1
+                                # Actualizar fecha del examen previo
                                 if "Nueva Fecha Previa" in edits:
-                                    id_previo = fila_original['id_bd_previo']
-                                    nueva_f_prev = edits["Nueva Fecha Previa"]
                                     try:
-                                        supabase.table("entrenamientos_esd").update({"fecha_entrenamiento": f"{nueva_f_prev}T00:00:00"}).eq("id", id_previo).execute()
-                                    except Exception as e:
-                                        st.error(f"Error actualizando el registro previo de {fila_original['Nombre']}: {e}")
-                                        errores += 1
+                                        supabase.table("entrenamientos_esd").update({"fecha_entrenamiento": str(edits["Nueva Fecha Previa"]) + "T00:00:00"}).eq("id", fila['id_bd_previo']).execute()
+                                    except: errores += 1
                             
                             if errores == 0:
-                                st.success("✅ ¡Fechas corregidas con éxito! (El Dashboard Principal alineará automáticamente el padrón de empleados).")
+                                st.success("✅ ¡Registros actualizados!")
                                 st.session_state.anomalias_entrenamiento = None
-                                st.cache_data.clear()
-                                time.sleep(1.5)
                                 st.rerun()
-                            else:
-                                st.warning("Se guardaron algunos cambios, pero hubo errores de red.")
