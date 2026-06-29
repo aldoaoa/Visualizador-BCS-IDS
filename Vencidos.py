@@ -3454,6 +3454,76 @@ elif st.session_state.vista_actual == "Walking Test" and not st.session_state.mo
                     })
                     st.write("") 
 
+        # =====================================================================
+        # GUARDAR RESULTADOS DEL WALKING TEST EN LA NUBE
+        # =====================================================================
+        st.divider()
+        st.markdown("### 💾 Centralizar Registro en Base de Datos")
+        st.caption("Guarda los parámetros extraídos por el OCR directamente en el historial maestro de Walking Tests.")
+
+        # Creamos un contenedor de formulario para control de envíos
+        with st.form("form_guardar_walking_test"):
+            col_w1, col_w2 = st.columns(2)
+            
+            # Permitimos asociar el test a una línea y a un operador si es necesario
+            if 'obtener_catalogo_lineas' in globals():
+                lineas_test = obtener_catalogo_lineas()
+            else:
+                lineas_test = ["N/D"]
+                
+            ubicacion_w = col_w1.selectbox("Confirmar Línea / Ubicación", options=lineas_test)
+            operador_w = col_w2.text_input("Nombre / No. de Empleado Evaluado (Opcional)", value="N/D")
+            
+            # Notas adicionales voluntarias del auditor
+            notas_w = st.text_area("Notas u observaciones del Walking Test")
+
+            if st.form_submit_button("🚀 Confirmar y Almacenar en Supabase", type="primary", use_container_width=True):
+                import math
+                with st.spinner("Purificando datos e inyectando en SQL..."):
+                    
+                    # 🧹 FUNCIÓN SANITIZADORA (Escudo definitivo anti-NaN para JSON)
+                    def limpiar_num(val):
+                        if val is None or pd.isna(val): return None
+                        try:
+                            f = float(val)
+                            return None if math.isnan(f) else f
+                        except:
+                            return None
+
+                    # Evaluamos automáticamente bajo la norma ANSI/ESD S20.20 (< 100V en picos)
+                    try:
+                        p_pos = abs(float(pico_max_positivo)) if pico_max_positivo else 0
+                        p_neg = abs(float(pico_max_negativo)) if pico_max_negativo else 0
+                        # Si cualquiera de los picos absolutos toca o supera los 100V, es una desviación
+                        estatus_final_w = "FALLA" if (p_pos >= 100 or p_neg >= 100) else "PASA"
+                    except:
+                        estatus_final_w = "PENDIENTE"
+
+                    # Construimos el payload totalmente limpio de NaN
+                    payload_walking = {
+                        "fecha_medicion": fecha_reporte_ocr if 'fecha_reporte_ocr' in locals() else datetime.now().date().isoformat(),
+                        "nombre_empleado": operador_w.strip(),
+                        "linea_ubicacion": ubicacion_w,
+                        "temperatura": limpiar_num(temperatura_extraida), # Tu variable del OCR
+                        "humedad": limpiar_num(humedad_extraida),         # Tu variable del OCR
+                        "pico_positivo": limpiar_num(pico_max_positivo),   # Tu variable del OCR
+                        "pico_negativo": limpiar_num(pico_max_negativo),   # Tu variable del OCR
+                        "resultado_estatus": estatus_final_w,
+                        "auditor": st.session_state.usuario_nombre
+                    }
+
+                    try:
+                        # Inserción en la nueva tabla
+                        supabase.table("mediciones_walking_test").insert(payload_walking).execute()
+                        
+                        st.success("✅ ¡Reporte de Walking Test guardado exitosamente en el historial cloud!")
+                        st.balloons()
+                        st.cache_data.clear()
+                        import time
+                        time.sleep(1.5)
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Fallo de comunicación con Supabase: {e}")
                 # AHORA ESTÁ DENTRO DEL FORMULARIO Y SE ELIMINÓ EL WARNING USANDO width="stretch"
                 submit_reporte = st.form_submit_button("Generar Reporte Consolidado en PDF/HTML", width="stretch")
                 
