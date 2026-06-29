@@ -8518,10 +8518,10 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
                                         st.warning(f"No se encontraron exámenes nuevos. Se omitieron {registros_omitidos} registros duplicados/ya existentes.")
                 except Exception as e:
                     st.error(f"Error procesando el archivo semanal: {e}")
-    # --- PESTAÑA 4: AUDITORÍA CRONOLÓGICA (BRECHAS Y REENTRENAMIENTOS) ---
+# --- PESTAÑA 4: AUDITORÍA CRONOLÓGICA (BRECHAS Y REENTRENAMIENTOS) ---
     with tab_auditoria:
         st.markdown("#### 🕵️ Auditoría de Cumplimiento (Gaps y Reentrenamientos)")
-        st.info("Esta herramienta recorre la línea del tiempo de cada colaborador y detecta dos anomalías críticas: **1)** Brechas mayores a 365 días entre certificaciones. **2)** Reentrenamientos que no se realizaron en el margen normativo de 1 a 2 días tras una reprobación (< 8.0).")
+        st.info("Esta herramienta recorre la línea del tiempo de cada colaborador y detecta dos anomalías críticas: **1)** Brechas mayores a 365 días entre certificaciones. **2)** Reentrenamientos que tardaron **más de 2 días** tras una reprobación (< 8.0).")
 
         if "anomalias_entrenamiento" not in st.session_state:
             st.session_state.anomalias_entrenamiento = None
@@ -8559,19 +8559,23 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
                                     try: nota_previa = float(row_prev['calificacion_total'])
                                     except: nota_previa = 10.0
                                     
+                                    try: nota_siguiente = float(row_actual['calificacion_total'])
+                                    except: nota_siguiente = 0.0
+                                    
                                     # --- REGLA A: REENTRENAMIENTO TRAS FALLA ---
                                     if nota_previa < 8.0:
-                                        # Si la diferencia NO es exactamente 1 o 2 días, es una anomalía
-                                        if dias_transcurridos < 1 or dias_transcurridos > 2:
+                                        # OMITIMOS los que tardaron 0, 1 o 2 días. Solo reportamos los tardíos.
+                                        if dias_transcurridos > 2:
                                             anomalias_encontradas.append({
                                                 "id_bd": row_actual['id'],
                                                 "No. Empleado": emp,
                                                 "Nombre": row_actual['nombre_empleado'],
-                                                "Motivo de Falla": f"Reentrenamiento Tardío/Prematuro ({dias_transcurridos} días)",
+                                                "Motivo de Alerta": f"Reentrenamiento Tardío",
                                                 "Fecha Examen Previo": row_prev['fecha_dt'].strftime('%Y-%m-%d'),
                                                 "Nota Previa": nota_previa,
                                                 "Días Gap": dias_transcurridos,
-                                                "Fecha Actual (Errónea)": row_actual['fecha_dt'].strftime('%Y-%m-%d'),
+                                                "Fecha Siguiente Examen": row_actual['fecha_dt'].strftime('%Y-%m-%d'),
+                                                "Nota Siguiente Examen": nota_siguiente,
                                                 "Nueva Fecha (Correcta)": row_actual['fecha_dt'].strftime('%Y-%m-%d')
                                             })
                                             continue # Saltamos a la siguiente iteración para no duplicar alertas
@@ -8583,11 +8587,12 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
                                             "id_bd": row_actual['id'],
                                             "No. Empleado": emp,
                                             "Nombre": row_actual['nombre_empleado'],
-                                            "Motivo de Falla": "Brecha de Certificación (>365 días)",
+                                            "Motivo de Alerta": f"Brecha Anual Excedida",
                                             "Fecha Examen Previo": row_prev['fecha_dt'].strftime('%Y-%m-%d'),
                                             "Nota Previa": nota_previa,
                                             "Días Gap": dias_transcurridos,
-                                            "Fecha Actual (Errónea)": row_actual['fecha_dt'].strftime('%Y-%m-%d'),
+                                            "Fecha Siguiente Examen": row_actual['fecha_dt'].strftime('%Y-%m-%d'),
+                                            "Nota Siguiente Examen": nota_siguiente,
                                             "Nueva Fecha (Correcta)": row_actual['fecha_dt'].strftime('%Y-%m-%d')
                                         })
 
@@ -8604,7 +8609,7 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
             if len(lista_anomalias) == 0:
                 st.success("✨ ¡Cumplimiento cronológico perfecto! No se detectaron brechas mayores a 365 días ni reentrenamientos desfasados.")
             else:
-                st.warning(f"⚠️ **Atención: Se encontraron {len(lista_anomalias)} registros anómalos.** Edita la columna 'Nueva Fecha (Correcta)' y presiona Guardar. *Nota: La tabla muestra el examen que llegó tarde, por lo que debes ajustar su fecha hacia atrás.*")
+                st.warning(f"⚠️ **Atención: Se encontraron {len(lista_anomalias)} registros anómalos.** Analiza la historia de las columnas, edita la 'Nueva Fecha (Correcta)' y presiona Guardar. *Nota: Se está editando la fecha del Siguiente Examen para acercarlo a la normativa.*")
                 
                 df_anomalias = pd.DataFrame(lista_anomalias)
                 # Forzar columna de edición a ser fecha nativa
@@ -8616,11 +8621,12 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
                         "id_bd": None, # Ocultamos el ID de la base de datos
                         "No. Empleado": st.column_config.TextColumn("No. Empleado", disabled=True),
                         "Nombre": st.column_config.TextColumn("Nombre", disabled=True),
-                        "Motivo de Falla": st.column_config.TextColumn("Motivo de Falla", disabled=True),
+                        "Motivo de Alerta": st.column_config.TextColumn("Motivo", disabled=True),
                         "Fecha Examen Previo": st.column_config.TextColumn("Fecha Examen Previo", disabled=True),
                         "Nota Previa": st.column_config.NumberColumn("Nota Previa", disabled=True),
-                        "Días Gap": st.column_config.NumberColumn("Días Gap", disabled=True),
-                        "Fecha Actual (Errónea)": st.column_config.TextColumn("Fecha Actual (Errónea)", disabled=True),
+                        "Días Gap": st.column_config.NumberColumn("Días Transcurridos", disabled=True),
+                        "Fecha Siguiente Examen": st.column_config.TextColumn("Fecha Siguiente Examen", disabled=True),
+                        "Nota Siguiente Examen": st.column_config.NumberColumn("Nota Sig. Examen", disabled=True),
                         "Nueva Fecha (Correcta)": st.column_config.DateColumn("Nueva Fecha (Edítame)", required=True),
                     },
                     hide_index=True,
