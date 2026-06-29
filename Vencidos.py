@@ -2999,9 +2999,7 @@ elif st.session_state.vista_actual == "Escáner":
                                                 "linea_ubicacion": linea,
                                                 "categoria": categoria,
                                                 "clasificacion": clasificacion,
-                                                "marca": marca,
-                                                "modelo": modelo,
-                                                "serie": serie,
+                                                # Se omiten marca, modelo y serie para cumplir con el esquema de inventario_esd
                                                 "frecuencia": freq,
                                                 "fecha_ultima_verif": fecha_hoy.isoformat(),
                                                 "fecha_proxima_verif": f_prox.isoformat(),
