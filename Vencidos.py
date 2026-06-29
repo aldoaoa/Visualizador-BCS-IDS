@@ -2923,7 +2923,101 @@ elif st.session_state.vista_actual == "Escáner":
                                                 st.error(f"Error al guardar: {e}")
 
         else:
-            st.error("❌ El ID no se encontró en la base de datos (Mobiliario, Ionizadores o Maquinaria).")
+            # ==========================================
+            # LÓGICA DE ALTA RÁPIDA (SÓLO CÁMARA)
+            # ==========================================
+            st.error(f"❌ El ID `{id_limpio}` no se encontró en la base de datos actual.")
+            
+            # 1. El truco: Verificamos si vino de la cámara o del teclado
+            valor_teclado = str(st.session_state.get("input_manual", "")).strip().upper()
+            
+            if valor_teclado == id_limpio:
+                # Vino de un ingreso manual
+                st.warning("⚠️ **Alta Rápida Deshabilitada.**\nPara evitar registrar equipos con errores tipográficos, el alta automática sólo se activa al escanear el código QR físico con la cámara.")
+            else:
+                # Vino directamente del escáner
+                st.info("💡 **QR Físico Detectado.**\nComo este ID proviene directamente del escáner, tienes autorización para darlo de alta en el sistema en este momento.")
+                
+                with st.expander("➕ Abrir Formulario de Alta Rápida", expanded=True):
+                    with st.form("form_alta_escaner"):
+                        st.markdown(f"#### Registro de Nuevo Equipo: `{id_limpio}`")
+                        
+                        col_md, col_cat = st.columns(2)
+                        modulo_dest = col_md.selectbox("Módulo de Destino", ["Inventario ESD (General)", "Maquinaria"])
+                        
+                        cat_opciones = ["Mobiliario", "Ionizador", "Monitor Continuo", "Tapete", "Prendas/Zapatos", "Otro"]
+                        categoria = col_cat.selectbox("Categoría", cat_opciones) if modulo_dest != "Maquinaria" else "Maquinaria"
+                        
+                        if 'obtener_catalogo_lineas' in globals():
+                            lineas_opc = obtener_catalogo_lineas()
+                        else:
+                            lineas_opc = ["N/D"]
+                            
+                        col_l, col_c = st.columns(2)
+                        linea = col_l.selectbox("Línea / Ubicación", options=lineas_opc)
+                        clasificacion = col_c.text_input("Clasificación (Ej. Mesa, Rack, SMT, Router)")
+                        
+                        col_m1, col_m2, col_m3 = st.columns(3)
+                        marca = col_m1.text_input("Marca", "N/D")
+                        modelo = col_m2.text_input("Modelo", "N/D")
+                        serie = col_m3.text_input("No. Serie", "N/D")
+                        
+                        freq = st.selectbox("Frecuencia de Verificación Normativa", ["Anual", "Semestral", "Trimestral", "Mensual", "Semanal", "Diario"])
+                        
+                        # Usamos 'stretch' para cumplir con los nuevos estándares de Streamlit
+                        if st.form_submit_button("💾 Guardar y Registrar en Base de Datos", type="primary", use_container_width=True):
+                            if not clasificacion.strip():
+                                st.error("⚠️ La clasificación es un campo obligatorio.")
+                            else:
+                                with st.spinner("Inyectando nuevo registro en SQL..."):
+                                    try:
+                                        from datetime import datetime
+                                        fecha_hoy = datetime.now().date()
+                                        
+                                        # Recicla tu función maestra para proyecciones
+                                        f_prox = calcular_proxima_fecha(fecha_hoy, freq)
+                                        
+                                        if modulo_dest == "Maquinaria":
+                                            payload = {
+                                                "id_maquinaria": id_limpio,
+                                                "linea_ubicacion": linea,
+                                                "clasificacion": clasificacion,
+                                                "marca": marca,
+                                                "modelo": modelo,
+                                                "numero_serie": serie,
+                                                "frecuencia_verificacion": freq,
+                                                "fecha_medicion": fecha_hoy.isoformat(),
+                                                "fecha_proxima": f_prox.isoformat(),
+                                                "status_operativo": "OPERATIVO",
+                                                "resultado_estatus": "PENDIENTE",
+                                                "auditor": st.session_state.usuario_nombre
+                                            }
+                                            supabase.table("mediciones_maquinaria").insert(payload).execute()
+                                        else:
+                                            payload = {
+                                                "id_producto": id_limpio,
+                                                "linea_ubicacion": linea,
+                                                "categoria": categoria,
+                                                "clasificacion": clasificacion,
+                                                "marca": marca,
+                                                "modelo": modelo,
+                                                "serie": serie,
+                                                "frecuencia": freq,
+                                                "fecha_ultima_verif": fecha_hoy.isoformat(),
+                                                "fecha_proxima_verif": f_prox.isoformat(),
+                                                "estatus_operativo": "OPERATIVO",
+                                                "estatus_verificacion": "PENDIENTE",
+                                                "auditor_responsable": st.session_state.usuario_nombre
+                                            }
+                                            supabase.table("inventario_esd").insert(payload).execute()
+                                            
+                                        st.success(f"✅ ¡El equipo {id_limpio} ha sido dado de alta oficialmente!")
+                                        st.cache_data.clear()
+                                        import time
+                                        time.sleep(1.5)
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"Fallo de inserción en base de datos: {e}")
 # ==========================================
 # VISTA 3: EVENT METER
 # ==========================================
