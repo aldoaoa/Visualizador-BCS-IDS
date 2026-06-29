@@ -8629,27 +8629,38 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
                 # Convertir lista a DataFrame
                 df_anomalias = pd.DataFrame(lista_anomalias)
                 
-                # Asegurar que las columnas existan aunque no haya casos mixtos
-                if 'Nueva Fecha Previa' not in df_anomalias.columns:
-                    df_anomalias['Nueva Fecha Previa'] = pd.to_datetime(df_anomalias['Fecha Examen Previo'])
-                if 'Nueva Fecha (Correcta)' not in df_anomalias.columns:
-                    df_anomalias['Nueva Fecha (Correcta)'] = pd.to_datetime(df_anomalias['Fecha Siguiente Examen'])
-                
-                df_anomalias['Nueva Fecha Previa'] = pd.to_datetime(df_anomalias['Nueva Fecha Previa']).dt.date
-                df_anomalias['Nueva Fecha (Correcta)'] = pd.to_datetime(df_anomalias['Nueva Fecha (Correcta)']).dt.date
-                
-                # Ordenar columnas
+                # 1. Asegurar columnas de fecha con valores por defecto si no existen
+                for col_f in ['Nueva Fecha Previa', 'Nueva Fecha (Correcta)']:
+                    if col_f not in df_anomalias.columns:
+                        df_anomalias[col_f] = df_anomalias['Fecha Actual (Errónea)']
+                    df_anomalias[col_f] = pd.to_datetime(df_anomalias[col_f], errors='coerce').dt.date
+
+                # 2. Asegurar que las columnas requeridas para el ordenamiento existan
+                # Si no existen, las creamos vacías para evitar el KeyError
+                columnas_requeridas = [
+                    "id_bd_actual", "id_bd_previo", "No. Empleado", "Nombre", 
+                    "Fecha Ingreso", "Motivo de Alerta", "Es Primer Examen?", 
+                    "Fecha Examen Previo", "Nota Previa", "Días Gap", 
+                    "Fecha Siguiente Examen", "Nota Siguiente Examen"
+                ]
+                for c in columnas_requeridas:
+                    if c not in df_anomalias.columns:
+                        df_anomalias[c] = "N/D"
+
+                # 3. Reorganizar columnas de forma segura
                 cols_order = [
                     "id_bd_actual", "id_bd_previo", "No. Empleado", "Nombre", "Fecha Ingreso", 
                     "Motivo de Alerta", "Es Primer Examen?", "Fecha Examen Previo", "Nueva Fecha Previa", 
                     "Nota Previa", "Días Gap", "Fecha Siguiente Examen", "Nueva Fecha (Correcta)", "Nota Siguiente Examen"
                 ]
-                df_anomalias = df_anomalias[cols_order]
+                # Solo tomamos las que realmente existen en el df final
+                df_anomalias = df_anomalias[[c for c in cols_order if c in df_anomalias.columns]]
 
                 editor_train = st.data_editor(
                     df_anomalias,
                     column_config={
-                        "id_bd_actual": None, "id_bd_previo": None,
+                        "id_bd_actual": None, 
+                        "id_bd_previo": None, 
                         "No. Empleado": st.column_config.TextColumn("No. Empleado", disabled=True),
                         "Nombre": st.column_config.TextColumn("Nombre", disabled=True),
                         "Fecha Ingreso": st.column_config.TextColumn("Ingreso", disabled=True),
@@ -8664,7 +8675,7 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
                         "Nota Siguiente Examen": st.column_config.NumberColumn("Nota Sig.", disabled=True),
                     },
                     hide_index=True,
-                    width='stretch',
+                    width='stretch', # Cambio solicitado por Streamlit
                     key="editor_train_audit"
                 )
                 
