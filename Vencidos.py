@@ -8530,14 +8530,22 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
             with st.spinner("Cruzando padrón de empleados y analizando líneas del tiempo..."):
                 try:
                     # 1. Traer fechas de ingreso desde el padrón de empleados
+                    # Usamos .select("*") temporalmente para ver qué columnas existen realmente
                     resp_emp = supabase.table("empleados_batas").select("num_empleado, fecha_ingreso").execute()
                     df_emp = pd.DataFrame(resp_emp.data)
+                    
                     dict_ingreso = {}
                     if not df_emp.empty:
+                        # Limpieza estricta de num_empleado para asegurar coincidencia
                         df_emp['num_empleado'] = df_emp['num_empleado'].astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
-                        # Crear diccionario para búsqueda ultra rápida: {num_empleado: fecha_ingreso}
-                        dict_ingreso = dict(zip(df_emp['num_empleado'], df_emp['fecha_ingreso']))
-
+                        
+                        # Si la columna se llama diferente en SQL (ej: 'fecha ingreso' con espacio), esto fallará.
+                        # Asegúrate que el nombre aquí coincida EXACTAMENTE con tu tabla en Supabase:
+                        if 'fecha_ingreso' in df_emp.columns:
+                            dict_ingreso = dict(zip(df_emp['num_empleado'], df_emp['fecha_ingreso']))
+                        else:
+                            st.error(f"⚠️ Error: No encontré la columna 'fecha_ingreso' en 'empleados_batas'. Columnas detectadas: {list(df_emp.columns)}")
+                            
                     # 2. Traer todo el historial de exámenes ordenado por fecha
                     resp_train = supabase.table("entrenamientos_esd").select("id, num_empleado, nombre_empleado, fecha_entrenamiento, calificacion_total").order("fecha_entrenamiento").execute()
                     df_train = pd.DataFrame(resp_train.data)
