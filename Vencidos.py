@@ -7704,10 +7704,11 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
     st.markdown("### 🎓 Gestión de Entrenamiento y Certificación ESD")
     st.info("Administra el historial de capacitaciones, calificaciones y analiza las áreas de oportunidad (preguntas con mayor índice de falla).")
 
-    tab_dash, tab_historico, tab_semanal = st.tabs([
+    tab_dash, tab_historico, tab_semanal, tab_auditoria = st.tabs([
         "📊 Dashboard de Resultados", 
         "📥 Cargar Histórico (Forms)", 
-        "🔄 Actualización Semanal"
+        "🔄 Actualización Semanal",
+        "🕵️ Auditoría Cronológica"
     ])
 
     # --- PESTAÑA 1: DASHBOARD Y ANÁLISIS ---
@@ -8517,3 +8518,142 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
                                         st.warning(f"No se encontraron exámenes nuevos. Se omitieron {registros_omitidos} registros duplicados/ya existentes.")
                 except Exception as e:
                     st.error(f"Error procesando el archivo semanal: {e}")
+    # --- PESTAÑA 4: AUDITORÍA CRONOLÓGICA (BRECHAS Y REENTRENAMIENTOS) ---
+    with tab_auditoria:
+        st.markdown("#### 🕵️ Auditoría de Cumplimiento (Gaps y Reentrenamientos)")
+        st.info("Esta herramienta recorre la línea del tiempo de cada colaborador y detecta dos anomalías críticas: **1)** Brechas mayores a 365 días entre certificaciones. **2)** Reentrenamientos que no se realizaron en el margen normativo de 1 a 2 días tras una reprobación (< 8.0).")
+
+        if "anomalias_entrenamiento" not in st.session_state:
+            st.session_state.anomalias_entrenamiento = None
+
+        if st.button("🔍 Escanear Historial Completo", type="secondary", use_container_width=True):
+            with st.spinner("Analizando la línea del tiempo de todos los colaboradores..."):
+                try:
+                    # 1. Traer todo el historial de exámenes ordenado por fecha
+                    resp_train = supabase.table("entrenamientos_esd").select("id, num_empleado, nombre_empleado, fecha_entrenamiento, calificacion_total").order("fecha_entrenamiento").execute()
+                    df_train = pd.DataFrame(resp_train.data)
+                    
+                    anomalias_encontradas = []
+                    
+                    if not df_train.empty:
+                        # Limpiar y asegurar el formato de fechas
+                        df_train['fecha_dt'] = pd.to_datetime(df_train['fecha_entrenamiento'], errors='coerce')
+                        df_train = df_train.dropna(subset=['fecha_dt'])
+                        
+                        # Ordenar primariamente por empleado y secundariamente por fecha (cronología estricta)
+                        df_train = df_train.sort_values(by=['num_empleado', 'fecha_dt'])
+                        
+                        # 2. Agrupar por empleado y recorrer su línea del tiempo
+                        for emp, group in df_train.groupby('num_empleado'):
+                            group = group.reset_index(drop=True)
+                            
+                            for i in range(len(group)):
+                                row_actual = group.iloc[i]
+                                
+                                # Solo podemos comparar si hay un examen previo (i > 0)
+                                if i > 0:
+                                    row_prev = group.iloc[i-1]
+                                    dias_transcurridos = (row_actual['fecha_dt'].date() - row_prev['fecha_dt'].date()).days
+                                    
+                                    # Extraemos notas de forma segura
+                                    try: nota_previa = float(row_prev['calificacion_total'])
+                                    except: nota_previa = 10.0
+                                    
+                                    # --- REGLA A: REENTRENAMIENTO TRAS FALLA ---
+                                    if nota_previa < 8.0:
+                                        # Si la diferencia NO es exactamente 1 o 2 días, es una anomalía
+                                        if dias_transcurridos < 1 or dias_transcurridos > 2:
+                                            anomalias_encontradas.append({
+                                                "id_bd": row_actual['id'],
+                                                "No. Empleado": emp,
+                                                "Nombre": row_actual['nombre_empleado'],
+                                                "Motivo de Falla": f"Reentrenamiento Tardío/Prematuro ({dias_transcurridos} días)",
+                                                "Fecha Examen Previo": row_prev['fecha_dt'].strftime('%Y-%m-%d'),
+                                                "Nota Previa": nota_previa,
+                                                "Días Gap": dias_transcurridos,
+                                                "Fecha Actual (Errónea)": row_actual['fecha_dt'].strftime('%Y-%m-%d'),
+                                                "Nueva Fecha (Correcta)": row_actual['fecha_dt'].strftime('%Y-%m-%d')
+                                            })
+                                            continue # Saltamos a la siguiente iteración para no duplicar alertas
+                                            
+                                    # --- REGLA B: BRECHA DE CERTIFICACIÓN ANUAL ---
+                                    # Si pasaron más de 365 días entre el examen actual y el anterior
+                                    if dias_transcurridos > 365:
+                                        anomalias_encontradas.append({
+                                            "id_bd": row_actual['id'],
+                                            "No. Empleado": emp,
+                                            "Nombre": row_actual['nombre_empleado'],
+                                            "Motivo de Falla": "Brecha de Certificación (>365 días)",
+                                            "Fecha Examen Previo": row_prev['fecha_dt'].strftime('%Y-%m-%d'),
+                                            "Nota Previa": nota_previa,
+                                            "Días Gap": dias_transcurridos,
+                                            "Fecha Actual (Errónea)": row_actual['fecha_dt'].strftime('%Y-%m-%d'),
+                                            "Nueva Fecha (Correcta)": row_actual['fecha_dt'].strftime('%Y-%m-%d')
+                                        })
+
+                    st.session_state.anomalias_entrenamiento = anomalias_encontradas
+
+                except Exception as e:
+                    st.error(f"Error al analizar el historial: {e}")
+
+        # --- EDITOR Y GUARDADO ---
+        if st.session_state.anomalias_entrenamiento is not None:
+            lista_anomalias = st.session_state.anomalias_entrenamiento
+            st.divider()
+            
+            if len(lista_anomalias) == 0:
+                st.success("✨ ¡Cumplimiento cronológico perfecto! No se detectaron brechas mayores a 365 días ni reentrenamientos desfasados.")
+            else:
+                st.warning(f"⚠️ **Atención: Se encontraron {len(lista_anomalias)} registros anómalos.** Edita la columna 'Nueva Fecha (Correcta)' y presiona Guardar. *Nota: La tabla muestra el examen que llegó tarde, por lo que debes ajustar su fecha hacia atrás.*")
+                
+                df_anomalias = pd.DataFrame(lista_anomalias)
+                # Forzar columna de edición a ser fecha nativa
+                df_anomalias['Nueva Fecha (Correcta)'] = pd.to_datetime(df_anomalias['Nueva Fecha (Correcta)']).dt.date
+                
+                editor_train = st.data_editor(
+                    df_anomalias,
+                    column_config={
+                        "id_bd": None, # Ocultamos el ID de la base de datos
+                        "No. Empleado": st.column_config.TextColumn("No. Empleado", disabled=True),
+                        "Nombre": st.column_config.TextColumn("Nombre", disabled=True),
+                        "Motivo de Falla": st.column_config.TextColumn("Motivo de Falla", disabled=True),
+                        "Fecha Examen Previo": st.column_config.TextColumn("Fecha Examen Previo", disabled=True),
+                        "Nota Previa": st.column_config.NumberColumn("Nota Previa", disabled=True),
+                        "Días Gap": st.column_config.NumberColumn("Días Gap", disabled=True),
+                        "Fecha Actual (Errónea)": st.column_config.TextColumn("Fecha Actual (Errónea)", disabled=True),
+                        "Nueva Fecha (Correcta)": st.column_config.DateColumn("Nueva Fecha (Edítame)", required=True),
+                    },
+                    hide_index=True,
+                    use_container_width=True,
+                    key="editor_train_audit"
+                )
+                
+                if st.button("💾 Guardar Correcciones de Entrenamiento", type="primary", use_container_width=True):
+                    cambios = st.session_state.editor_train_audit.get("edited_rows", {})
+                    
+                    if not cambios:
+                        st.info("No se ha modificado ninguna fecha.")
+                    else:
+                        with st.spinner("Actualizando línea del tiempo en SQL..."):
+                            errores = 0
+                            for idx_str, edits in cambios.items():
+                                if "Nueva Fecha (Correcta)" in edits:
+                                    idx = int(idx_str)
+                                    id_target = df_anomalias.iloc[idx]['id_bd']
+                                    nueva_f_str = edits["Nueva Fecha (Correcta)"]
+                                    
+                                    try:
+                                        # Agregamos T00:00:00 para mantener el formato ISO que usa tu base de datos
+                                        supabase.table("entrenamientos_esd").update({"fecha_entrenamiento": nueva_f_str + "T00:00:00"}).eq("id", id_target).execute()
+                                    except Exception as e:
+                                        st.error(f"Error actualizando el registro de {df_anomalias.iloc[idx]['Nombre']}: {e}")
+                                        errores += 1
+                            
+                            if errores == 0:
+                                st.success("✅ ¡Fechas corregidas con éxito! (El Dashboard Principal alineará automáticamente el padrón de empleados).")
+                                st.session_state.anomalias_entrenamiento = None
+                                st.cache_data.clear()
+                                time.sleep(1.5)
+                                st.rerun()
+                            else:
+                                st.warning("Se guardaron algunos cambios, pero hubo errores de red.")
