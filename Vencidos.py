@@ -8527,9 +8527,18 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
             st.session_state.anomalias_entrenamiento = None
 
         if st.button("🔍 Escanear Historial Completo", type="secondary", use_container_width=True):
-            with st.spinner("Analizando la línea del tiempo de todos los colaboradores..."):
+            with st.spinner("Cruzando padrón de empleados y analizando líneas del tiempo..."):
                 try:
-                    # 1. Traer todo el historial de exámenes ordenado por fecha
+                    # 1. Traer fechas de ingreso desde el padrón de empleados
+                    resp_emp = supabase.table("empleados_batas").select("num_empleado, fecha_ingreso").execute()
+                    df_emp = pd.DataFrame(resp_emp.data)
+                    dict_ingreso = {}
+                    if not df_emp.empty:
+                        df_emp['num_empleado'] = df_emp['num_empleado'].astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
+                        # Crear diccionario para búsqueda ultra rápida: {num_empleado: fecha_ingreso}
+                        dict_ingreso = dict(zip(df_emp['num_empleado'], df_emp['fecha_ingreso']))
+
+                    # 2. Traer todo el historial de exámenes ordenado por fecha
                     resp_train = supabase.table("entrenamientos_esd").select("id, num_empleado, nombre_empleado, fecha_entrenamiento, calificacion_total").order("fecha_entrenamiento").execute()
                     df_train = pd.DataFrame(resp_train.data)
                     
@@ -8538,14 +8547,19 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
                     if not df_train.empty:
                         # Limpiar y asegurar el formato de fechas
                         df_train['fecha_dt'] = pd.to_datetime(df_train['fecha_entrenamiento'], errors='coerce')
+                        df_train['num_empleado'] = df_train['num_empleado'].astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
                         df_train = df_train.dropna(subset=['fecha_dt'])
                         
                         # Ordenar primariamente por empleado y secundariamente por fecha (cronología estricta)
                         df_train = df_train.sort_values(by=['num_empleado', 'fecha_dt'])
                         
-                        # 2. Agrupar por empleado y recorrer su línea del tiempo
+                        # 3. Agrupar por empleado y recorrer su línea del tiempo
                         for emp, group in df_train.groupby('num_empleado'):
                             group = group.reset_index(drop=True)
+                            
+                            # Obtener fecha de ingreso del diccionario
+                            f_ingreso_raw = dict_ingreso.get(emp)
+                            f_ingreso_str = str(f_ingreso_raw)[:10] if pd.notna(f_ingreso_raw) and f_ingreso_raw else "N/D"
                             
                             for i in range(len(group)):
                                 row_actual = group.iloc[i]
@@ -8555,6 +8569,9 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
                                     row_prev = group.iloc[i-1]
                                     dias_transcurridos = (row_actual['fecha_dt'].date() - row_prev['fecha_dt'].date()).days
                                     
+                                    # Determinar si el examen previo fue su primera evaluación
+                                    es_primer_examen = "Sí" if (i - 1) == 0 else "No"
+                                    
                                     # Extraemos notas de forma segura
                                     try: nota_previa = float(row_prev['calificacion_total'])
                                     except: nota_previa = 10.0
@@ -8562,39 +8579,36 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
                                     try: nota_siguiente = float(row_actual['calificacion_total'])
                                     except: nota_siguiente = 0.0
                                     
+                                    # Base del registro anómalo
+                                    registro_base = {
+                                        "id_bd_actual": row_actual['id'],
+                                        "id_bd_previo": row_prev['id'],
+                                        "No. Empleado": emp,
+                                        "Nombre": row_actual['nombre_empleado'],
+                                        "Fecha Ingreso": f_ingreso_str,
+                                        "Es Primer Examen?": es_primer_examen,
+                                        "Fecha Examen Previo": row_prev['fecha_dt'].strftime('%Y-%m-%d'),
+                                        "Nueva Fecha Previa": row_prev['fecha_dt'].strftime('%Y-%m-%d'), # Editable
+                                        "Nota Previa": nota_previa,
+                                        "Días Gap": dias_transcurridos,
+                                        "Fecha Siguiente Examen": row_actual['fecha_dt'].strftime('%Y-%m-%d'),
+                                        "Nueva Fecha (Correcta)": row_actual['fecha_dt'].strftime('%Y-%m-%d'), # Editable
+                                        "Nota Siguiente Examen": nota_siguiente
+                                    }
+
                                     # --- REGLA A: REENTRENAMIENTO TRAS FALLA ---
                                     if nota_previa < 8.0:
-                                        # OMITIMOS los que tardaron 0, 1 o 2 días. Solo reportamos los tardíos.
                                         if dias_transcurridos > 2:
-                                            anomalias_encontradas.append({
-                                                "id_bd": row_actual['id'],
-                                                "No. Empleado": emp,
-                                                "Nombre": row_actual['nombre_empleado'],
-                                                "Motivo de Alerta": f"Reentrenamiento Tardío",
-                                                "Fecha Examen Previo": row_prev['fecha_dt'].strftime('%Y-%m-%d'),
-                                                "Nota Previa": nota_previa,
-                                                "Días Gap": dias_transcurridos,
-                                                "Fecha Siguiente Examen": row_actual['fecha_dt'].strftime('%Y-%m-%d'),
-                                                "Nota Siguiente Examen": nota_siguiente,
-                                                "Nueva Fecha (Correcta)": row_actual['fecha_dt'].strftime('%Y-%m-%d')
-                                            })
-                                            continue # Saltamos a la siguiente iteración para no duplicar alertas
+                                            reg_falla = registro_base.copy()
+                                            reg_falla["Motivo de Alerta"] = "Reentrenamiento Tardío"
+                                            anomalias_encontradas.append(reg_falla)
+                                            continue 
                                             
                                     # --- REGLA B: BRECHA DE CERTIFICACIÓN ANUAL ---
-                                    # Si pasaron más de 365 días entre el examen actual y el anterior
                                     if dias_transcurridos > 365:
-                                        anomalias_encontradas.append({
-                                            "id_bd": row_actual['id'],
-                                            "No. Empleado": emp,
-                                            "Nombre": row_actual['nombre_empleado'],
-                                            "Motivo de Alerta": f"Brecha Anual Excedida",
-                                            "Fecha Examen Previo": row_prev['fecha_dt'].strftime('%Y-%m-%d'),
-                                            "Nota Previa": nota_previa,
-                                            "Días Gap": dias_transcurridos,
-                                            "Fecha Siguiente Examen": row_actual['fecha_dt'].strftime('%Y-%m-%d'),
-                                            "Nota Siguiente Examen": nota_siguiente,
-                                            "Nueva Fecha (Correcta)": row_actual['fecha_dt'].strftime('%Y-%m-%d')
-                                        })
+                                        reg_brecha = registro_base.copy()
+                                        reg_brecha["Motivo de Alerta"] = "Brecha Anual Excedida"
+                                        anomalias_encontradas.append(reg_brecha)
 
                     st.session_state.anomalias_entrenamiento = anomalias_encontradas
 
@@ -8609,25 +8623,38 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
             if len(lista_anomalias) == 0:
                 st.success("✨ ¡Cumplimiento cronológico perfecto! No se detectaron brechas mayores a 365 días ni reentrenamientos desfasados.")
             else:
-                st.warning(f"⚠️ **Atención: Se encontraron {len(lista_anomalias)} registros anómalos.** Analiza la historia de las columnas, edita la 'Nueva Fecha (Correcta)' y presiona Guardar. *Nota: Se está editando la fecha del Siguiente Examen para acercarlo a la normativa.*")
+                st.warning(f"⚠️ **Atención: Se encontraron {len(lista_anomalias)} registros anómalos.** Puedes editar tanto la fecha del examen previo como la del examen actual. Presiona Guardar al finalizar.")
                 
                 df_anomalias = pd.DataFrame(lista_anomalias)
-                # Forzar columna de edición a ser fecha nativa
+                # Forzar columnas de edición a ser fecha nativa
+                df_anomalias['Nueva Fecha Previa'] = pd.to_datetime(df_anomalias['Nueva Fecha Previa']).dt.date
                 df_anomalias['Nueva Fecha (Correcta)'] = pd.to_datetime(df_anomalias['Nueva Fecha (Correcta)']).dt.date
                 
+                # Reorganizamos las columnas para que la lectura de izquierda a derecha sea natural
+                cols_order = [
+                    "id_bd_actual", "id_bd_previo", "No. Empleado", "Nombre", "Fecha Ingreso", 
+                    "Motivo de Alerta", "Es Primer Examen?", "Fecha Examen Previo", "Nueva Fecha Previa", 
+                    "Nota Previa", "Días Gap", "Fecha Siguiente Examen", "Nueva Fecha (Correcta)", "Nota Siguiente Examen"
+                ]
+                df_anomalias = df_anomalias[cols_order]
+
                 editor_train = st.data_editor(
                     df_anomalias,
                     column_config={
-                        "id_bd": None, # Ocultamos el ID de la base de datos
+                        "id_bd_actual": None, 
+                        "id_bd_previo": None, 
                         "No. Empleado": st.column_config.TextColumn("No. Empleado", disabled=True),
                         "Nombre": st.column_config.TextColumn("Nombre", disabled=True),
+                        "Fecha Ingreso": st.column_config.TextColumn("Ingreso", disabled=True),
                         "Motivo de Alerta": st.column_config.TextColumn("Motivo", disabled=True),
+                        "Es Primer Examen?": st.column_config.TextColumn("¿Fue 1er Examen?", disabled=True),
                         "Fecha Examen Previo": st.column_config.TextColumn("Fecha Examen Previo", disabled=True),
+                        "Nueva Fecha Previa": st.column_config.DateColumn("Edita Fecha Previa", required=True),
                         "Nota Previa": st.column_config.NumberColumn("Nota Previa", disabled=True),
-                        "Días Gap": st.column_config.NumberColumn("Días Transcurridos", disabled=True),
+                        "Días Gap": st.column_config.NumberColumn("Días Gap", disabled=True),
                         "Fecha Siguiente Examen": st.column_config.TextColumn("Fecha Siguiente Examen", disabled=True),
-                        "Nota Siguiente Examen": st.column_config.NumberColumn("Nota Sig. Examen", disabled=True),
-                        "Nueva Fecha (Correcta)": st.column_config.DateColumn("Nueva Fecha (Edítame)", required=True),
+                        "Nueva Fecha (Correcta)": st.column_config.DateColumn("Edita Fecha Siguiente", required=True),
+                        "Nota Siguiente Examen": st.column_config.NumberColumn("Nota Sig.", disabled=True),
                     },
                     hide_index=True,
                     use_container_width=True,
@@ -8643,16 +8670,27 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
                         with st.spinner("Actualizando línea del tiempo en SQL..."):
                             errores = 0
                             for idx_str, edits in cambios.items():
+                                idx = int(idx_str)
+                                fila_original = df_anomalias.iloc[idx]
+                                
+                                # Si se editó la fecha del examen actual
                                 if "Nueva Fecha (Correcta)" in edits:
-                                    idx = int(idx_str)
-                                    id_target = df_anomalias.iloc[idx]['id_bd']
-                                    nueva_f_str = edits["Nueva Fecha (Correcta)"]
-                                    
+                                    id_actual = fila_original['id_bd_actual']
+                                    nueva_f_actual = edits["Nueva Fecha (Correcta)"]
                                     try:
-                                        # Agregamos T00:00:00 para mantener el formato ISO que usa tu base de datos
-                                        supabase.table("entrenamientos_esd").update({"fecha_entrenamiento": nueva_f_str + "T00:00:00"}).eq("id", id_target).execute()
+                                        supabase.table("entrenamientos_esd").update({"fecha_entrenamiento": f"{nueva_f_actual}T00:00:00"}).eq("id", id_actual).execute()
                                     except Exception as e:
-                                        st.error(f"Error actualizando el registro de {df_anomalias.iloc[idx]['Nombre']}: {e}")
+                                        st.error(f"Error actualizando el registro actual de {fila_original['Nombre']}: {e}")
+                                        errores += 1
+
+                                # Si se editó la fecha del examen previo
+                                if "Nueva Fecha Previa" in edits:
+                                    id_previo = fila_original['id_bd_previo']
+                                    nueva_f_prev = edits["Nueva Fecha Previa"]
+                                    try:
+                                        supabase.table("entrenamientos_esd").update({"fecha_entrenamiento": f"{nueva_f_prev}T00:00:00"}).eq("id", id_previo).execute()
+                                    except Exception as e:
+                                        st.error(f"Error actualizando el registro previo de {fila_original['Nombre']}: {e}")
                                         errores += 1
                             
                             if errores == 0:
