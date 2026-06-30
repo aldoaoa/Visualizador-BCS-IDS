@@ -5097,8 +5097,8 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
                             
                             for linea in lineas_sistema:
                             # --- NUEVA LÓGICA DE FECHAS (Lunes a Viernes, Ene-Jun 2026) ---
-                                f_inicio = datetime(2026, 1, 1)
-                                f_fin = datetime(2026, 6, 10)
+                                f_inicio = datetime(2026, 2, 1)
+                                f_fin = datetime(2026, 3, 10)
                                 
                                 fecha_valida = False
                                 while not fecha_valida:
@@ -5131,7 +5131,7 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
                                 def generar_cluster(es_positivo):
                                     # Definimos rango base para asegurar que quepan en los límites normativos
                                     if es_positivo:
-                                        centro = random.randint(5, 40)
+                                        centro = random.randint(5, 35)
                                         lim_inf, lim_sup = 5, 62
                                     else:
                                         centro = random.randint(-30, -10)
@@ -5140,7 +5140,7 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
                                     valores = []
                                     for _ in range(5):
                                         # Desviación de +/- 25
-                                        v = centro + random.randint(-25, 25)
+                                        v = centro + random.randint(-35, 22)
                                         # Clamp para no salir de rangos físicos
                                         v = max(lim_inf, min(lim_sup, v))
                                         valores.append(float(v))
