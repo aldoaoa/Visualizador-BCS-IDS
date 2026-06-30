@@ -5096,9 +5096,18 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
                             rango_dias = (f_fin - f_inicio).days
                             
                             for linea in lineas_sistema:
-                                # A. Selección cronológica aleatoria uniforme
-                                dias_aleatorios = random.randint(0, rango_dias)
-                                fecha_calculada = f_inicio + timedelta(days=dias_aleatorios)
+                            # --- NUEVA LÓGICA DE FECHAS (Lunes a Viernes, Ene-Jun 2026) ---
+                                f_inicio = datetime(2026, 1, 1)
+                                f_fin = datetime(2026, 6, 10)
+                                
+                                fecha_valida = False
+                                while not fecha_valida:
+                                    dias_totales = (f_fin - f_inicio).days
+                                    fecha_aleatoria = f_inicio + timedelta(days=random.randint(0, dias_totales))
+                                    # weekday(): lunes=0, martes=1, miércoles=2, jueves=3, viernes=4, sábado=5, domingo=6
+                                    if fecha_aleatoria.weekday() < 5: 
+                                        fecha_calculada = fecha_aleatoria
+                                        fecha_valida = True
                                 
                                 # B. Definición de Temperatura (21.0 a 25.4 °C con 1 decimal)
                                 temp = round(random.uniform(21.0, 25.4), 1)
