@@ -5089,10 +5089,8 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
                         if not lineas_sistema:
                             st.error("❌ No se detectaron líneas configuradas en la tabla 'catalogo_lineas' para indexar el generador.")
                         else:
-                            payloads_bulk = []
-                            
-                            # NUEVO: Inicializamos el consecutivo en 0 antes del ciclo
-                            contador_folio = 0
+                            # 1. Creamos una lista temporal para guardar y ordenar los datos
+                            registros_temporales = []
                             
                             for linea in lineas_sistema:
                                 # A. Selección cronológica (Lunes a Viernes, Ene-Jun 2026)
@@ -5107,10 +5105,6 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
                                         fecha_calculada = fecha_aleatoria
                                         fecha_valida = True
                                         
-                                # NUEVO: Extracción del año (AA) y armado de nomenclatura
-                                año_estudio = fecha_calculada.strftime("%y") # Convierte '2026' en '26'
-                                nomenclatura_folio = f"BCS-QRO-WLK-{contador_folio:03d}-{año_estudio}"
-                                
                                 # B. Definición de Temperatura
                                 temp = round(random.uniform(21.0, 25.4), 1)
                                 
@@ -5147,11 +5141,9 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
                                 str_top5_picos = ", ".join(lista_picos)
                                 str_top5_valles = ", ".join(lista_valles)
                                 
-                                # E. Empaquetado del Payload
-                                registro_simulado = {
-                                    "folio": nomenclatura_folio,  # NUEVA COLUMNA ASIGNADA AQUÍ
-                                    "fecha_medicion": fecha_calculada.date().isoformat(),
-                                    "nombre_empleado": "Armando Reyes",
+                                # Guardamos el registro temporal SIN folio y con la fecha como objeto (para poder ordenarla)
+                                registro_base = {
+                                    "fecha_obj": fecha_calculada, # Objeto datetime temporal
                                     "linea_ubicacion": str(linea),
                                     "temperatura": temp,
                                     "humedad": hum,
@@ -5162,15 +5154,33 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
                                     "resultado_estatus": "PASA",
                                     "auditor": st.session_state.usuario_nombre if st.session_state.usuario_nombre else "Mesa de Administración"
                                 }
-                                payloads_bulk.append(registro_simulado)
+                                registros_temporales.append(registro_base)
                                 
-                                # NUEVO: Aumentamos el consecutivo en 1 para la siguiente iteración
+                            # 2. ORDENAMOS CRONOLÓGICAMENTE (De más antiguo a más reciente)
+                            registros_temporales.sort(key=lambda x: x["fecha_obj"])
+                            
+                            # 3. ASIGNAMOS FOLIOS Y ARMAMOS EL PAYLOAD FINAL
+                            payloads_bulk = []
+                            contador_folio = 0
+                            
+                            for reg in registros_temporales:
+                                # Extraemos el objeto fecha y lo quitamos del diccionario final
+                                fecha_obj = reg.pop("fecha_obj")
+                                año_estudio = fecha_obj.strftime("%y")
+                                nomenclatura_folio = f"BCS-QRO-WLK-{contador_folio:03d}-{año_estudio}"
+                                
+                                # Completamos los datos faltantes
+                                reg["folio"] = nomenclatura_folio
+                                reg["fecha_medicion"] = fecha_obj.date().isoformat()
+                                reg["nombre_empleado"] = "Armando Reyes"
+                                
+                                payloads_bulk.append(reg)
                                 contador_folio += 1
                             
-                            # Inyección masiva
+                            # 4. Inyección masiva
                             if payloads_bulk:
                                 supabase.table("mediciones_walking_test").insert(payloads_bulk).execute()
-                                st.success(f"🎲 ¡Entorno poblado con éxito! Se inyectaron {len(payloads_bulk)} nuevos Walking Tests en Supabase.")
+                                st.success(f"🎲 ¡Entorno poblado con éxito! Se inyectaron {len(payloads_bulk)} registros perfectamente ordenados.")
                                 st.cache_data.clear()
                                 time.sleep(1.5)
                                 st.rerun()
