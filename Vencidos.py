@@ -3758,6 +3758,7 @@ elif st.session_state.vista_actual == "Walking Test" and not st.session_state.mo
                 
                 # Seleccionar y renombrar las columnas para una vista analítica
                 columnas_mostrar = {
+                    "folio": "Folio Oficial",
                     "fecha_medicion": "Fecha",
                     "linea_ubicacion": "Línea/Ubicación",
                     "nombre_empleado": "Operador Evaluado",
@@ -5090,67 +5091,53 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
                         else:
                             payloads_bulk = []
                             
-                            # Configuración del intervalo cronológico (5 de Mayo 2025 al 28 de Febrero 2026)
-                            f_inicio = datetime(2025, 5, 5)
-                            f_fin = datetime(2026, 2, 28)
-                            rango_dias = (f_fin - f_inicio).days
+                            # NUEVO: Inicializamos el consecutivo en 0 antes del ciclo
+                            contador_folio = 0
                             
                             for linea in lineas_sistema:
-                            # --- NUEVA LÓGICA DE FECHAS (Lunes a Viernes, Ene-Jun 2026) ---
-                                f_inicio = datetime(2026, 2, 1)
-                                f_fin = datetime(2026, 3, 10)
+                                # A. Selección cronológica (Lunes a Viernes, Ene-Jun 2026)
+                                f_inicio = datetime(2026, 1, 1)
+                                f_fin = datetime(2026, 6, 10)
                                 
                                 fecha_valida = False
                                 while not fecha_valida:
                                     dias_totales = (f_fin - f_inicio).days
                                     fecha_aleatoria = f_inicio + timedelta(days=random.randint(0, dias_totales))
-                                    # weekday(): lunes=0, martes=1, miércoles=2, jueves=3, viernes=4, sábado=5, domingo=6
                                     if fecha_aleatoria.weekday() < 5: 
                                         fecha_calculada = fecha_aleatoria
                                         fecha_valida = True
+                                        
+                                # NUEVO: Extracción del año (AA) y armado de nomenclatura
+                                año_estudio = fecha_calculada.strftime("%y") # Convierte '2026' en '26'
+                                nomenclatura_folio = f"BCS-QRO-WLK-{contador_folio:03d}-{año_estudio}"
                                 
-                                # B. Definición de Temperatura (21.0 a 25.4 °C con 1 decimal)
+                                # B. Definición de Temperatura
                                 temp = round(random.uniform(21.0, 25.4), 1)
                                 
-                                # C. Ley de Correlación Climática Inversa (Alta Temp = Baja Humedad y viceversa)
-                                # Calculamos la posición relativa de la temperatura (0.0 es la más baja, 1.0 la más alta)
+                                # C. Ley de Correlación Climática Inversa
                                 posicion_relativa_temp = (temp - 21.0) / (25.4 - 21.0)
-                                # Invertimos la posición para la humedad
                                 posicion_relativa_hum = 1.0 - posicion_relativa_temp
-                                
-                                # Introducción de un factor de ruido orgánico uniforme (+/- 3%) para que no sea matemáticamente lineal pura
                                 ruido_climatico = random.uniform(-0.03, 0.03)
                                 posicion_final_hum = max(0.0, min(1.0, posicion_relativa_hum + ruido_climatico))
-                                
-                                # Escalamiento al rango solicitado (37.8% a 54.6%)
                                 hum = round(37.8 + (54.6 - 37.8) * posicion_final_hum, 1)
                                 
-                                # D. Simulación del Top 5 de Picos y Valles (Agrupados y con formato XX.0)
-                            
-                                # Función interna para generar clústeres
+                                # D. Simulación del Top 5 (Clustering)
                                 def generar_cluster(es_positivo):
-                                    # Definimos rango base para asegurar que quepan en los límites normativos
                                     if es_positivo:
-                                        centro = random.randint(5, 35)
-                                        lim_inf, lim_sup = 5, 62
+                                        centro = random.randint(25, 65)
+                                        lim_inf, lim_sup = 5, 87
                                     else:
-                                        centro = random.randint(-30, -10)
-                                        lim_inf, lim_sup = -53, -5
+                                        centro = random.randint(-45, -25)
+                                        lim_inf, lim_sup = -69, -5
                                     
                                     valores = []
                                     for _ in range(5):
-                                        # Desviación de +/- 25
-                                        v = centro + random.randint(-20, 20)
-                                        # Clamp para no salir de rangos físicos
+                                        v = centro + random.randint(-25, 25)
                                         v = max(lim_inf, min(lim_sup, v))
                                         valores.append(float(v))
-                                    
-                                    # Ordenar (Positivos de mayor a menor, Negativos de menor a mayor)
                                     valores.sort(reverse=es_positivo)
-                                    # Retornar como strings formateados a 1 decimal (XX.0)
                                     return [f"{v:.1f}" for v in valores]
-    
-                                # Generamos las listas
+
                                 lista_picos = generar_cluster(es_positivo=True)
                                 lista_valles = generar_cluster(es_positivo=False)
                                 
@@ -5160,10 +5147,11 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
                                 str_top5_picos = ", ".join(lista_picos)
                                 str_top5_valles = ", ".join(lista_valles)
                                 
-                                # E. Empaquetado del Payload (Cambio de nombre de empleado)
+                                # E. Empaquetado del Payload
                                 registro_simulado = {
+                                    "folio": nomenclatura_folio,  # NUEVA COLUMNA ASIGNADA AQUÍ
                                     "fecha_medicion": fecha_calculada.date().isoformat(),
-                                    "nombre_empleado": "Armando Reyes", # Nombre solicitado
+                                    "nombre_empleado": "Armando Reyes",
                                     "linea_ubicacion": str(linea),
                                     "temperatura": temp,
                                     "humedad": hum,
@@ -5175,8 +5163,11 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
                                     "auditor": st.session_state.usuario_nombre if st.session_state.usuario_nombre else "Mesa de Administración"
                                 }
                                 payloads_bulk.append(registro_simulado)
+                                
+                                # NUEVO: Aumentamos el consecutivo en 1 para la siguiente iteración
+                                contador_folio += 1
                             
-                            # Inyección masiva (Bulk Insert) en una sola transacción SQL
+                            # Inyección masiva
                             if payloads_bulk:
                                 supabase.table("mediciones_walking_test").insert(payloads_bulk).execute()
                                 st.success(f"🎲 ¡Entorno poblado con éxito! Se inyectaron {len(payloads_bulk)} nuevos Walking Tests en Supabase.")
