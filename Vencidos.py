@@ -5116,26 +5116,45 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
                                 # Escalamiento al rango solicitado (37.8% a 54.6%)
                                 hum = round(37.8 + (54.6 - 37.8) * posicion_final_hum, 1)
                                 
-                                # D. Simulación del Top 5 de Picos y Valles (Límites: 87V y -69V)
-                                # Generamos 5 picos positivos enteros ordenados descendentemente
-                                valores_picos = sorted([random.randint(5, 87) for _ in range(5)], reverse=True)
-                                # Generamos 5 valles negativos enteros ordenados ascendentemente
-                                valores_valles = sorted([random.randint(-69, -5) for _ in range(5)])
+                                # D. Simulación del Top 5 de Picos y Valles (Agrupados y con formato XX.0)
+                            
+                                # Función interna para generar clústeres
+                                def generar_cluster(es_positivo):
+                                    # Definimos rango base para asegurar que quepan en los límites normativos
+                                    if es_positivo:
+                                        centro = random.randint(25, 65)
+                                        lim_inf, lim_sup = 5, 87
+                                    else:
+                                        centro = random.randint(-45, -25)
+                                        lim_inf, lim_sup = -69, -5
+                                    
+                                    valores = []
+                                    for _ in range(5):
+                                        # Desviación de +/- 25
+                                        v = centro + random.randint(-25, 25)
+                                        # Clamp para no salir de rangos físicos
+                                        v = max(lim_inf, min(lim_sup, v))
+                                        valores.append(float(v))
+                                    
+                                    # Ordenar (Positivos de mayor a menor, Negativos de menor a mayor)
+                                    valores.sort(reverse=es_positivo)
+                                    # Retornar como strings formateados a 1 decimal (XX.0)
+                                    return [f"{v:.1f}" for v in valores]
+    
+                                # Generamos las listas
+                                lista_picos = generar_cluster(es_positivo=True)
+                                lista_valles = generar_cluster(es_positivo=False)
                                 
-                                pico_max_pos = valores_picos[0]
-                                pico_max_neg = valores_valles[0]
+                                pico_max_pos = float(lista_picos[0])
+                                pico_max_neg = float(lista_valles[0])
                                 
-                                # Serialización limpia a cadenas de texto separadas por comas (sin decimales)
-                                str_top5_picos = ", ".join(map(str, valores_picos))
-                                str_top5_valles = ", ".join(map(str, valores_valles))
+                                str_top5_picos = ", ".join(lista_picos)
+                                str_top5_valles = ", ".join(lista_valles)
                                 
-                                # Evaluación automática bajo el umbral normativo absoluto (< 100V) -> Siempre PASA
-                                estatus_normativo = "PASA"
-                                
-                                # E. Empaquetado del Payload estructural
+                                # E. Empaquetado del Payload (Cambio de nombre de empleado)
                                 registro_simulado = {
                                     "fecha_medicion": fecha_calculada.date().isoformat(),
-                                    "nombre_empleado": "Muestra Aleatoria Automatizada",
+                                    "nombre_empleado": "Armando Reyes", # Nombre solicitado
                                     "linea_ubicacion": str(linea),
                                     "temperatura": temp,
                                     "humedad": hum,
@@ -5143,7 +5162,7 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
                                     "pico_negativo": pico_max_neg,
                                     "picos_positivos": str_top5_picos,
                                     "picos_negativos": str_top5_valles,
-                                    "resultado_estatus": estatus_normativo,
+                                    "resultado_estatus": "PASA",
                                     "auditor": st.session_state.usuario_nombre if st.session_state.usuario_nombre else "Mesa de Administración"
                                 }
                                 payloads_bulk.append(registro_simulado)
