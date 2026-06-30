@@ -3374,14 +3374,21 @@ elif st.session_state.vista_actual == "Walking Test" and not st.session_state.mo
 
                     max_abs = 0.0
                     promedio_picos = 0.0
+                    pico_max_positivo = 0.0
+                    pico_max_negativo = 0.0
+                    
                     try:
                         p_vals = [float(x) for x in re.findall(r"[-+]?\d*\.\d+|\d+", picos)]
                         v_vals = [float(x) for x in re.findall(r"[-+]?\d*\.\d+|\d+", valles)]
                         todos_los_valores = p_vals + v_vals
+                        
                         if todos_los_valores:
                             max_abs = max(abs(x) for x in todos_los_valores)
                         if p_vals:
                             promedio_picos = sum(p_vals) / len(p_vals)
+                            pico_max_positivo = max(p_vals)
+                        if v_vals:
+                            pico_max_negativo = min(v_vals)
                     except:
                         pass
 
@@ -3404,13 +3411,23 @@ elif st.session_state.vista_actual == "Walking Test" and not st.session_state.mo
                         "hum": humedad, "max_abs": max_abs, "promedio_picos": promedio_picos,
                         "img_b64": img_b64
                     })
-                    # Agrega esto JUSTO DESPUÉS de que el OCR extrae tus variables
-                    st.session_state.wt_temp_mem = temperatura_extraida
-                    st.session_state.wt_hum_mem = humedad_extraida
+                    
+                    # MAGIA CORREGIDA: Sincronizado con los nombres de regex reales y extrayendo SOLO números
+                    st.session_state.wt_temp_mem = temp_match.group(1) if temp_match else None
+                    st.session_state.wt_hum_mem = hum_match.group(1) if hum_match else None
                     st.session_state.wt_p_pos_mem = pico_max_positivo
                     st.session_state.wt_p_neg_mem = pico_max_negativo
-                    # Si tienes la variable de fecha, guárdala, si no, usa una cadena por defecto
-                    st.session_state.wt_fecha_mem = fecha_reporte_ocr if 'fecha_reporte_ocr' in locals() else datetime.now().date().isoformat()
+                    
+                    # Convertimos la fecha (DD/MM/YY) al formato SQL (YYYY-MM-DD) si existe
+                    if fecha != "N/D":
+                        try:
+                            f_obj = datetime.strptime(fecha, "%d/%m/%y")
+                            st.session_state.wt_fecha_mem = f_obj.date().isoformat()
+                        except:
+                            st.session_state.wt_fecha_mem = datetime.now().date().isoformat()
+                    else:
+                        st.session_state.wt_fecha_mem = datetime.now().date().isoformat()
+                        
                     st.success("📊 ¡Datos del PDF extraídos y respaldados en memoria con éxito!")
                 except Exception as e:
                     st.error(f"Ocurrió un error al procesar el archivo {archivo.name}: {e}")
@@ -3450,7 +3467,6 @@ elif st.session_state.vista_actual == "Walking Test" and not st.session_state.mo
                     nombre_ub = c_ub1.text_input(f"Nombre de Línea/Área", value=dato['archivo'].replace(".pdf", ""), key=f"nombre_{i}")
                     tipo_piso = c_ub2.selectbox(f"Tipo de Piso", ["Piso Epóxico ESD", "Loseta Vinílica Conductiva", "Tapete Antifatiga ESD", "Otro"], key=f"piso_{i}")
                     
-                    # Control interactivo que no se activa por defecto (asigna 'No')
                     limpieza_chk = c_ub3.checkbox("Limpieza previa", value=False, key=f"limpieza_{i}")
                     
                     bloques_ubicaciones.append({
@@ -3461,12 +3477,173 @@ elif st.session_state.vista_actual == "Walking Test" and not st.session_state.mo
                     })
                     st.write("") 
 
-                # AHORA ESTÁ DENTRO DEL FORMULARIO Y SE ELIMINÓ EL WARNING USANDO width="stretch"
                 submit_reporte = st.form_submit_button("Generar Reporte Consolidado en PDF/HTML", width="stretch")
+            
+            # =====================================================================
+            # GENERADOR HTML (Ahora correctamente desindentado)
+            # =====================================================================
+            if submit_reporte:
+                try:
+                    fecha_limpia = str(fecha_gen).replace('-', '/')
+                    año_prueba = fecha_limpia.split('/')[-1][-2:]
+                except:
+                    año_prueba = datetime.today().strftime("%y")
+
+                try:
+                    resp_log_wt = supabase.table("log_reportes_wt").insert({
+                        "fecha_prueba": fecha_gen,
+                        "auditor": auditor_wt
+                    }).execute()
+                    db_id_wt = resp_log_wt.data[0]['id']
+                except Exception as e:
+                    db_id_wt = 999
+                    st.warning(f"Error de conexión con la bitácora de folios. Usando 999. Error: {e}")
+
+                folio_wt = f"BCS-QRO-WLK-{db_id_wt:03d}-{año_prueba}"
+
+                html_ubicaciones = ""
+                for idx, block in enumerate(bloques_ubicaciones, 1):
+                    data = block['datos']
+                    if data['max_abs'] < 100:
+                        res_text, res_color = "CUMPLE (PASS)", "text-green-600"
+                        obs = "Ninguna anomalía. Los picos se mantuvieron por debajo del límite normativo de 100V."
+                    else:
+                        res_text, res_color = "NO CUMPLE (FAIL)", "text-red-600"
+                        obs = f"ATENCIÓN: Se registró un pico absoluto de {data['max_abs']:.2f}V, superando el límite permitido de 100V. Se requiere limpieza o revisión."
+
+                    img_tag = f'<img src="data:image/png;base64,{data["img_b64"]}" class="max-w-full max-h-full object-contain" alt="Gráfica">' if data['img_b64'] else '<i class="text-gray-400">Sin gráfica disponible</i>'
+
+                    html_ubicaciones += f"""
+                    <div class="border-2 border-[#003366] rounded-md p-5 mb-8 [page-break-inside:avoid] print:border-black">
+                        <div class="text-[18px] font-bold text-white bg-[#003366] p-2.5 -mx-5 -mt-5 mb-5 rounded-t-sm print:bg-black">Ubicación {idx}: {block['nombre']}</div>
+                        <table class="w-full text-sm border-collapse mb-5 text-center">
+                            <tr>
+                                <th class="border border-gray-300 p-2 text-left bg-gray-50 font-bold w-1/4 print:border-black">Tipo de Piso:</th>
+                                <td class="border border-gray-300 p-2 text-left w-1/4 print:border-black">{block['piso']}</td>
+                                <th class="border border-gray-300 p-2 text-left bg-gray-50 font-bold w-1/4 print:border-black">Limpieza previa:</th>
+                                <td class="border border-gray-300 p-2 text-left w-1/4 print:border-black">{block['limpieza']}</td>
+                            </tr>
+                            <tr>
+                                <th class="border border-gray-300 p-2 text-left bg-gray-50 font-bold print:border-black">Voltaje Máx (Abs):</th>
+                                <td class="border border-gray-300 p-2 text-left font-mono font-bold print:border-black">{data['max_abs']:.2f} V</td>
+                                <th class="border border-gray-300 p-2 text-left bg-gray-50 font-bold print:border-black">Promedio de Picos:</th>
+                                <td class="border border-gray-300 p-2 text-left font-mono print:border-black">{data['promedio_picos']:.2f} V</td>
+                            </tr>
+                        </table>
+                        <div class="w-full h-64 bg-gray-50 border-2 border-dashed border-gray-300 flex items-center justify-center my-5 overflow-hidden print:border-black">
+                            {img_tag}
+                        </div>
+                        <table class="w-full text-sm border-collapse">
+                            <tr>
+                                <th class="border border-gray-300 p-2 text-left bg-gray-50 font-bold w-1/5 print:border-black">Observaciones:</th>
+                                <td class="border border-gray-300 p-2 text-left print:border-black">{obs}</td>
+                                <th class="border border-gray-300 p-2 text-left bg-gray-50 font-bold w-1/5 print:border-black">Resultado Final:</th>
+                                <td class="border border-gray-300 p-2 text-center font-bold text-base print:border-black {res_color}">{res_text}</td>
+                            </tr>
+                        </table>
+                    </div>
+                    """
+                    
+                html_completo = f"""<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>{folio_wt}</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+    @media print {{ body {{ -webkit-print-color-adjust: exact; }} }}
+</style>
+</head>
+<body class="bg-gray-100 p-4 md:p-8 font-sans text-sm print:bg-white print:p-0">
+<div class="max-w-5xl mx-auto mb-6 bg-white p-4 rounded-lg shadow flex justify-end print:hidden">
+    <button onclick="window.print()" class="bg-blue-600 text-white px-6 py-2 rounded font-bold shadow-sm hover:bg-blue-700 transition">🖨️ Imprimir / Guardar PDF</button>
+</div>
+<div class="max-w-5xl mx-auto bg-white p-8 shadow-lg print:shadow-none print:p-0">
+    <div class="border-b-4 border-[#003366] pb-4 mb-6 flex justify-between items-start print:border-black">
+        <div class="w-1/4">
+            <img src="https://github.com/aldoaoa/Visualizador-BCS-IDS/blob/main/BCS%20LOGO.png?raw=true" alt="BCS Logo" class="h-16 object-contain" />
+        </div>
+        <div class="w-2/4 text-center">
+            <h1 class="text-2xl font-bold text-[#003366] mb-1 print:text-black">Reporte de Walking Test</h1>
+            <p class="text-gray-600 text-sm font-medium">Evaluación de Sistema de Piso y Calzado ESD</p>
+            <p class="text-gray-500 text-xs mt-1"><strong>Estándares:</strong> ANSI/ESD S20.20 y ANSI/ESD STM97.2</p>
+        </div>
+        <div class="w-1/4 text-right">
+            <div class="text-red-700 font-bold text-lg">{folio_wt}</div>
+        </div>
+    </div>
+    <h2 class="text-base font-bold text-[#003366] border-b border-gray-300 pb-1 mt-6 mb-3 uppercase tracking-wide print:text-black print:border-black">1. Información General y Condiciones Ambientales</h2>
+    <table class="w-full text-sm border-collapse mb-6">
+        <tr>
+            <th class="border border-gray-300 p-2 bg-gray-50 font-bold w-1/4 print:border-black">Fecha de Prueba:</th>
+            <td class="border border-gray-300 p-2 w-1/4 print:border-black">{fecha_gen}</td>
+            <th class="border border-gray-300 p-2 bg-gray-50 font-bold w-1/4 print:border-black">Periodo:</th>
+            <td class="border border-gray-300 p-2 w-1/4 print:border-black">{periodo_wt}</td>
+        </tr>
+        <tr>
+            <th class="border border-gray-300 p-2 bg-gray-50 font-bold print:border-black">Auditor / Técnico:</th>
+            <td class="border border-gray-300 p-2 print:border-black">{auditor_wt}</td>
+            <th class="border border-gray-300 p-2 bg-gray-50 font-bold print:border-black">Operador de Prueba:</th>
+            <td class="border border-gray-300 p-2 print:border-black">{operador_wt}</td>
+        </tr>
+        <tr>
+            <th class="border border-gray-300 p-2 bg-gray-50 font-bold print:border-black">Temperatura:</th>
+            <td class="border border-gray-300 p-2 print:border-black">{temp_gen}</td>
+            <th class="border border-gray-300 p-2 bg-gray-50 font-bold print:border-black">Humedad:</th>
+            <td class="border border-gray-300 p-2 print:border-black">{hum_gen}</td>
+        </tr>
+    </table>
+    <h2 class="text-base font-bold text-[#003366] border-b border-gray-300 pb-1 mt-6 mb-3 uppercase tracking-wide print:text-black print:border-black">2. Equipo de Medición y Sistema Evaluado</h2>
+    <table class="w-full text-sm border-collapse mb-6">
+        <tr>
+            <th class="border border-gray-300 p-2 bg-gray-50 font-bold w-1/4 print:border-black">Equipo Utilizado:</th>
+            <td class="border border-gray-300 p-2 w-1/4 print:border-black">{equipo_wt}</td>
+            <th class="border border-gray-300 p-2 bg-gray-50 font-bold w-1/4 print:border-black">Criterio Aceptación:</th>
+            <td class="border border-gray-300 p-2 w-1/4 font-bold text-[#003366] print:border-black print:text-black">&lt; 100 Voltios (Absoluto)</td>
+        </tr>
+        <tr>
+            <th class="border border-gray-300 p-2 bg-gray-50 font-bold print:border-black">Calzado ESD Evaluado:</th>
+            <td colspan="3" class="border border-gray-300 p-2 print:border-black">{calzado_wt}</td>
+        </tr>
+    </table>
+    <h2 class="text-base font-bold text-[#003366] border-b border-gray-300 pb-1 mt-6 mb-4 uppercase tracking-wide print:text-black print:border-black">3. Resultados Consolidados por Ubicación</h2>
+    {html_ubicaciones}
+    <div class="flex justify-between mt-12 [page-break-inside:avoid]">
+        <div class="w-[45%] text-center">
+            <div class="border-t border-black mt-10 pt-1.5 text-sm"><strong>Realizado por:</strong><br>{auditor_wt}</div>
+        </div>
+        <div class="w-[45%] text-center">
+            <div class="border-t border-black mt-10 pt-1.5 text-sm"><strong>Revisado / Aprobado por:</strong><br>Coordinador ESD</div>
+        </div>
+    </div>
+    <div class="border-t-[3px] border-b-[3px] border-black mt-16 py-1 text-[11px] font-sans [page-break-inside:avoid]">
+        <div class="flex justify-between items-end">
+            <div class="text-left leading-tight">
+                <div> B_010_4_020_QRO_EN_Rev. A</div>
+                <div>Formato de Walking Test.</div>
+            </div>
+            <div class="text-center leading-tight">
+                <div>Fecha: Fecha: 15/Ago/2025</div>
+            </div>
+            <div class="text-right leading-tight">
+                <div>Ref.B_010_3_002_QRO_SP</div>
+            </div>
+        </div>
+    </div>
+</div>
+</body>
+</html>"""
+                
+                b64_html = base64.b64encode(html_completo.encode('utf-8')).decode('utf-8')
+                nombre_archivo = f"{folio_wt}.html"
+                
+                st.success(f"✅ ¡Reporte {folio_wt} estandarizado y generado con éxito!")
+                href = f'<a href="data:text/html;base64,{b64_html}" download="{nombre_archivo}" target="_blank" style="display: block; text-align: center; padding: 15px; background-color: #003366; color: white; text-decoration: none; border-radius: 8px; font-weight: bold; margin-top: 10px; font-size: 16px;">📥 Descargar Reporte Oficial ({folio_wt})</a>'
+                st.markdown(href, unsafe_allow_html=True)
+
         # =====================================================================
-        # GUARDAR RESULTADOS DEL WALKING TEST EN LA NUBE
+        # GUARDAR RESULTADOS DEL WALKING TEST EN LA NUBE (Ahora al nivel correcto)
         # =====================================================================
-        # Solo mostramos el panel de guardado si hay datos en memoria
         if "wt_temp_mem" in st.session_state:
             st.divider()
             st.markdown("### 💾 Centralizar Registro en Base de Datos")
@@ -3503,7 +3680,6 @@ elif st.session_state.vista_actual == "Walking Test" and not st.session_state.mo
                         except:
                             estatus_final_w = "PENDIENTE"
 
-                        # 🚨 AQUÍ ESTÁ LA MAGIA: Leemos desde st.session_state
                         payload_walking = {
                             "fecha_medicion": st.session_state.wt_fecha_mem,
                             "nombre_empleado": operador_w.strip(),
@@ -3520,11 +3696,11 @@ elif st.session_state.vista_actual == "Walking Test" and not st.session_state.mo
                             supabase.table("mediciones_walking_test").insert(payload_walking).execute()
                             st.success("✅ ¡Reporte de Walking Test guardado exitosamente!")
                             
-                            # Limpiamos la memoria para que el formulario se oculte tras guardar
                             del st.session_state['wt_temp_mem']
                             del st.session_state['wt_hum_mem']
                             del st.session_state['wt_p_pos_mem']
                             del st.session_state['wt_p_neg_mem']
+                            del st.session_state['wt_fecha_mem']
                             
                             st.cache_data.clear()
                             import time
@@ -3532,179 +3708,6 @@ elif st.session_state.vista_actual == "Walking Test" and not st.session_state.mo
                             st.rerun()
                         except Exception as e:
                             st.error(f"Fallo de comunicación con Supabase: {e}")
-                                
-                if submit_reporte:
-                    # 1. Extraer el año (AA) desde la fecha de la prueba
-                    try:
-                        # Normalizar separadores y tomar los últimos dos dígitos del año
-                        fecha_limpia = str(fecha_gen).replace('-', '/')
-                        año_prueba = fecha_limpia.split('/')[-1][-2:]
-                    except:
-                        año_prueba = datetime.today().strftime("%y")
-
-                    # 2. Registrar en la base de datos para obtener el consecutivo (XXX)
-                    try:
-                        resp_log_wt = supabase.table("log_reportes_wt").insert({
-                            "fecha_prueba": fecha_gen,
-                            "auditor": auditor_wt
-                        }).execute()
-                        db_id_wt = resp_log_wt.data[0]['id']
-                    except Exception as e:
-                        db_id_wt = 999
-                        st.warning(f"Error de conexión con la bitácora de folios. Usando 999. Error: {e}")
-
-                    # 3. Construir la nomenclatura exacta
-                    folio_wt = f"BCS-QRO-WLK-{db_id_wt:03d}-{año_prueba}"
-
-                    html_ubicaciones = ""
-                    for idx, block in enumerate(bloques_ubicaciones, 1):
-                        data = block['datos']
-                        if data['max_abs'] < 100:
-                            res_text, res_color = "CUMPLE (PASS)", "text-green-600"
-                            obs = "Ninguna anomalía. Los picos se mantuvieron por debajo del límite normativo de 100V."
-                        else:
-                            res_text, res_color = "NO CUMPLE (FAIL)", "text-red-600"
-                            obs = f"ATENCIÓN: Se registró un pico absoluto de {data['max_abs']:.2f}V, superando el límite permitido de 100V. Se requiere limpieza o revisión."
-
-                        img_tag = f'<img src="data:image/png;base64,{data["img_b64"]}" class="max-w-full max-h-full object-contain" alt="Gráfica">' if data['img_b64'] else '<i class="text-gray-400">Sin gráfica disponible</i>'
-
-                        html_ubicaciones += f"""
-                        <div class="border-2 border-[#003366] rounded-md p-5 mb-8 [page-break-inside:avoid] print:border-black">
-                            <div class="text-[18px] font-bold text-white bg-[#003366] p-2.5 -mx-5 -mt-5 mb-5 rounded-t-sm print:bg-black">Ubicación {idx}: {block['nombre']}</div>
-                            <table class="w-full text-sm border-collapse mb-5 text-center">
-                                <tr>
-                                    <th class="border border-gray-300 p-2 text-left bg-gray-50 font-bold w-1/4 print:border-black">Tipo de Piso:</th>
-                                    <td class="border border-gray-300 p-2 text-left w-1/4 print:border-black">{block['piso']}</td>
-                                    <th class="border border-gray-300 p-2 text-left bg-gray-50 font-bold w-1/4 print:border-black">Limpieza previa:</th>
-                                    <td class="border border-gray-300 p-2 text-left w-1/4 print:border-black">{block['limpieza']}</td>
-                                </tr>
-                                <tr>
-                                    <th class="border border-gray-300 p-2 text-left bg-gray-50 font-bold print:border-black">Voltaje Máx (Abs):</th>
-                                    <td class="border border-gray-300 p-2 text-left font-mono font-bold print:border-black">{data['max_abs']:.2f} V</td>
-                                    <th class="border border-gray-300 p-2 text-left bg-gray-50 font-bold print:border-black">Promedio de Picos:</th>
-                                    <td class="border border-gray-300 p-2 text-left font-mono print:border-black">{data['promedio_picos']:.2f} V</td>
-                                </tr>
-                            </table>
-                            <div class="w-full h-64 bg-gray-50 border-2 border-dashed border-gray-300 flex items-center justify-center my-5 overflow-hidden print:border-black">
-                                {img_tag}
-                            </div>
-                            <table class="w-full text-sm border-collapse">
-                                <tr>
-                                    <th class="border border-gray-300 p-2 text-left bg-gray-50 font-bold w-1/5 print:border-black">Observaciones:</th>
-                                    <td class="border border-gray-300 p-2 text-left print:border-black">{obs}</td>
-                                    <th class="border border-gray-300 p-2 text-left bg-gray-50 font-bold w-1/5 print:border-black">Resultado Final:</th>
-                                    <td class="border border-gray-300 p-2 text-center font-bold text-base print:border-black {res_color}">{res_text}</td>
-                                </tr>
-                            </table>
-                        </div>
-                        """
-                        
-                    fecha_pie_str = datetime.today().strftime("%Y/%m/%d")
-
-                    html_completo = f"""<!DOCTYPE html>
-<html lang="es">
-<head>
-<meta charset="UTF-8">
-<title>{folio_wt}</title>
-<script src="https://cdn.tailwindcss.com"></script>
-<style>
-    @media print {{ body {{ -webkit-print-color-adjust: exact; }} }}
-</style>
-</head>
-<body class="bg-gray-100 p-4 md:p-8 font-sans text-sm print:bg-white print:p-0">
-<div class="max-w-5xl mx-auto mb-6 bg-white p-4 rounded-lg shadow flex justify-end print:hidden">
-    <button onclick="window.print()" class="bg-blue-600 text-white px-6 py-2 rounded font-bold shadow-sm hover:bg-blue-700 transition">🖨️ Imprimir / Guardar PDF</button>
-</div>
-
-<div class="max-w-5xl mx-auto bg-white p-8 shadow-lg print:shadow-none print:p-0">
-    <div class="border-b-4 border-[#003366] pb-4 mb-6 flex justify-between items-start print:border-black">
-        <div class="w-1/4">
-            <img src="https://github.com/aldoaoa/Visualizador-BCS-IDS/blob/main/BCS%20LOGO.png?raw=true" alt="BCS Logo" class="h-16 object-contain" />
-        </div>
-        <div class="w-2/4 text-center">
-            <h1 class="text-2xl font-bold text-[#003366] mb-1 print:text-black">Reporte de Walking Test</h1>
-            <p class="text-gray-600 text-sm font-medium">Evaluación de Sistema de Piso y Calzado ESD</p>
-            <p class="text-gray-500 text-xs mt-1"><strong>Estándares:</strong> ANSI/ESD S20.20 y ANSI/ESD STM97.2</p>
-        </div>
-        <div class="w-1/4 text-right">
-            <div class="text-red-700 font-bold text-lg">{folio_wt}</div>
-        </div>
-    </div>
-
-    <h2 class="text-base font-bold text-[#003366] border-b border-gray-300 pb-1 mt-6 mb-3 uppercase tracking-wide print:text-black print:border-black">1. Información General y Condiciones Ambientales</h2>
-    <table class="w-full text-sm border-collapse mb-6">
-        <tr>
-            <th class="border border-gray-300 p-2 bg-gray-50 font-bold w-1/4 print:border-black">Fecha de Prueba:</th>
-            <td class="border border-gray-300 p-2 w-1/4 print:border-black">{fecha_gen}</td>
-            <th class="border border-gray-300 p-2 bg-gray-50 font-bold w-1/4 print:border-black">Periodo:</th>
-            <td class="border border-gray-300 p-2 w-1/4 print:border-black">{periodo_wt}</td>
-        </tr>
-        <tr>
-            <th class="border border-gray-300 p-2 bg-gray-50 font-bold print:border-black">Auditor / Técnico:</th>
-            <td class="border border-gray-300 p-2 print:border-black">{auditor_wt}</td>
-            <th class="border border-gray-300 p-2 bg-gray-50 font-bold print:border-black">Operador de Prueba:</th>
-            <td class="border border-gray-300 p-2 print:border-black">{operador_wt}</td>
-        </tr>
-        <tr>
-            <th class="border border-gray-300 p-2 bg-gray-50 font-bold print:border-black">Temperatura:</th>
-            <td class="border border-gray-300 p-2 print:border-black">{temp_gen}</td>
-            <th class="border border-gray-300 p-2 bg-gray-50 font-bold print:border-black">Humedad:</th>
-            <td class="border border-gray-300 p-2 print:border-black">{hum_gen}</td>
-        </tr>
-    </table>
-
-    <h2 class="text-base font-bold text-[#003366] border-b border-gray-300 pb-1 mt-6 mb-3 uppercase tracking-wide print:text-black print:border-black">2. Equipo de Medición y Sistema Evaluado</h2>
-    <table class="w-full text-sm border-collapse mb-6">
-        <tr>
-            <th class="border border-gray-300 p-2 bg-gray-50 font-bold w-1/4 print:border-black">Equipo Utilizado:</th>
-            <td class="border border-gray-300 p-2 w-1/4 print:border-black">{equipo_wt}</td>
-            <th class="border border-gray-300 p-2 bg-gray-50 font-bold w-1/4 print:border-black">Criterio Aceptación:</th>
-            <td class="border border-gray-300 p-2 w-1/4 font-bold text-[#003366] print:border-black print:text-black">&lt; 100 Voltios (Absoluto)</td>
-        </tr>
-        <tr>
-            <th class="border border-gray-300 p-2 bg-gray-50 font-bold print:border-black">Calzado ESD Evaluado:</th>
-            <td colspan="3" class="border border-gray-300 p-2 print:border-black">{calzado_wt}</td>
-        </tr>
-    </table>
-
-    <h2 class="text-base font-bold text-[#003366] border-b border-gray-300 pb-1 mt-6 mb-4 uppercase tracking-wide print:text-black print:border-black">3. Resultados Consolidados por Ubicación</h2>
-    {html_ubicaciones}
-
-    <div class="flex justify-between mt-12 [page-break-inside:avoid]">
-        <div class="w-[45%] text-center">
-            <div class="border-t border-black mt-10 pt-1.5 text-sm"><strong>Realizado por:</strong><br>{auditor_wt}</div>
-        </div>
-        <div class="w-[45%] text-center">
-            <div class="border-t border-black mt-10 pt-1.5 text-sm"><strong>Revisado / Aprobado por:</strong><br>Coordinador ESD</div>
-        </div>
-    </div>
-
-    <div class="border-t-[3px] border-b-[3px] border-black mt-16 py-1 text-[11px] font-sans [page-break-inside:avoid]">
-        <div class="flex justify-between items-end">
-            <div class="text-left leading-tight">
-                <div> B_010_4_020_QRO_EN_Rev. A</div>
-                <div>Formato de Walking Test.</div>
-            </div>
-            <div class="text-center leading-tight">
-                <div>Fecha: Fecha: 15/Ago/2025</div>
-            </div>
-            <div class="text-right leading-tight">
-                <div>Ref.B_010_3_002_QRO_SP</div>
-            </div>
-        </div>
-    </div>
-
-</div>
-</body>
-</html>"""
-                    
-                    b64_html = base64.b64encode(html_completo.encode('utf-8')).decode('utf-8')
-                    nombre_archivo = f"{folio_wt}.html"
-                    
-                    st.success(f"✅ ¡Reporte {folio_wt} estandarizado y generado con éxito!")
-                    href = f'<a href="data:text/html;base64,{b64_html}" download="{nombre_archivo}" target="_blank" style="display: block; text-align: center; padding: 15px; background-color: #003366; color: white; text-decoration: none; border-radius: 8px; font-weight: bold; margin-top: 10px; font-size: 16px;">📥 Descargar Reporte Oficial ({folio_wt})</a>'
-                    st.markdown(href, unsafe_allow_html=True)
-
 # ==========================================
 # VISTA 5: VALIDACIÓN ESD (SISTEMA INTEGRAL)
 # ==========================================
