@@ -5115,7 +5115,7 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
                                 posicion_final_hum = max(0.0, min(1.0, posicion_relativa_hum + ruido_climatico))
                                 hum = round(37.8 + (54.6 - 37.8) * posicion_final_hum, 1)
                                 
-                                # D. Simulación del Top 5 (Clustering)
+                                # D. Simulación del Top 5 (Clustering dinámico sin embudo)
                                 def generar_cluster(es_positivo):
                                     if es_positivo:
                                         centro = random.randint(5, 35)
@@ -5126,9 +5126,15 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
                                     
                                     valores = []
                                     for _ in range(5):
-                                        v = centro + random.randint(-20, 20)
-                                        v = max(lim_inf, min(lim_sup, v))
+                                        # Calculamos cuánto espacio real tenemos para desviarnos
+                                        # sin pasarnos de los límites inferior y superior.
+                                        desv_min = max(-20, lim_inf - centro)
+                                        desv_max = min(20, lim_sup - centro)
+                                        
+                                        # Generamos el valor usando solo el espacio disponible
+                                        v = centro + random.randint(desv_min, desv_max)
                                         valores.append(float(v))
+                                        
                                     valores.sort(reverse=es_positivo)
                                     return [f"{v:.1f}" for v in valores]
 
