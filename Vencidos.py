@@ -1888,279 +1888,268 @@ elif st.session_state.vista_actual == "Mapa" and not st.session_state.modo_lectu
                     st.success(f"✅ **100% Cumplimiento en {tipo_mapa}.** No hay alertas activas en el mapa general.")
 
     with tab_overview:
-        st.markdown("#### 🌐 Dashboard Gerencial Integral (S20.20)")
-        st.info("Resumen global del estado de cumplimiento, dinámica de auditorías y movimientos de inventario en la planta.")
+            st.markdown("#### 🌐 Dashboard Gerencial Integral (S20.20)")
+            st.info("Resumen global del estado de cumplimiento, dinámica de auditorías y movimientos de inventario en la planta.")
 
-        # --- 1. EXTRACCIÓN MASIVA DE DATOS ---
-        with st.spinner("Compilando métricas globales y rastreando actividad..."):
-            try:
-                # A. Maquinaria (último estado para cumplimiento) y Todas las fechas (para actividad)
-                resp_maq_ov = supabase.table("mediciones_maquinaria").select("id_maquinaria, status_operativo, resultado_estatus, fecha_medicion").execute()
-                df_maq_ov = pd.DataFrame(resp_maq_ov.data)
-                fechas_actividad = []
-                if not df_maq_ov.empty:
-                    fechas_actividad.extend(df_maq_ov['fecha_medicion'].dropna().tolist())
-                    # Para el estatus de cumplimiento, nos quedamos con la última medición válida
-                    df_maq_ov = df_maq_ov.sort_values('fecha_medicion', ascending=False).drop_duplicates(subset=['id_maquinaria'], keep='first')
-
-                pasa_t = 0
-                falla_t = 0
-                
-                # B. Tierras
-                # 1. Cálculo de Tierras Auxiliares
-                resp_tierras_ov = supabase.table("tierras_auxiliares").select("id_punto, estatus, fecha_medicion").execute()
-                df_tierras_ov = pd.DataFrame(resp_tierras_ov.data)
-                
-                if not df_tierras_ov.empty:
-                    fechas_actividad.extend(df_tierras_ov['fecha_medicion'].dropna().tolist())
-                    df_tierras_ov = df_tierras_ov.sort_values('fecha_medicion', ascending=False).drop_duplicates(subset=['id_punto'])
-                    p_t, f_t, _ = contar_estatus(df_tierras_ov, 'estatus', 'PASA', 'FALLA')
-                    pasa_t += p_t
-                    falla_t += f_t
-        
-                # 2. Cálculo de Monitores Continuos (Directo desde el Inventario)
-                resp_monitores = supabase.table("inventario_esd").select("id_producto, estatus_verificacion, fecha_ultima_verif").eq("categoria", "Monitor Continuo").execute()
-                df_monitores = pd.DataFrame(resp_monitores.data)
-                
-                if not df_monitores.empty:
-                    fechas_actividad.extend(df_monitores['fecha_ultima_verif'].dropna().tolist())
-                    # Nos aseguramos de contar solo la última medición por monitor
-                    df_monitores = df_monitores.sort_values('fecha_ultima_verif', ascending=False).drop_duplicates(subset=['id_producto'])
-                    # Usamos estatus_verificacion que es el nombre de la columna en inventario_esd
-                    p_m, f_m, _ = contar_estatus(df_monitores, 'estatus_verificacion', 'PASA', 'FALLA')
-                    pasa_t += p_m
-                    falla_t += f_m
-
-                # C. Event Meter
-                resp_em_ov = supabase.table("event_meter").select("id_operacion, estatus_verificacion, fecha").execute()
-                df_em_ov = pd.DataFrame(resp_em_ov.data)
-                if not df_em_ov.empty:
-                    fechas_actividad.extend(df_em_ov['fecha'].dropna().tolist())
-                    df_em_ov = df_em_ov.sort_values('fecha', ascending=False).drop_duplicates(subset=['id_operacion'])
-
-                # D. Checadores
-                resp_chec_ov = supabase.table("verificacion_checadores").select("id_checador, estatus, fecha_verificacion").execute()
-                df_chec_ov = pd.DataFrame(resp_chec_ov.data)
-                if not df_chec_ov.empty:
-                    fechas_actividad.extend(df_chec_ov['fecha_verificacion'].dropna().tolist())
-                    df_chec_ov = df_chec_ov.sort_values('fecha_verificacion', ascending=False).drop_duplicates(subset=['id_checador'])
-
-                # E. Validaciones de Elementos (Materiales Validados)
-                resp_val_ov = supabase.table("validacion_esd").select("fecha_auditoria").execute()
-                df_val_ov = pd.DataFrame(resp_val_ov.data)
-                total_materiales_validados = len(df_val_ov)
-                if not df_val_ov.empty:
-                    fechas_actividad.extend(df_val_ov['fecha_auditoria'].dropna().tolist())
-
-                # F. Reportes de Calificación (Certificados)
-                resp_cert_ov = supabase.table("reportes_calificacion").select("fecha_registro").execute()
-                df_cert_ov = pd.DataFrame(resp_cert_ov.data)
-                total_certificados = len(df_cert_ov)
-                if not df_cert_ov.empty:
-                    fechas_actividad.extend(df_cert_ov['fecha_registro'].dropna().tolist())
-
-                # G. Historial de Mediciones
-                resp_hist_ov = supabase.table("historial_mediciones").select("fecha_modificacion").execute()
-                if resp_hist_ov.data:
-                    fechas_actividad.extend([x['fecha_modificacion'] for x in resp_hist_ov.data if x.get('fecha_modificacion')])
-
-                # H. Sensibilidad Mínima en Planta
-                resp_sens = supabase.table("componentes_sensibilidad").select("esd_hbm, esd_cdm").execute()
-                df_sens = pd.DataFrame(resp_sens.data)
-                min_sensibilidad = "N/D"
-                alerta_sensibilidad = False
-                if not df_sens.empty:
-                    df_sens['hbm'] = pd.to_numeric(df_sens['esd_hbm'].replace('-', pd.NA), errors='coerce')
-                    df_sens['cdm'] = pd.to_numeric(df_sens['esd_cdm'].replace('-', pd.NA), errors='coerce')
-                    min_val = df_sens[['hbm', 'cdm']].min().min()
-                    if pd.notna(min_val):
-                        min_sensibilidad = f"{min_val:g} V"
-                        alerta_sensibilidad = min_val < 100
-
-                # ==========================================
-                # I. ALTAS Y BAJAS (Inventario y Maquinaria)
-                # ==========================================
-                hace_30_dias = pd.Timestamp.utcnow().tz_localize(None) - pd.Timedelta(days=30)
-                altas_inv_30d = 0; bajas_inv_total = 0
-                altas_maq_30d = 0; bajas_maq_total = 0
-
+            # --- 1. EXTRACCIÓN MASIVA DE DATOS ---
+            with st.spinner("Compilando métricas globales y rastreando actividad..."):
                 try:
-                    # I.1 Movimientos en Inventario General (Mobiliario, Ionizadores, etc.)
-                    resp_inv_mov = supabase.table("inventario_esd").select("created_at, estatus_operativo").execute()
-                    df_inv_mov = pd.DataFrame(resp_inv_mov.data)
-                    if not df_inv_mov.empty:
-                        bajas_inv_total = len(df_inv_mov[df_inv_mov['estatus_operativo'].astype(str).str.upper() == 'NO OPERATIVO'])
-                        if 'created_at' in df_inv_mov.columns:
-                            df_inv_mov['created_at'] = pd.to_datetime(df_inv_mov['created_at'], format='ISO8601', errors='coerce', utc=True).dt.tz_localize(None)
-                            altas_inv_30d = len(df_inv_mov[df_inv_mov['created_at'] >= hace_30_dias])
-
-                    # I.2 Movimientos en Maquinaria
-                    # Usamos df_maq_ov que ya tiene id_maquinaria, status_operativo y fecha_medicion
-                    if not df_maq_ov.empty:
-                        # Extraemos las bajas de la consulta global antes de que fueran filtradas
-                        resp_maq_todas = supabase.table("mediciones_maquinaria").select("id_maquinaria, status_operativo, fecha_medicion").execute()
-                        df_maq_todas = pd.DataFrame(resp_maq_todas.data)
+                    # 🛠️ CORRECCIÓN: Definimos la función calculadora ANTES de usarla
+                    def contar_estatus(df, col_estatus, val_vigente, val_vencido):
+                        if df.empty or col_estatus not in df.columns: return 0, 0, 0
+                        estatus_series = df[col_estatus].astype(str).str.upper()
                         
-                        if not df_maq_todas.empty:
-                            bajas_maq_total = len(df_maq_todas[df_maq_todas['status_operativo'].astype(str).str.upper() == 'NO OPERATIVO'])
+                        vig = estatus_series.str.contains(val_vigente, regex=True).sum()
+                        ven = estatus_series.str.contains(val_vencido, regex=True).sum()
+                        
+                        pen = len(df) - (vig + ven)
+                        return vig, ven, pen
+
+                    # A. Maquinaria (último estado para cumplimiento) y Todas las fechas (para actividad)
+                    resp_maq_ov = supabase.table("mediciones_maquinaria").select("id_maquinaria, status_operativo, resultado_estatus, fecha_medicion").execute()
+                    df_maq_ov = pd.DataFrame(resp_maq_ov.data)
+                    fechas_actividad = []
+                    if not df_maq_ov.empty:
+                        fechas_actividad.extend(df_maq_ov['fecha_medicion'].dropna().tolist())
+                        # Para el estatus de cumplimiento, nos quedamos con la última medición válida
+                        df_maq_ov = df_maq_ov.sort_values('fecha_medicion', ascending=False).drop_duplicates(subset=['id_maquinaria'], keep='first')
+
+                    pasa_t = 0
+                    falla_t = 0
+                    
+                    # B. Tierras y Monitores Continuos
+                    # 1. Cálculo de Tierras Auxiliares
+                    resp_tierras_ov = supabase.table("tierras_auxiliares").select("id_punto, estatus, fecha_medicion").execute()
+                    df_tierras_ov = pd.DataFrame(resp_tierras_ov.data)
+                    
+                    if not df_tierras_ov.empty:
+                        fechas_actividad.extend(df_tierras_ov['fecha_medicion'].dropna().tolist())
+                        df_tierras_ov = df_tierras_ov.sort_values('fecha_medicion', ascending=False).drop_duplicates(subset=['id_punto'])
+                        p_t, f_t, _ = contar_estatus(df_tierras_ov, 'estatus', 'PASA', 'FALLA')
+                        pasa_t += p_t
+                        falla_t += f_t
+            
+                    # 2. Cálculo de Monitores Continuos (Directo desde el Inventario)
+                    resp_monitores = supabase.table("inventario_esd").select("id_producto, estatus_verificacion, fecha_ultima_verif").eq("categoria", "Monitor Continuo").execute()
+                    df_monitores = pd.DataFrame(resp_monitores.data)
+                    
+                    if not df_monitores.empty:
+                        fechas_actividad.extend(df_monitores['fecha_ultima_verif'].dropna().tolist())
+                        df_monitores = df_monitores.sort_values('fecha_ultima_verif', ascending=False).drop_duplicates(subset=['id_producto'])
+                        p_m, f_m, _ = contar_estatus(df_monitores, 'estatus_verificacion', 'PASA', 'FALLA')
+                        pasa_t += p_m
+                        falla_t += f_m
+
+                    # C. Event Meter
+                    resp_em_ov = supabase.table("event_meter").select("id_operacion, estatus_verificacion, fecha").execute()
+                    df_em_ov = pd.DataFrame(resp_em_ov.data)
+                    if not df_em_ov.empty:
+                        fechas_actividad.extend(df_em_ov['fecha'].dropna().tolist())
+                        df_em_ov = df_em_ov.sort_values('fecha', ascending=False).drop_duplicates(subset=['id_operacion'])
+
+                    # D. Checadores
+                    resp_chec_ov = supabase.table("verificacion_checadores").select("id_checador, estatus, fecha_verificacion").execute()
+                    df_chec_ov = pd.DataFrame(resp_chec_ov.data)
+                    if not df_chec_ov.empty:
+                        fechas_actividad.extend(df_chec_ov['fecha_verificacion'].dropna().tolist())
+                        df_chec_ov = df_chec_ov.sort_values('fecha_verificacion', ascending=False).drop_duplicates(subset=['id_checador'])
+
+                    # E. Validaciones de Elementos (Materiales Validados)
+                    resp_val_ov = supabase.table("validacion_esd").select("fecha_auditoria").execute()
+                    df_val_ov = pd.DataFrame(resp_val_ov.data)
+                    total_materiales_validados = len(df_val_ov)
+                    if not df_val_ov.empty:
+                        fechas_actividad.extend(df_val_ov['fecha_auditoria'].dropna().tolist())
+
+                    # F. Reportes de Calificación (Certificados)
+                    resp_cert_ov = supabase.table("reportes_calificacion").select("fecha_registro").execute()
+                    df_cert_ov = pd.DataFrame(resp_cert_ov.data)
+                    total_certificados = len(df_cert_ov)
+                    if not df_cert_ov.empty:
+                        fechas_actividad.extend(df_cert_ov['fecha_registro'].dropna().tolist())
+
+                    # G. Historial de Mediciones
+                    resp_hist_ov = supabase.table("historial_mediciones").select("fecha_modificacion").execute()
+                    if resp_hist_ov.data:
+                        fechas_actividad.extend([x['fecha_modificacion'] for x in resp_hist_ov.data if x.get('fecha_modificacion')])
+
+                    # H. Sensibilidad Mínima en Planta
+                    resp_sens = supabase.table("componentes_sensibilidad").select("esd_hbm, esd_cdm").execute()
+                    df_sens = pd.DataFrame(resp_sens.data)
+                    min_sensibilidad = "N/D"
+                    alerta_sensibilidad = False
+                    if not df_sens.empty:
+                        df_sens['hbm'] = pd.to_numeric(df_sens['esd_hbm'].replace('-', pd.NA), errors='coerce')
+                        df_sens['cdm'] = pd.to_numeric(df_sens['esd_cdm'].replace('-', pd.NA), errors='coerce')
+                        min_val = df_sens[['hbm', 'cdm']].min().min()
+                        if pd.notna(min_val):
+                            min_sensibilidad = f"{min_val:g} V"
+                            alerta_sensibilidad = min_val < 100
+
+                    # ==========================================
+                    # I. ALTAS Y BAJAS (Inventario y Maquinaria)
+                    # ==========================================
+                    hace_30_dias = pd.Timestamp.utcnow().tz_localize(None) - pd.Timedelta(days=30)
+                    altas_inv_30d = 0; bajas_inv_total = 0
+                    altas_maq_30d = 0; bajas_maq_total = 0
+
+                    try:
+                        # I.1 Movimientos en Inventario General (Mobiliario, Ionizadores, etc.)
+                        resp_inv_mov = supabase.table("inventario_esd").select("created_at, estatus_operativo").execute()
+                        df_inv_mov = pd.DataFrame(resp_inv_mov.data)
+                        if not df_inv_mov.empty:
+                            bajas_inv_total = len(df_inv_mov[df_inv_mov['estatus_operativo'].astype(str).str.upper() == 'NO OPERATIVO'])
+                            if 'created_at' in df_inv_mov.columns:
+                                df_inv_mov['created_at'] = pd.to_datetime(df_inv_mov['created_at'], format='ISO8601', errors='coerce', utc=True).dt.tz_localize(None)
+                                altas_inv_30d = len(df_inv_mov[df_inv_mov['created_at'] >= hace_30_dias])
+
+                        # I.2 Movimientos en Maquinaria
+                        if not df_maq_ov.empty:
+                            resp_maq_todas = supabase.table("mediciones_maquinaria").select("id_maquinaria, status_operativo, fecha_medicion").execute()
+                            df_maq_todas = pd.DataFrame(resp_maq_todas.data)
                             
-                            # Para contar las 'Altas' de maquinaria, tomamos la fecha de medición más antigua de cada máquina
-                            # asumiendo que esa fue su fecha de creación en el sistema.
-                            df_maq_altas = df_maq_todas.sort_values('fecha_medicion', ascending=True).drop_duplicates(subset=['id_maquinaria'], keep='first')
-                            df_maq_altas['fecha_medicion'] = pd.to_datetime(df_maq_altas['fecha_medicion'], format='ISO8601', errors='coerce', utc=True).dt.tz_localize(None)
-                            altas_maq_30d = len(df_maq_altas[df_maq_altas['fecha_medicion'] >= hace_30_dias])
+                            if not df_maq_todas.empty:
+                                bajas_maq_total = len(df_maq_todas[df_maq_todas['status_operativo'].astype(str).str.upper() == 'NO OPERATIVO'])
+                                df_maq_altas = df_maq_todas.sort_values('fecha_medicion', ascending=True).drop_duplicates(subset=['id_maquinaria'], keep='first')
+                                df_maq_altas['fecha_medicion'] = pd.to_datetime(df_maq_altas['fecha_medicion'], format='ISO8601', errors='coerce', utc=True).dt.tz_localize(None)
+                                altas_maq_30d = len(df_maq_altas[df_maq_altas['fecha_medicion'] >= hace_30_dias])
 
-                except Exception as e_mov:
-                    st.toast(f"Aviso: No se pudieron cargar las métricas de expansión ({e_mov})")
+                    except Exception as e_mov:
+                        st.toast(f"Aviso: No se pudieron cargar las métricas de expansión ({e_mov})")
 
-            except Exception as e:
-                st.error(f"Error cargando datos para el overview: {e}")
-                df_maq_ov = pd.DataFrame(); df_tierras_ov = pd.DataFrame(); df_em_ov = pd.DataFrame(); df_chec_ov = pd.DataFrame()
-                total_materiales_validados = 0; total_certificados = 0; min_sensibilidad = "N/D"; alerta_sensibilidad = False
-                altas_inv_30d = 0; bajas_inv_total = 0; altas_maq_30d = 0; bajas_maq_total = 0
+                except Exception as e:
+                    st.error(f"Error cargando datos para el overview: {e}")
+                    df_maq_ov = pd.DataFrame(); df_tierras_ov = pd.DataFrame(); df_em_ov = pd.DataFrame(); df_chec_ov = pd.DataFrame()
+                    total_materiales_validados = 0; total_certificados = 0; min_sensibilidad = "N/D"; alerta_sensibilidad = False
+                    altas_inv_30d = 0; bajas_inv_total = 0; altas_maq_30d = 0; bajas_maq_total = 0
 
-            # Inventario General (Mobiliario, Ionizadores, Monitores, Pisos)
-            df_inv_ov = pd.DataFrame()
-            if 'df_inv_full' in locals() and df_inv_full is not None and not df_inv_full.empty:
-                df_inv_ov = df_inv_full[df_inv_full['Estatus operativo'].astype(str).str.upper() != 'NO OPERATIVO'].copy()
+                # Inventario General (Mobiliario, Ionizadores, Monitores, Pisos)
+                df_inv_ov = pd.DataFrame()
+                if 'df_inv_full' in locals() and df_inv_full is not None and not df_inv_full.empty:
+                    df_inv_ov = df_inv_full[df_inv_full['Estatus operativo'].astype(str).str.upper() != 'NO OPERATIVO'].copy()
+                    
+                # Maquinaria (Filtramos las operativas)
+                if not df_maq_ov.empty:
+                    df_maq_ov = df_maq_ov[df_maq_ov['status_operativo'].astype(str).str.upper() != 'NO OPERATIVO'].copy()
+
+                # --- 2. CÁLCULO DE MÉTRICAS GLOBALES Y ACTIVIDAD ---
+                fechas_limpias = pd.to_datetime(fechas_actividad, format='ISO8601', errors='coerce', utc=True).tz_localize(None)
+                hoy = pd.Timestamp.utcnow().tz_localize(None)
+                dias_diff = (hoy - fechas_limpias).days
                 
-            # Maquinaria (Filtramos las operativas)
+                act_7d = (dias_diff <= 7).sum()
+                act_30d = (dias_diff <= 30).sum()
+                act_60d = (dias_diff <= 60).sum()
+
+                # Las llamadas ahora funcionan perfecto
+                vig_inv, ven_inv, pen_inv = contar_estatus(df_inv_ov, 'Estatus de verificación', 'VIGENTE|APROBADO|PASA', 'VENCIDO|FALLA|RECHAZADO')
+                vig_maq, ven_maq, pen_maq = contar_estatus(df_maq_ov, 'resultado_estatus', 'VIGENTE|APROBADO|PASA', 'VENCIDO|FALLA|RECHAZADO')
+                
+                pasa_em, falla_em, _ = contar_estatus(df_em_ov, 'estatus_verificacion', 'APROBADO', 'RECHAZADO')
+                pasa_ch, falla_ch, _ = contar_estatus(df_chec_ov, 'estatus', 'PASA', 'FALLA')
+
+                total_activos = len(df_inv_ov) + len(df_maq_ov)
+                total_vigentes = vig_inv + vig_maq
+                total_vencidos = ven_inv + ven_maq
+                total_pendientes = pen_inv + pen_maq
+
+                cumplimiento_global = (total_vigentes / total_activos * 100) if total_activos > 0 else 100.0
+
+            # --- 3. RENDERIZADO VISUAL ---
+            st.markdown("##### 📈 Índice de Cumplimiento Global (Infraestructura y Activos)")
+            kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+            kpi1.metric("Cumplimiento General", f"{cumplimiento_global:.1f}%", f"{-total_vencidos} Vencidos" if total_vencidos > 0 else "Óptimo", delta_color="inverse" if total_vencidos > 0 else "normal")
+            kpi2.metric("🟢 Activos Vigentes", total_vigentes)
+            kpi3.metric("🔴 Activos Vencidos", total_vencidos)
+            kpi4.metric("🟡 Pendientes / N/D", total_pendientes)
+
+            st.divider()
+            
+            st.markdown("##### 🏆 Desempeño, Calificación y Carga de Trabajo")
+            c_perf1, c_perf2, c_perf3, c_perf4 = st.columns(4)
+            c_perf1.metric("📦 Materiales Validados", total_materiales_validados, "En Sistema", delta_color="off")
+            c_perf2.metric("📑 Certificados de Cal.", total_certificados, "Documentados", delta_color="off")
+            c_perf3.metric("⚡ Sensibilidad Mín. Planta", min_sensibilidad, "Riesgo Alto" if alerta_sensibilidad else "Riesgo Controlado", delta_color="inverse" if alerta_sensibilidad else "normal")
+            c_perf4.metric("🔥 Validaciones (Últimos 7d)", act_7d, "Actualizaciones", delta_color="normal")
+
+            st.caption("Tendencia de Auditorías a Mediano Plazo")
+            st.progress(min(act_30d / 500, 1.0) if act_30d > 0 else 0.0, text=f"Últimos 30 días: {act_30d} actualizaciones / mediciones")
+            st.progress(min(act_60d / 1000, 1.0) if act_60d > 0 else 0.0, text=f"Últimos 60 días: {act_60d} actualizaciones / mediciones")
+
+            st.divider()
+            
+            st.markdown("##### 🔄 Movimientos de Inventario y Expansión")
+            c_mov1, c_mov2, c_mov3, c_mov4 = st.columns(4)
+            c_mov1.metric("Altas Inventario (30d)", altas_inv_30d, "Mobiliario / Otros", delta_color="normal")
+            c_mov2.metric("Bajas Inventario", bajas_inv_total, "Desactivados históricamente", delta_color="inverse")
+            c_mov3.metric("Altas Maquinaria (30d)", altas_maq_30d, "Nuevas estaciones", delta_color="normal")
+            c_mov4.metric("Bajas Maquinaria", bajas_maq_total, "Desactivadas históricamente", delta_color="inverse")
+
+            st.divider()
+
+            col_graf, col_metricas = st.columns([1.5, 1])
+
+            with col_graf:
+                st.markdown("**Distribución de Estado (Inventario y Maquinaria)**")
+                if total_activos > 0:
+                    df_pie = pd.DataFrame({
+                        "Estado": ["Vigente", "Vencido", "Pendiente"],
+                        "Cantidad": [total_vigentes, total_vencidos, total_pendientes]
+                    })
+                    df_pie = df_pie[df_pie["Cantidad"] > 0]
+                    
+                    fig = px.pie(df_pie, values='Cantidad', names='Estado', color='Estado',
+                                 color_discrete_map={"Vigente": "#28a745", "Vencido": "#dc3545", "Pendiente": "#ffc107"},
+                                 hole=0.45)
+                    fig.update_layout(margin=dict(t=10, b=10, l=10, r=10), height=280)
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.info("No hay datos de activos para graficar.")
+
+            with col_metricas:
+                st.markdown("**Últimas Pruebas de Infraestructura**")
+                
+                st.markdown(f"**🌍 Tierras y Conexiones:**")
+                st.progress(pasa_t / (pasa_t + falla_t) if (pasa_t + falla_t) > 0 else 0.0, text=f"✅ {pasa_t} Pasan | ❌ {falla_t} Fallan")
+                
+                st.markdown(f"**⚡ Event Meter (Descargas):**")
+                st.progress(pasa_em / (pasa_em + falla_em) if (pasa_em + falla_em) > 0 else 0.0, text=f"✅ {pasa_em} Aprobados | ❌ {falla_em} Rechazados")
+                
+                st.markdown(f"**🛂 Checadores de Calzado:**")
+                st.progress(pasa_ch / (pasa_ch + falla_ch) if (pasa_ch + falla_ch) > 0 else 0.0, text=f"✅ {pasa_ch} Pasan | ❌ {falla_ch} Fallan")
+
+            st.divider()
+
+            # --- 4. ALERTAS DE ACCIÓN INMEDIATA ---
+            st.markdown("##### 🚨 Alertas Requieren Acción Inmediata")
+            
+            alertas = []
+            if not df_inv_ov.empty:
+                ven_df = df_inv_ov[df_inv_ov['Estatus de verificación'].astype(str).str.upper().str.contains('VENCIDO|FALLA|RECHAZADO', regex=True)]
+                for _, r in ven_df.iterrows():
+                    cat = str(r.get('Categoría', 'Inventario'))
+                    alertas.append({"Área": cat, "ID / Ubicación": f"{r.get('Id de producto')} ({r.get('Línea')})", "Problema": "Verificación Vencida"})
+                    
             if not df_maq_ov.empty:
-                df_maq_ov = df_maq_ov[df_maq_ov['status_operativo'].astype(str).str.upper() != 'NO OPERATIVO'].copy()
+                ven_m_df = df_maq_ov[df_maq_ov['resultado_estatus'].astype(str).str.upper().str.contains('VENCIDO|FALLA|RECHAZADO', regex=True)]
+                for _, r in ven_m_df.iterrows():
+                    alertas.append({"Área": "Maquinaria", "ID / Ubicación": str(r.get('id_maquinaria')), "Problema": "Verificación Vencida"})
+                    
+            if not df_tierras_ov.empty:
+                fallas_t_df = df_tierras_ov[df_tierras_ov['estatus'].astype(str).str.upper() == 'FALLA']
+                for _, r in fallas_t_df.iterrows():
+                    alertas.append({"Área": "Tierras / Conexiones", "ID / Ubicación": str(r.get('id_punto')), "Problema": "Falla en Resistencia (Excede Límite)"})
+                    
+            if not df_chec_ov.empty:
+                fallas_ch_df = df_chec_ov[df_chec_ov['estatus'].astype(str).str.upper() == 'FALLA']
+                for _, r in fallas_ch_df.iterrows():
+                    alertas.append({"Área": "Checadores de Ingreso", "ID / Ubicación": str(r.get('id_checador')), "Problema": "Desviación fuera de límite (>5%)"})
 
-            # --- 2. CÁLCULO DE MÉTRICAS GLOBALES Y ACTIVIDAD ---
-            fechas_limpias = pd.to_datetime(fechas_actividad, format='ISO8601', errors='coerce', utc=True).tz_localize(None)
-            hoy = pd.Timestamp.utcnow().tz_localize(None)
-            dias_diff = (hoy - fechas_limpias).days
-            
-            act_7d = (dias_diff <= 7).sum()
-            act_30d = (dias_diff <= 30).sum()
-            act_60d = (dias_diff <= 60).sum()
-
-            def contar_estatus(df, col_estatus, val_vigente, val_vencido):
-                if df.empty or col_estatus not in df.columns: return 0, 0, 0
-                estatus_series = df[col_estatus].astype(str).str.upper()
-                
-                # Al encender regex=True, Pandas puede buscar múltiples palabras separadas por |
-                vig = estatus_series.str.contains(val_vigente, regex=True).sum()
-                ven = estatus_series.str.contains(val_vencido, regex=True).sum()
-                
-                # Solo los nulos o que de verdad digan PENDIENTE quedan aquí
-                pen = len(df) - (vig + ven)
-                return vig, ven, pen
-
-            # Le pasamos el diccionario completo de palabras aceptadas y reprobadas
-            vig_inv, ven_inv, pen_inv = contar_estatus(df_inv_ov, 'Estatus de verificación', 'VIGENTE|APROBADO|PASA', 'VENCIDO|FALLA|RECHAZADO')
-            vig_maq, ven_maq, pen_maq = contar_estatus(df_maq_ov, 'resultado_estatus', 'VIGENTE|APROBADO|PASA', 'VENCIDO|FALLA|RECHAZADO')
-
-            pasa_t, falla_t, _ = contar_estatus(df_tierras_ov, 'estatus', 'PASA', 'FALLA')
-            pasa_em, falla_em, _ = contar_estatus(df_em_ov, 'estatus_verificacion', 'APROBADO', 'RECHAZADO')
-            pasa_ch, falla_ch, _ = contar_estatus(df_chec_ov, 'estatus', 'PASA', 'FALLA')
-
-            total_activos = len(df_inv_ov) + len(df_maq_ov)
-            total_vigentes = vig_inv + vig_maq
-            total_vencidos = ven_inv + ven_maq
-            total_pendientes = pen_inv + pen_maq
-
-            cumplimiento_global = (total_vigentes / total_activos * 100) if total_activos > 0 else 100.0
-
-        # --- 3. RENDERIZADO VISUAL ---
-        st.markdown("##### 📈 Índice de Cumplimiento Global (Infraestructura y Activos)")
-        kpi1, kpi2, kpi3, kpi4 = st.columns(4)
-        kpi1.metric("Cumplimiento General", f"{cumplimiento_global:.1f}%", f"{-total_vencidos} Vencidos" if total_vencidos > 0 else "Óptimo", delta_color="inverse" if total_vencidos > 0 else "normal")
-        kpi2.metric("🟢 Activos Vigentes", total_vigentes)
-        kpi3.metric("🔴 Activos Vencidos", total_vencidos)
-        kpi4.metric("🟡 Pendientes / N/D", total_pendientes)
-
-        st.divider()
-        
-        st.markdown("##### 🏆 Desempeño, Calificación y Carga de Trabajo")
-        c_perf1, c_perf2, c_perf3, c_perf4 = st.columns(4)
-        c_perf1.metric("📦 Materiales Validados", total_materiales_validados, "En Sistema", delta_color="off")
-        c_perf2.metric("📑 Certificados de Cal.", total_certificados, "Documentados", delta_color="off")
-        c_perf3.metric("⚡ Sensibilidad Mín. Planta", min_sensibilidad, "Riesgo Alto" if alerta_sensibilidad else "Riesgo Controlado", delta_color="inverse" if alerta_sensibilidad else "normal")
-        c_perf4.metric("🔥 Validaciones (Últimos 7d)", act_7d, "Actualizaciones", delta_color="normal")
-
-        st.caption("Tendencia de Auditorías a Mediano Plazo")
-        st.progress(min(act_30d / 500, 1.0) if act_30d > 0 else 0.0, text=f"Últimos 30 días: {act_30d} actualizaciones / mediciones")
-        st.progress(min(act_60d / 1000, 1.0) if act_60d > 0 else 0.0, text=f"Últimos 60 días: {act_60d} actualizaciones / mediciones")
-
-        st.divider()
-        
-        st.markdown("##### 🔄 Movimientos de Inventario y Expansión")
-        c_mov1, c_mov2, c_mov3, c_mov4 = st.columns(4)
-        c_mov1.metric("Altas Inventario (30d)", altas_inv_30d, "Mobiliario / Otros", delta_color="normal")
-        c_mov2.metric("Bajas Inventario", bajas_inv_total, "Desactivados históricamente", delta_color="inverse")
-        c_mov3.metric("Altas Maquinaria (30d)", altas_maq_30d, "Nuevas estaciones", delta_color="normal")
-        c_mov4.metric("Bajas Maquinaria", bajas_maq_total, "Desactivadas históricamente", delta_color="inverse")
-
-        st.divider()
-
-        col_graf, col_metricas = st.columns([1.5, 1])
-
-        with col_graf:
-            st.markdown("**Distribución de Estado (Inventario y Maquinaria)**")
-            if total_activos > 0:
-                df_pie = pd.DataFrame({
-                    "Estado": ["Vigente", "Vencido", "Pendiente"],
-                    "Cantidad": [total_vigentes, total_vencidos, total_pendientes]
-                })
-                df_pie = df_pie[df_pie["Cantidad"] > 0]
-                
-                fig = px.pie(df_pie, values='Cantidad', names='Estado', color='Estado',
-                             color_discrete_map={"Vigente": "#28a745", "Vencido": "#dc3545", "Pendiente": "#ffc107"},
-                             hole=0.45)
-                fig.update_layout(margin=dict(t=10, b=10, l=10, r=10), height=280)
-                st.plotly_chart(fig, use_container_width=True)
+            if alertas:
+                df_alertas = pd.DataFrame(alertas)
+                st.dataframe(df_alertas, use_container_width=True, hide_index=True)
             else:
-                st.info("No hay datos de activos para graficar.")
-
-        with col_metricas:
-            st.markdown("**Últimas Pruebas de Infraestructura**")
-            
-            st.markdown(f"**🌍 Tierras y Conexiones:**")
-            st.progress(pasa_t / (pasa_t + falla_t) if (pasa_t + falla_t) > 0 else 0.0, text=f"✅ {pasa_t} Pasan | ❌ {falla_t} Fallan")
-            
-            st.markdown(f"**⚡ Event Meter (Descargas):**")
-            st.progress(pasa_em / (pasa_em + falla_em) if (pasa_em + falla_em) > 0 else 0.0, text=f"✅ {pasa_em} Aprobados | ❌ {falla_em} Rechazados")
-            
-            st.markdown(f"**🛂 Checadores de Calzado:**")
-            st.progress(pasa_ch / (pasa_ch + falla_ch) if (pasa_ch + falla_ch) > 0 else 0.0, text=f"✅ {pasa_ch} Pasan | ❌ {falla_ch} Fallan")
-
-        st.divider()
-
-        # --- 4. ALERTAS DE ACCIÓN INMEDIATA ---
-        st.markdown("##### 🚨 Alertas Requieren Acción Inmediata")
-        
-        alertas = []
-        if not df_inv_ov.empty:
-            # En la sección de Inventario:
-            ven_df = df_inv_ov[df_inv_ov['Estatus de verificación'].astype(str).str.upper().str.contains('VENCIDO|FALLA|RECHAZADO', regex=True)]
-            for _, r in ven_df.iterrows():
-                cat = str(r.get('Categoría', 'Inventario'))
-                alertas.append({"Área": cat, "ID / Ubicación": f"{r.get('Id de producto')} ({r.get('Línea')})", "Problema": "Verificación Vencida"})
-                
-        if not df_maq_ov.empty:
-            ven_m_df = df_maq_ov[df_maq_ov['resultado_estatus'].astype(str).str.upper().str.contains('VENCIDO|FALLA|RECHAZADO', regex=True)]
-            for _, r in ven_m_df.iterrows():
-                alertas.append({"Área": "Maquinaria", "ID / Ubicación": str(r.get('id_maquinaria')), "Problema": "Verificación Vencida"})
-                
-        if not df_tierras_ov.empty:
-            fallas_t_df = df_tierras_ov[df_tierras_ov['estatus'].astype(str).str.upper() == 'FALLA']
-            for _, r in fallas_t_df.iterrows():
-                alertas.append({"Área": "Tierras / Conexiones", "ID / Ubicación": str(r.get('id_punto')), "Problema": "Falla en Resistencia (Excede Límite)"})
-                
-        if not df_chec_ov.empty:
-            fallas_ch_df = df_chec_ov[df_chec_ov['estatus'].astype(str).str.upper() == 'FALLA']
-            for _, r in fallas_ch_df.iterrows():
-                alertas.append({"Área": "Checadores de Ingreso", "ID / Ubicación": str(r.get('id_checador')), "Problema": "Desviación fuera de límite (>5%)"})
-
-        if alertas:
-            df_alertas = pd.DataFrame(alertas)
-            st.dataframe(df_alertas, use_container_width=True, hide_index=True)
-        else:
-            st.success("🎉 ¡Excelente trabajo! No hay activos vencidos ni fallas operativas recientes reportadas en la infraestructura.")
-    
+                st.success("🎉 ¡Excelente trabajo! No hay activos vencidos ni fallas operativas recientes reportadas en la infraestructura.")
     #######################
     ### 4Q dashboard
     #######################
