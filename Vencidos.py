@@ -3321,230 +3321,243 @@ elif st.session_state.vista_actual == "Event Meter" and not st.session_state.mod
 # VISTA 4: WALKING TEST
 # ==========================================
 elif st.session_state.vista_actual == "Walking Test" and not st.session_state.modo_lectura:
-    st.markdown("### 🚶‍♂️ Análisis de Walking Test")
-    st.info("Sube uno o varios archivos PDF generados por el equipo de medición para extraer los datos automáticamente vía OCR y generar un reporte consolidado.")
-
-    archivos_pdf = st.file_uploader("Selecciona los archivos PDF", type=["pdf"], accept_multiple_files=True)
-
-    if archivos_pdf:
-        st.markdown("#### Resultados Extraídos")
-        datos_extraidos_wt = [] 
+    st.markdown("### 🚶‍♂️ Análisis y Registro de Walking Test")
+    
+    # --- CONTROL DE PESTAÑAS MAESTRO ---
+    if "sub_pestana_wt" not in st.session_state:
+        st.session_state.sub_pestana_wt = "📄 Nuevo Reporte (OCR)"
         
-        for archivo in archivos_pdf:
-            with st.expander(f"📄 Reporte: {archivo.name}", expanded=True):
-                try:
-                    doc = fitz.open(stream=archivo.read(), filetype="pdf")
-                    pagina = doc[0] 
-                    imagen_grafica = None
-                    texto_ocr = ""
-                    img_b64 = "" 
+    opcion_pestana_wt = st.radio(
+        "Navegación Interna:", 
+        ["📄 Nuevo Reporte (OCR)", "🗄️ Consultar Historial"], 
+        horizontal=True, 
+        label_visibility="collapsed",
+        key="radio_pestanas_wt"
+    )
+    st.session_state.sub_pestana_wt = opcion_pestana_wt
 
-                    imagenes_pdf = pagina.get_images(full=True)
-                    if imagenes_pdf:
-                        xref = imagenes_pdf[0][0]
-                        base_image = doc.extract_image(xref)
-                        image_bytes = base_image["image"]
-                        imagen_grafica = Image.open(io.BytesIO(image_bytes))
+    # =========================================================
+    # PESTAÑA 1: EXTRACCIÓN OCR Y GUARDADO
+    # =========================================================
+    if st.session_state.sub_pestana_wt == "📄 Nuevo Reporte (OCR)":
+        st.info("Sube uno o varios archivos PDF generados por el equipo de medición para extraer los datos automáticamente vía OCR y generar un reporte consolidado.")
 
-                        with st.spinner("Analizando imagen con OCR..."):
-                            texto_ocr = pytesseract.image_to_string(imagen_grafica)
-                        
-                        buffered = io.BytesIO()
-                        imagen_grafica.save(buffered, format="PNG")
-                        img_b64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
-                    else:
-                        st.warning("No se detectó ninguna imagen/gráfica en este PDF para analizar.")
-                        continue
+        archivos_pdf = st.file_uploader("Selecciona los archivos PDF", type=["pdf"], accept_multiple_files=True)
 
-                    fecha_hora_match = re.search(r"(\d{2}/\d{2}/\d{2})\s+(\d{2}:\d{2})", texto_ocr)
-                    fecha = fecha_hora_match.group(1) if fecha_hora_match else "N/D"
-                    hora = fecha_hora_match.group(2) if fecha_hora_match else "N/D"
-
-                    hum_match = re.search(r"(\d{1,3}(?:\.\d+)?)\s*%?\s*RH", texto_ocr, re.IGNORECASE)
-                    humedad = f"{hum_match.group(1)} %" if hum_match else "N/D"
-
-                    temp_match = re.search(r"(\d{1,3}(?:\.\d+)?)\s*[^C]*C", texto_ocr, re.IGNORECASE)
-                    temperatura = f"{temp_match.group(1)} °C" if temp_match else "N/D"
-
-                    peaks_match = re.search(r"highest peaks:\s*(.*?)(?:\(|Arithmetic|\n|$)", texto_ocr, re.IGNORECASE)
-                    picos = peaks_match.group(1).strip() if peaks_match else "N/D"
-
-                    valleys_match = re.search(r"highest valleys:\s*(.*?)(?:\(|Arithmetic|\n|$)", texto_ocr, re.IGNORECASE)
-                    valles = valleys_match.group(1).strip() if valleys_match else "N/D"
-
-                    max_abs = 0.0
-                    promedio_picos = 0.0
-                    pico_max_positivo = 0.0
-                    pico_max_negativo = 0.0
-                    
+        if archivos_pdf:
+            st.markdown("#### Resultados Extraídos")
+            datos_extraidos_wt = [] 
+            
+            for archivo in archivos_pdf:
+                with st.expander(f"📄 Reporte: {archivo.name}", expanded=True):
                     try:
-                        p_vals = [float(x) for x in re.findall(r"[-+]?\d*\.\d+|\d+", picos)]
-                        v_vals = [float(x) for x in re.findall(r"[-+]?\d*\.\d+|\d+", valles)]
-                        todos_los_valores = p_vals + v_vals
+                        doc = fitz.open(stream=archivo.read(), filetype="pdf")
+                        pagina = doc[0] 
+                        imagen_grafica = None
+                        texto_ocr = ""
+                        img_b64 = "" 
+
+                        imagenes_pdf = pagina.get_images(full=True)
+                        if imagenes_pdf:
+                            xref = imagenes_pdf[0][0]
+                            base_image = doc.extract_image(xref)
+                            image_bytes = base_image["image"]
+                            imagen_grafica = Image.open(io.BytesIO(image_bytes))
+
+                            with st.spinner("Analizando imagen con OCR..."):
+                                texto_ocr = pytesseract.image_to_string(imagen_grafica)
+                            
+                            buffered = io.BytesIO()
+                            imagen_grafica.save(buffered, format="PNG")
+                            img_b64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
+                        else:
+                            st.warning("No se detectó ninguna imagen/gráfica en este PDF para analizar.")
+                            continue
+
+                        fecha_hora_match = re.search(r"(\d{2}/\d{2}/\d{2})\s+(\d{2}:\d{2})", texto_ocr)
+                        fecha = fecha_hora_match.group(1) if fecha_hora_match else "N/D"
+                        hora = fecha_hora_match.group(2) if fecha_hora_match else "N/D"
+
+                        hum_match = re.search(r"(\d{1,3}(?:\.\d+)?)\s*%?\s*RH", texto_ocr, re.IGNORECASE)
+                        humedad = f"{hum_match.group(1)} %" if hum_match else "N/D"
+
+                        temp_match = re.search(r"(\d{1,3}(?:\.\d+)?)\s*[^C]*C", texto_ocr, re.IGNORECASE)
+                        temperatura = f"{temp_match.group(1)} °C" if temp_match else "N/D"
+
+                        peaks_match = re.search(r"highest peaks:\s*(.*?)(?:\(|Arithmetic|\n|$)", texto_ocr, re.IGNORECASE)
+                        picos = peaks_match.group(1).strip() if peaks_match else "N/D"
+
+                        valleys_match = re.search(r"highest valleys:\s*(.*?)(?:\(|Arithmetic|\n|$)", texto_ocr, re.IGNORECASE)
+                        valles = valleys_match.group(1).strip() if valleys_match else "N/D"
+
+                        max_abs = 0.0
+                        promedio_picos = 0.0
+                        pico_max_positivo = 0.0
+                        pico_max_negativo = 0.0
                         
-                        if todos_los_valores:
-                            max_abs = max(abs(x) for x in todos_los_valores)
-                        if p_vals:
-                            promedio_picos = sum(p_vals) / len(p_vals)
-                            pico_max_positivo = max(p_vals)
-                        if v_vals:
-                            pico_max_negativo = min(v_vals)
-                    except:
-                        pass
-
-                    col_datos1, col_datos2 = st.columns(2)
-                    with col_datos1:
-                        st.metric("📅 Fecha", fecha)
-                        st.metric("🌡️ Temperatura", temperatura)
-                        st.metric("⚡ Voltaje Máx (Absoluto)", f"{max_abs:.2f} V")
-                    with col_datos2:
-                        st.metric("🕒 Hora", hora)
-                        st.metric("💧 Humedad", humedad)
-                        st.metric("📊 Promedio Picos", f"{promedio_picos:.2f} V")
-
-                    st.divider()
-                    st.markdown("**Gráfica Extraída:**")
-                    st.image(imagen_grafica, use_container_width=True)
-
-                    datos_extraidos_wt.append({
-                        "archivo": archivo.name, "fecha": fecha, "temp": temperatura,
-                        "hum": humedad, "max_abs": max_abs, "promedio_picos": promedio_picos,
-                        "img_b64": img_b64
-                    })
-                    
-                    # MAGIA CORREGIDA: Sincronizado con los nombres de regex reales y extrayendo SOLO números
-                    st.session_state.wt_temp_mem = temp_match.group(1) if temp_match else None
-                    st.session_state.wt_hum_mem = hum_match.group(1) if hum_match else None
-                    st.session_state.wt_p_pos_mem = pico_max_positivo
-                    st.session_state.wt_p_neg_mem = pico_max_negativo
-                    
-                    # Convertimos la fecha (DD/MM/YY) al formato SQL (YYYY-MM-DD) si existe
-                    if fecha != "N/D":
                         try:
-                            f_obj = datetime.strptime(fecha, "%d/%m/%y")
-                            st.session_state.wt_fecha_mem = f_obj.date().isoformat()
+                            p_vals = [float(x) for x in re.findall(r"[-+]?\d*\.\d+|\d+", picos)]
+                            v_vals = [float(x) for x in re.findall(r"[-+]?\d*\.\d+|\d+", valles)]
+                            todos_los_valores = p_vals + v_vals
+                            
+                            if todos_los_valores:
+                                max_abs = max(abs(x) for x in todos_los_valores)
+                            if p_vals:
+                                promedio_picos = sum(p_vals) / len(p_vals)
+                                pico_max_positivo = max(p_vals)
+                            if v_vals:
+                                pico_max_negativo = min(v_vals)
                         except:
-                            st.session_state.wt_fecha_mem = datetime.now().date().isoformat()
-                    else:
-                        st.session_state.wt_fecha_mem = datetime.now().date().isoformat()
+                            pass
+
+                        col_datos1, col_datos2 = st.columns(2)
+                        with col_datos1:
+                            st.metric("📅 Fecha", fecha)
+                            st.metric("🌡️ Temperatura", temperatura)
+                            st.metric("⚡ Voltaje Máx (Absoluto)", f"{max_abs:.2f} V")
+                        with col_datos2:
+                            st.metric("🕒 Hora", hora)
+                            st.metric("💧 Humedad", humedad)
+                            st.metric("📊 Promedio Picos", f"{promedio_picos:.2f} V")
+
+                        st.divider()
+                        st.markdown("**Gráfica Extraída:**")
+                        st.image(imagen_grafica, width="stretch")
+
+                        datos_extraidos_wt.append({
+                            "archivo": archivo.name, "fecha": fecha, "temp": temperatura,
+                            "hum": humedad, "max_abs": max_abs, "promedio_picos": promedio_picos,
+                            "img_b64": img_b64
+                        })
                         
-                    st.success("📊 ¡Datos del PDF extraídos y respaldados en memoria con éxito!")
-                except Exception as e:
-                    st.error(f"Ocurrió un error al procesar el archivo {archivo.name}: {e}")
+                        st.session_state.wt_temp_mem = temp_match.group(1) if temp_match else None
+                        st.session_state.wt_hum_mem = hum_match.group(1) if hum_match else None
+                        st.session_state.wt_p_pos_mem = pico_max_positivo
+                        st.session_state.wt_p_neg_mem = pico_max_negativo
+                        
+                        if fecha != "N/D":
+                            try:
+                                f_obj = datetime.strptime(fecha, "%d/%m/%y")
+                                st.session_state.wt_fecha_mem = f_obj.date().isoformat()
+                            except:
+                                st.session_state.wt_fecha_mem = datetime.now().date().isoformat()
+                        else:
+                            st.session_state.wt_fecha_mem = datetime.now().date().isoformat()
+                            
+                        st.success("📊 ¡Datos del PDF extraídos y respaldados en memoria con éxito!")
+                    except Exception as e:
+                        st.error(f"Ocurrió un error al procesar el archivo {archivo.name}: {e}")
 
-        if datos_extraidos_wt:
-            st.divider()
-            st.markdown("### 📄 Generar Reporte Oficial Consolidado")
-            st.write("Completa la información general para generar un solo reporte con todas las ubicaciones procesadas.")
-            
-            fecha_defecto = datos_extraidos_wt[0]['fecha'] if datos_extraidos_wt[0]['fecha'] != "N/D" else datetime.today().strftime("%d/%m/%Y")
-            temp_defecto = datos_extraidos_wt[0]['temp']
-            hum_defecto = datos_extraidos_wt[0]['hum']
-            
-            with st.form("form_reporte_wt"):
-                st.markdown("#### Datos Generales")
-                col_g1, col_g2, col_g3 = st.columns(3)
-                auditor_wt = col_g1.text_input("Auditor / Técnico", value=st.session_state.usuario_nombre if st.session_state.usuario_nombre else "")
-                operador_wt = col_g2.text_input("Operador de Prueba")
-                periodo_wt = col_g3.selectbox("Periodo de Evaluación", ["Semestre 1", "Semestre 2"])
+            if datos_extraidos_wt:
+                st.divider()
+                st.markdown("### 📄 Generar Reporte Oficial Consolidado")
+                st.write("Completa la información general para generar un solo reporte con todas las ubicaciones procesadas.")
                 
-                col_g4, col_g5 = st.columns(2)
-                equipo_wt = col_g4.text_input("Equipo de Medición Utilizado", value="DESCO 46006")
-                calzado_wt = col_g5.text_input("Calzado ESD Utilizado", value="Zapato antiestático Workman")
+                fecha_defecto = datos_extraidos_wt[0]['fecha'] if datos_extraidos_wt[0]['fecha'] != "N/D" else datetime.today().strftime("%d/%m/%Y")
+                temp_defecto = datos_extraidos_wt[0]['temp']
+                hum_defecto = datos_extraidos_wt[0]['hum']
                 
-                st.markdown("#### 🌡️ Condiciones Ambientales (Edítalas si es necesario)")
-                col_amb1, col_amb2, col_amb3 = st.columns(3)
-                fecha_gen = col_amb1.text_input("Fecha de Prueba", value=fecha_defecto)
-                temp_gen = col_amb2.text_input("Temperatura", value=temp_defecto)
-                hum_gen = col_amb3.text_input("Humedad", value=hum_defecto)
-                
-                st.markdown("#### Configuración de Ubicaciones")
-                bloques_ubicaciones = []
-                
-                for i, dato in enumerate(datos_extraidos_wt):
-                    st.markdown(f"**Ubicación {i+1} (Archivo: {dato['archivo']})**")
-                    c_ub1, c_ub2, c_ub3 = st.columns([1.5, 1.5, 1])
-                    nombre_ub = c_ub1.text_input(f"Nombre de Línea/Área", value=dato['archivo'].replace(".pdf", ""), key=f"nombre_{i}")
-                    tipo_piso = c_ub2.selectbox(f"Tipo de Piso", ["Piso Epóxico ESD", "Loseta Vinílica Conductiva", "Tapete Antifatiga ESD", "Otro"], key=f"piso_{i}")
+                with st.form("form_reporte_wt"):
+                    st.markdown("#### Datos Generales")
+                    col_g1, col_g2, col_g3 = st.columns(3)
+                    auditor_wt = col_g1.text_input("Auditor / Técnico", value=st.session_state.usuario_nombre if st.session_state.usuario_nombre else "")
+                    operador_wt = col_g2.text_input("Operador de Prueba")
+                    periodo_wt = col_g3.selectbox("Periodo de Evaluación", ["Semestre 1", "Semestre 2"])
                     
-                    limpieza_chk = c_ub3.checkbox("Limpieza previa", value=False, key=f"limpieza_{i}")
+                    col_g4, col_g5 = st.columns(2)
+                    equipo_wt = col_g4.text_input("Equipo de Medición Utilizado", value="DESCO 46006")
+                    calzado_wt = col_g5.text_input("Calzado ESD Utilizado", value="Zapato antiestático Workman")
                     
-                    bloques_ubicaciones.append({
-                        "nombre": nombre_ub, 
-                        "piso": tipo_piso, 
-                        "limpieza": "Sí" if limpieza_chk else "No",
-                        "datos": dato
-                    })
-                    st.write("") 
+                    st.markdown("#### 🌡️ Condiciones Ambientales (Edítalas si es necesario)")
+                    col_amb1, col_amb2, col_amb3 = st.columns(3)
+                    fecha_gen = col_amb1.text_input("Fecha de Prueba", value=fecha_defecto)
+                    temp_gen = col_amb2.text_input("Temperatura", value=temp_defecto)
+                    hum_gen = col_amb3.text_input("Humedad", value=hum_defecto)
+                    
+                    st.markdown("#### Configuración de Ubicaciones")
+                    bloques_ubicaciones = []
+                    
+                    for i, dato in enumerate(datos_extraidos_wt):
+                        st.markdown(f"**Ubicación {i+1} (Archivo: {dato['archivo']})**")
+                        c_ub1, c_ub2, c_ub3 = st.columns([1.5, 1.5, 1])
+                        nombre_ub = c_ub1.text_input(f"Nombre de Línea/Área", value=dato['archivo'].replace(".pdf", ""), key=f"nombre_{i}")
+                        tipo_piso = c_ub2.selectbox(f"Tipo de Piso", ["Piso Epóxico ESD", "Loseta Vinílica Conductiva", "Tapete Antifatiga ESD", "Otro"], key=f"piso_{i}")
+                        
+                        limpieza_chk = c_ub3.checkbox("Limpieza previa", value=False, key=f"limpieza_{i}")
+                        
+                        bloques_ubicaciones.append({
+                            "nombre": nombre_ub, 
+                            "piso": tipo_piso, 
+                            "limpieza": "Sí" if limpieza_chk else "No",
+                            "datos": dato
+                        })
+                        st.write("") 
 
-                submit_reporte = st.form_submit_button("Generar Reporte Consolidado en PDF/HTML", width="stretch")
-            
-            # =====================================================================
-            # GENERADOR HTML (Ahora correctamente desindentado)
-            # =====================================================================
-            if submit_reporte:
-                try:
-                    fecha_limpia = str(fecha_gen).replace('-', '/')
-                    año_prueba = fecha_limpia.split('/')[-1][-2:]
-                except:
-                    año_prueba = datetime.today().strftime("%y")
+                    submit_reporte = st.form_submit_button("Generar Reporte Consolidado en PDF/HTML", width="stretch")
+                
+                if submit_reporte:
+                    try:
+                        fecha_limpia = str(fecha_gen).replace('-', '/')
+                        año_prueba = fecha_limpia.split('/')[-1][-2:]
+                    except:
+                        año_prueba = datetime.today().strftime("%y")
 
-                try:
-                    resp_log_wt = supabase.table("log_reportes_wt").insert({
-                        "fecha_prueba": fecha_gen,
-                        "auditor": auditor_wt
-                    }).execute()
-                    db_id_wt = resp_log_wt.data[0]['id']
-                except Exception as e:
-                    db_id_wt = 999
-                    st.warning(f"Error de conexión con la bitácora de folios. Usando 999. Error: {e}")
+                    try:
+                        resp_log_wt = supabase.table("log_reportes_wt").insert({
+                            "fecha_prueba": fecha_gen,
+                            "auditor": auditor_wt
+                        }).execute()
+                        db_id_wt = resp_log_wt.data[0]['id']
+                    except Exception as e:
+                        db_id_wt = 999
+                        st.warning(f"Error de conexión con la bitácora de folios. Usando 999. Error: {e}")
 
-                folio_wt = f"BCS-QRO-WLK-{db_id_wt:03d}-{año_prueba}"
+                    folio_wt = f"BCS-QRO-WLK-{db_id_wt:03d}-{año_prueba}"
 
-                html_ubicaciones = ""
-                for idx, block in enumerate(bloques_ubicaciones, 1):
-                    data = block['datos']
-                    if data['max_abs'] < 100:
-                        res_text, res_color = "CUMPLE (PASS)", "text-green-600"
-                        obs = "Ninguna anomalía. Los picos se mantuvieron por debajo del límite normativo de 100V."
-                    else:
-                        res_text, res_color = "NO CUMPLE (FAIL)", "text-red-600"
-                        obs = f"ATENCIÓN: Se registró un pico absoluto de {data['max_abs']:.2f}V, superando el límite permitido de 100V. Se requiere limpieza o revisión."
+                    html_ubicaciones = ""
+                    for idx, block in enumerate(bloques_ubicaciones, 1):
+                        data = block['datos']
+                        if data['max_abs'] < 100:
+                            res_text, res_color = "CUMPLE (PASS)", "text-green-600"
+                            obs = "Ninguna anomalía. Los picos se mantuvieron por debajo del límite normativo de 100V."
+                        else:
+                            res_text, res_color = "NO CUMPLE (FAIL)", "text-red-600"
+                            obs = f"ATENCIÓN: Se registró un pico absoluto de {data['max_abs']:.2f}V, superando el límite permitido de 100V. Se requiere limpieza o revisión."
 
-                    img_tag = f'<img src="data:image/png;base64,{data["img_b64"]}" class="max-w-full max-h-full object-contain" alt="Gráfica">' if data['img_b64'] else '<i class="text-gray-400">Sin gráfica disponible</i>'
+                        img_tag = f'<img src="data:image/png;base64,{data["img_b64"]}" class="max-w-full max-h-full object-contain" alt="Gráfica">' if data['img_b64'] else '<i class="text-gray-400">Sin gráfica disponible</i>'
 
-                    html_ubicaciones += f"""
-                    <div class="border-2 border-[#003366] rounded-md p-5 mb-8 [page-break-inside:avoid] print:border-black">
-                        <div class="text-[18px] font-bold text-white bg-[#003366] p-2.5 -mx-5 -mt-5 mb-5 rounded-t-sm print:bg-black">Ubicación {idx}: {block['nombre']}</div>
-                        <table class="w-full text-sm border-collapse mb-5 text-center">
-                            <tr>
-                                <th class="border border-gray-300 p-2 text-left bg-gray-50 font-bold w-1/4 print:border-black">Tipo de Piso:</th>
-                                <td class="border border-gray-300 p-2 text-left w-1/4 print:border-black">{block['piso']}</td>
-                                <th class="border border-gray-300 p-2 text-left bg-gray-50 font-bold w-1/4 print:border-black">Limpieza previa:</th>
-                                <td class="border border-gray-300 p-2 text-left w-1/4 print:border-black">{block['limpieza']}</td>
-                            </tr>
-                            <tr>
-                                <th class="border border-gray-300 p-2 text-left bg-gray-50 font-bold print:border-black">Voltaje Máx (Abs):</th>
-                                <td class="border border-gray-300 p-2 text-left font-mono font-bold print:border-black">{data['max_abs']:.2f} V</td>
-                                <th class="border border-gray-300 p-2 text-left bg-gray-50 font-bold print:border-black">Promedio de Picos:</th>
-                                <td class="border border-gray-300 p-2 text-left font-mono print:border-black">{data['promedio_picos']:.2f} V</td>
-                            </tr>
-                        </table>
-                        <div class="w-full h-64 bg-gray-50 border-2 border-dashed border-gray-300 flex items-center justify-center my-5 overflow-hidden print:border-black">
-                            {img_tag}
+                        html_ubicaciones += f"""
+                        <div class="border-2 border-[#003366] rounded-md p-5 mb-8 [page-break-inside:avoid] print:border-black">
+                            <div class="text-[18px] font-bold text-white bg-[#003366] p-2.5 -mx-5 -mt-5 mb-5 rounded-t-sm print:bg-black">Ubicación {idx}: {block['nombre']}</div>
+                            <table class="w-full text-sm border-collapse mb-5 text-center">
+                                <tr>
+                                    <th class="border border-gray-300 p-2 text-left bg-gray-50 font-bold w-1/4 print:border-black">Tipo de Piso:</th>
+                                    <td class="border border-gray-300 p-2 text-left w-1/4 print:border-black">{block['piso']}</td>
+                                    <th class="border border-gray-300 p-2 text-left bg-gray-50 font-bold w-1/4 print:border-black">Limpieza previa:</th>
+                                    <td class="border border-gray-300 p-2 text-left w-1/4 print:border-black">{block['limpieza']}</td>
+                                </tr>
+                                <tr>
+                                    <th class="border border-gray-300 p-2 text-left bg-gray-50 font-bold print:border-black">Voltaje Máx (Abs):</th>
+                                    <td class="border border-gray-300 p-2 text-left font-mono font-bold print:border-black">{data['max_abs']:.2f} V</td>
+                                    <th class="border border-gray-300 p-2 text-left bg-gray-50 font-bold print:border-black">Promedio de Picos:</th>
+                                    <td class="border border-gray-300 p-2 text-left font-mono print:border-black">{data['promedio_picos']:.2f} V</td>
+                                </tr>
+                            </table>
+                            <div class="w-full h-64 bg-gray-50 border-2 border-dashed border-gray-300 flex items-center justify-center my-5 overflow-hidden print:border-black">
+                                {img_tag}
+                            </div>
+                            <table class="w-full text-sm border-collapse">
+                                <tr>
+                                    <th class="border border-gray-300 p-2 text-left bg-gray-50 font-bold w-1/5 print:border-black">Observaciones:</th>
+                                    <td class="border border-gray-300 p-2 text-left print:border-black">{obs}</td>
+                                    <th class="border border-gray-300 p-2 text-left bg-gray-50 font-bold w-1/5 print:border-black">Resultado Final:</th>
+                                    <td class="border border-gray-300 p-2 text-center font-bold text-base print:border-black {res_color}">{res_text}</td>
+                                </tr>
+                            </table>
                         </div>
-                        <table class="w-full text-sm border-collapse">
-                            <tr>
-                                <th class="border border-gray-300 p-2 text-left bg-gray-50 font-bold w-1/5 print:border-black">Observaciones:</th>
-                                <td class="border border-gray-300 p-2 text-left print:border-black">{obs}</td>
-                                <th class="border border-gray-300 p-2 text-left bg-gray-50 font-bold w-1/5 print:border-black">Resultado Final:</th>
-                                <td class="border border-gray-300 p-2 text-center font-bold text-base print:border-black {res_color}">{res_text}</td>
-                            </tr>
-                        </table>
-                    </div>
-                    """
-                    
-                html_completo = f"""<!DOCTYPE html>
+                        """
+                        
+                    html_completo = f"""<!DOCTYPE html>
 <html lang="es">
 <head>
 <meta charset="UTF-8">
@@ -3633,81 +3646,122 @@ elif st.session_state.vista_actual == "Walking Test" and not st.session_state.mo
 </div>
 </body>
 </html>"""
-                
-                b64_html = base64.b64encode(html_completo.encode('utf-8')).decode('utf-8')
-                nombre_archivo = f"{folio_wt}.html"
-                
-                st.success(f"✅ ¡Reporte {folio_wt} estandarizado y generado con éxito!")
-                href = f'<a href="data:text/html;base64,{b64_html}" download="{nombre_archivo}" target="_blank" style="display: block; text-align: center; padding: 15px; background-color: #003366; color: white; text-decoration: none; border-radius: 8px; font-weight: bold; margin-top: 10px; font-size: 16px;">📥 Descargar Reporte Oficial ({folio_wt})</a>'
-                st.markdown(href, unsafe_allow_html=True)
-
-        # =====================================================================
-        # GUARDAR RESULTADOS DEL WALKING TEST EN LA NUBE (Ahora al nivel correcto)
-        # =====================================================================
-        if "wt_temp_mem" in st.session_state:
-            st.divider()
-            st.markdown("### 💾 Centralizar Registro en Base de Datos")
-            st.caption("Guarda los parámetros extraídos por el OCR directamente en el historial maestro de Walking Tests.")
-
-            with st.form("form_guardar_walking_test"):
-                col_w1, col_w2 = st.columns(2)
-                
-                if 'obtener_catalogo_lineas' in globals():
-                    lineas_test = obtener_catalogo_lineas()
-                else:
-                    lineas_test = ["N/D"]
                     
-                ubicacion_w = col_w1.selectbox("Confirmar Línea / Ubicación", options=lineas_test)
-                operador_w = col_w2.text_input("Nombre / No. de Empleado Evaluado (Opcional)", value="N/D")
-                notas_w = st.text_area("Notas u observaciones del Walking Test")
+                    b64_html = base64.b64encode(html_completo.encode('utf-8')).decode('utf-8')
+                    nombre_archivo = f"{folio_wt}.html"
+                    
+                    st.success(f"✅ ¡Reporte {folio_wt} estandarizado y generado con éxito!")
+                    href = f'<a href="data:text/html;base64,{b64_html}" download="{nombre_archivo}" target="_blank" style="display: block; text-align: center; padding: 15px; background-color: #003366; color: white; text-decoration: none; border-radius: 8px; font-weight: bold; margin-top: 10px; font-size: 16px;">📥 Descargar Reporte Oficial ({folio_wt})</a>'
+                    st.markdown(href, unsafe_allow_html=True)
 
-                if st.form_submit_button("🚀 Confirmar y Almacenar en Supabase", type="primary", use_container_width=True):
-                    import math
-                    with st.spinner("Purificando datos e inyectando en SQL..."):
+            if "wt_temp_mem" in st.session_state:
+                st.divider()
+                st.markdown("### 💾 Centralizar Registro en Base de Datos")
+                st.caption("Guarda los parámetros extraídos por el OCR directamente en el historial maestro de Walking Tests.")
+
+                with st.form("form_guardar_walking_test"):
+                    col_w1, col_w2 = st.columns(2)
+                    
+                    if 'obtener_catalogo_lineas' in globals():
+                        lineas_test = obtener_catalogo_lineas()
+                    else:
+                        lineas_test = ["N/D"]
                         
-                        def limpiar_num(val):
-                            if val is None or pd.isna(val): return None
+                    ubicacion_w = col_w1.selectbox("Confirmar Línea / Ubicación", options=lineas_test)
+                    operador_w = col_w2.text_input("Nombre / No. de Empleado Evaluado (Opcional)", value="N/D")
+                    notas_w = st.text_area("Notas u observaciones del Walking Test")
+
+                    if st.form_submit_button("🚀 Confirmar y Almacenar en Supabase", type="primary", width="stretch"):
+                        import math
+                        with st.spinner("Purificando datos e inyectando en SQL..."):
+                            
+                            def limpiar_num(val):
+                                if val is None or pd.isna(val): return None
+                                try:
+                                    f = float(val)
+                                    return None if math.isnan(f) else f
+                                except:
+                                    return None
+
                             try:
-                                f = float(val)
-                                return None if math.isnan(f) else f
+                                p_pos = abs(float(st.session_state.wt_p_pos_mem)) if st.session_state.wt_p_pos_mem else 0
+                                p_neg = abs(float(st.session_state.wt_p_neg_mem)) if st.session_state.wt_p_neg_mem else 0
+                                estatus_final_w = "FALLA" if (p_pos >= 100 or p_neg >= 100) else "PASA"
                             except:
-                                return None
+                                estatus_final_w = "PENDIENTE"
 
-                        try:
-                            p_pos = abs(float(st.session_state.wt_p_pos_mem)) if st.session_state.wt_p_pos_mem else 0
-                            p_neg = abs(float(st.session_state.wt_p_neg_mem)) if st.session_state.wt_p_neg_mem else 0
-                            estatus_final_w = "FALLA" if (p_pos >= 100 or p_neg >= 100) else "PASA"
-                        except:
-                            estatus_final_w = "PENDIENTE"
+                            payload_walking = {
+                                "fecha_medicion": st.session_state.wt_fecha_mem,
+                                "nombre_empleado": operador_w.strip(),
+                                "linea_ubicacion": ubicacion_w,
+                                "temperatura": limpiar_num(st.session_state.wt_temp_mem), 
+                                "humedad": limpiar_num(st.session_state.wt_hum_mem),       
+                                "pico_positivo": limpiar_num(st.session_state.wt_p_pos_mem), 
+                                "pico_negativo": limpiar_num(st.session_state.wt_p_neg_mem), 
+                                "resultado_estatus": estatus_final_w,
+                                "auditor": st.session_state.usuario_nombre
+                            }
 
-                        payload_walking = {
-                            "fecha_medicion": st.session_state.wt_fecha_mem,
-                            "nombre_empleado": operador_w.strip(),
-                            "linea_ubicacion": ubicacion_w,
-                            "temperatura": limpiar_num(st.session_state.wt_temp_mem), 
-                            "humedad": limpiar_num(st.session_state.wt_hum_mem),       
-                            "pico_positivo": limpiar_num(st.session_state.wt_p_pos_mem), 
-                            "pico_negativo": limpiar_num(st.session_state.wt_p_neg_mem), 
-                            "resultado_estatus": estatus_final_w,
-                            "auditor": st.session_state.usuario_nombre
-                        }
+                            try:
+                                supabase.table("mediciones_walking_test").insert(payload_walking).execute()
+                                st.success("✅ ¡Reporte de Walking Test guardado exitosamente!")
+                                
+                                del st.session_state['wt_temp_mem']
+                                del st.session_state['wt_hum_mem']
+                                del st.session_state['wt_p_pos_mem']
+                                del st.session_state['wt_p_neg_mem']
+                                del st.session_state['wt_fecha_mem']
+                                
+                                st.cache_data.clear()
+                                import time
+                                time.sleep(1.5)
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Fallo de comunicación con Supabase: {e}")
 
-                        try:
-                            supabase.table("mediciones_walking_test").insert(payload_walking).execute()
-                            st.success("✅ ¡Reporte de Walking Test guardado exitosamente!")
-                            
-                            del st.session_state['wt_temp_mem']
-                            del st.session_state['wt_hum_mem']
-                            del st.session_state['wt_p_pos_mem']
-                            del st.session_state['wt_p_neg_mem']
-                            del st.session_state['wt_fecha_mem']
-                            
-                            st.cache_data.clear()
-                            import time
-                            time.sleep(1.5)
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Fallo de comunicación con Supabase: {e}")
+    # =========================================================
+    # PESTAÑA 2: HISTORIAL DE WALKING TEST
+    # =========================================================
+    elif st.session_state.sub_pestana_wt == "🗄️ Consultar Historial":
+        st.info("Visualiza todos los registros de Walking Test almacenados históricamente en la base de datos.")
+        
+        try:
+            resp_wt_hist = supabase.table("mediciones_walking_test").select("*").order("fecha_registro", desc=True).execute()
+            df_wt_hist = pd.DataFrame(resp_wt_hist.data)
+
+            if not df_wt_hist.empty:
+                # Limpieza y formateo de fechas
+                df_wt_hist['fecha_medicion'] = pd.to_datetime(df_wt_hist['fecha_medicion']).dt.strftime('%d-%b-%Y')
+                
+                # Seleccionar y renombrar las columnas para una vista analítica
+                columnas_mostrar = {
+                    "fecha_medicion": "Fecha de Medición",
+                    "linea_ubicacion": "Línea/Ubicación",
+                    "nombre_empleado": "Operador Evaluado",
+                    "temperatura": "Temp (°C)",
+                    "humedad": "Hum (%)",
+                    "pico_positivo": "Pico Pos (+) V",
+                    "pico_negativo": "Pico Neg (-) V",
+                    "resultado_estatus": "Resultado",
+                    "auditor": "Auditor"
+                }
+                
+                df_mostrar = df_wt_hist[list(columnas_mostrar.keys())].rename(columns=columnas_mostrar)
+                
+                # Función visual para alertas
+                def format_res_wt(val):
+                    val_str = str(val).upper()
+                    if val_str == "PASA": return "🟢 PASA"
+                    if val_str == "FALLA": return "🔴 FALLA"
+                    return f"🟡 {val}"
+                
+                df_mostrar['Resultado'] = df_mostrar['Resultado'].apply(format_res_wt)
+
+                st.dataframe(df_mostrar, width="stretch", hide_index=True)
+            else:
+                st.info("No hay registros centralizados de Walking Test en la base de datos aún.")
+        except Exception as e:
+            st.error(f"Error al conectar con la tabla de historial: {e}")
 # ==========================================
 # VISTA 5: VALIDACIÓN ESD (SISTEMA INTEGRAL)
 # ==========================================
