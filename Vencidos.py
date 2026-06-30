@@ -3404,7 +3404,6 @@ elif st.session_state.vista_actual == "Walking Test" and not st.session_state.mo
                         "hum": humedad, "max_abs": max_abs, "promedio_picos": promedio_picos,
                         "img_b64": img_b64
                     })
-
                     # Agrega esto JUSTO DESPUÉS de que el OCR extrae tus variables
                     st.session_state.wt_temp_mem = temperatura_extraida
                     st.session_state.wt_hum_mem = humedad_extraida
@@ -3412,7 +3411,7 @@ elif st.session_state.vista_actual == "Walking Test" and not st.session_state.mo
                     st.session_state.wt_p_neg_mem = pico_max_negativo
                     # Si tienes la variable de fecha, guárdala, si no, usa una cadena por defecto
                     st.session_state.wt_fecha_mem = fecha_reporte_ocr if 'fecha_reporte_ocr' in locals() else datetime.now().date().isoformat()
-
+                    st.success("📊 ¡Datos del PDF extraídos y respaldados en memoria con éxito!")
                 except Exception as e:
                     st.error(f"Ocurrió un error al procesar el archivo {archivo.name}: {e}")
 
