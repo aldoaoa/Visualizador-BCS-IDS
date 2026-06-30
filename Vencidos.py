@@ -1925,7 +1925,9 @@ elif st.session_state.vista_actual == "Mapa" and not st.session_state.modo_lectu
                     if not df_tierras_ov.empty:
                         fechas_actividad.extend(df_tierras_ov['fecha_medicion'].dropna().tolist())
                         df_tierras_ov = df_tierras_ov.sort_values('fecha_medicion', ascending=False).drop_duplicates(subset=['id_punto'])
-                        p_t, f_t, _ = contar_estatus(df_tierras_ov, 'estatus', 'PASA', 'FALLA')
+                        
+                        # 🛠️ CORRECCIÓN: Diccionario ampliado para Tierras
+                        p_t, f_t, _ = contar_estatus(df_tierras_ov, 'estatus', 'VIGENTE|APROBADO|PASA|CUMPLE', 'VENCIDO|FALLA|RECHAZADO|NO CUMPLE')
                         pasa_t += p_t
                         falla_t += f_t
             
@@ -1936,7 +1938,9 @@ elif st.session_state.vista_actual == "Mapa" and not st.session_state.modo_lectu
                     if not df_monitores.empty:
                         fechas_actividad.extend(df_monitores['fecha_ultima_verif'].dropna().tolist())
                         df_monitores = df_monitores.sort_values('fecha_ultima_verif', ascending=False).drop_duplicates(subset=['id_producto'])
-                        p_m, f_m, _ = contar_estatus(df_monitores, 'estatus_verificacion', 'PASA', 'FALLA')
+                        
+                        # 🛠️ CORRECCIÓN: Diccionario ampliado para Monitores
+                        p_m, f_m, _ = contar_estatus(df_monitores, 'estatus_verificacion', 'VIGENTE|APROBADO|PASA|CUMPLE', 'VENCIDO|FALLA|RECHAZADO|NO CUMPLE')
                         pasa_t += p_m
                         falla_t += f_m
 
@@ -2136,7 +2140,8 @@ elif st.session_state.vista_actual == "Mapa" and not st.session_state.modo_lectu
                     alertas.append({"Área": "Maquinaria", "ID / Ubicación": str(r.get('id_maquinaria')), "Problema": "Verificación Vencida"})
                     
             if not df_tierras_ov.empty:
-                fallas_t_df = df_tierras_ov[df_tierras_ov['estatus'].astype(str).str.upper() == 'FALLA']
+                # 🛠️ CORRECCIÓN: Filtro robusto para detectar fallas sin importar el sinónimo
+                fallas_t_df = df_tierras_ov[df_tierras_ov['estatus'].astype(str).str.upper().str.contains('VENCIDO|FALLA|RECHAZADO|NO CUMPLE', regex=True)]
                 for _, r in fallas_t_df.iterrows():
                     alertas.append({"Área": "Tierras / Conexiones", "ID / Ubicación": str(r.get('id_punto')), "Problema": "Falla en Resistencia (Excede Límite)"})
                     
