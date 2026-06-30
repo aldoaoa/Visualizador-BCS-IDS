@@ -5132,10 +5132,10 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
                                     # Definimos rango base para asegurar que quepan en los límites normativos
                                     if es_positivo:
                                         centro = random.randint(25, 65)
-                                        lim_inf, lim_sup = 5, 87
+                                        lim_inf, lim_sup = 5, 62
                                     else:
                                         centro = random.randint(-45, -25)
-                                        lim_inf, lim_sup = -69, -5
+                                        lim_inf, lim_sup = -53, -5
                                     
                                     valores = []
                                     for _ in range(5):
