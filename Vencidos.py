@@ -1919,14 +1919,16 @@ elif st.session_state.vista_actual == "Mapa" and not st.session_state.modo_lectu
                     
                     # B. Tierras y Monitores Continuos
                     # 1. Cálculo de Tierras Auxiliares
-                    resp_tierras_ov = supabase.table("tierras_auxiliares").select("id_punto, estatus, fecha_medicion").execute()
+                    # 🛠️ CORRECCIÓN: Agregamos 'linea' a la consulta SQL
+                    resp_tierras_ov = supabase.table("tierras_auxiliares").select("id_punto, linea, estatus, fecha_medicion").execute()
                     df_tierras_ov = pd.DataFrame(resp_tierras_ov.data)
                     
                     if not df_tierras_ov.empty:
                         fechas_actividad.extend(df_tierras_ov['fecha_medicion'].dropna().tolist())
-                        df_tierras_ov = df_tierras_ov.sort_values('fecha_medicion', ascending=False).drop_duplicates(subset=['id_punto'])
                         
-                        # 🛠️ CORRECCIÓN: Diccionario ampliado para Tierras
+                        # 🛠️ CORRECCIÓN: Ahora filtramos duplicados usando la combinación de Línea + ID
+                        df_tierras_ov = df_tierras_ov.sort_values('fecha_medicion', ascending=False).drop_duplicates(subset=['linea', 'id_punto'])
+                        
                         p_t, f_t, _ = contar_estatus(df_tierras_ov, 'estatus', 'VIGENTE|APROBADO|PASA|CUMPLE', 'VENCIDO|FALLA|RECHAZADO|NO CUMPLE')
                         pasa_t += p_t
                         falla_t += f_t
