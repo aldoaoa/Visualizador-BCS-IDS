@@ -5140,7 +5140,7 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
                                     valores = []
                                     for _ in range(5):
                                         # Desviación de +/- 25
-                                        v = centro + random.randint(-35, 22)
+                                        v = centro + random.randint(-20, 20)
                                         # Clamp para no salir de rangos físicos
                                         v = max(lim_inf, min(lim_sup, v))
                                         valores.append(float(v))
