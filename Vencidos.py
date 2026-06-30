@@ -5094,8 +5094,8 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
                             
                             for linea in lineas_sistema:
                                 # A. Selección cronológica (Lunes a Viernes, Ene-Jun 2026)
-                                f_inicio = datetime(2026, 1, 1)
-                                f_fin = datetime(2026, 6, 10)
+                                f_inicio = datetime(2026, 2, 1)
+                                f_fin = datetime(2026, 3, 10)
                                 
                                 fecha_valida = False
                                 while not fecha_valida:
@@ -5118,15 +5118,15 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
                                 # D. Simulación del Top 5 (Clustering)
                                 def generar_cluster(es_positivo):
                                     if es_positivo:
-                                        centro = random.randint(25, 65)
-                                        lim_inf, lim_sup = 5, 87
+                                        centro = random.randint(5, 35)
+                                        lim_inf, lim_sup = 2, 62
                                     else:
-                                        centro = random.randint(-45, -25)
-                                        lim_inf, lim_sup = -69, -5
+                                        centro = random.randint(-30, -10)
+                                        lim_inf, lim_sup = -53, -5
                                     
                                     valores = []
                                     for _ in range(5):
-                                        v = centro + random.randint(-25, 25)
+                                        v = centro + random.randint(-20, 20)
                                         v = max(lim_inf, min(lim_sup, v))
                                         valores.append(float(v))
                                     valores.sort(reverse=es_positivo)
