@@ -4686,7 +4686,7 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
     st.markdown("### ⚙️ Ajustes del Sistema (Catálogos)")
     st.info("Administra de forma centralizada las Líneas/Ubicaciones y los Equipos de Medición para que estén disponibles en todos los módulos de captura.")
 
-    tab_ubicaciones, tab_equipos, tab_maquinaria, tab_exportar, tab_usuarios = st.tabs(["📍 Líneas y Ubicaciones", "🛠️ Equipos de Medición", "🏭 Maquinaria (Operaciones)", "💾 Exportar Datos", "🔐 Usuarios"])
+    tab_ubicaciones, tab_equipos, tab_maquinaria, tab_exportar, tab_usuarios = st.tabs(["📍 Líneas y Ubicaciones", "🛠️ Equipos de Medición", "🏭 Maquinaria (Operaciones)", "💾 Administracion de Datos", "🔐 Usuarios"])
 
 # --- PESTAÑA 1: UBICACIONES ---
     with tab_ubicaciones:
@@ -5061,7 +5061,103 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
             except Exception as e:
                 st.error(f"Error al obtener maquinaria: {e}")
         # ... (Aquí termina el bloque de descarga de Maquinaria) ...
-
+    
+        # NUEVA HERRAMIENTA: GENERADOR ALEATORIO DE WALKING TEST
+        with st.expander("🎲 Generador de Walking Tests Aleatorios (Simulación Normativa)", expanded=False):
+            st.markdown("#### 🏃‍♂️ Generación Automatizada de Muestras")
+            st.info("Esta utilidad mapea el catálogo de ubicaciones actual y genera **un registro analítico por cada línea**, respetando las leyes físicas de correlación climática e intervalos térmicos parametrizados.")
+            
+            if st.button("🎲 Inyectar Muestras Aleatorias por Línea", type="secondary", width='stretch'):
+                import random
+                from datetime import datetime, timedelta
+                import math
+                import time
+                
+                with st.spinner("Sincronizando líneas de producción y calculando matrices físicas..."):
+                    try:
+                        # 1. Obtención segura del catálogo de líneas del sistema
+                        if 'obtener_catalogo_lineas' in globals():
+                            lineas_sistema = obtener_catalogo_lineas()
+                        else:
+                            # Respaldo directo a la tabla de base de datos si no encuentra la función global
+                            resp_cat = supabase.table("catalogo_lineas").select("*").execute()
+                            df_cat = pd.DataFrame(resp_cat.data)
+                            col_linea = next((c for c in df_cat.columns if 'linea' in c.lower() or 'nombre' in c.lower()), df_cat.columns[0]) if not df_cat.empty else None
+                            lineas_sistema = df_cat[col_linea].unique().tolist() if col_linea else []
+    
+                        if not lineas_sistema:
+                            st.error("❌ No se detectaron líneas configuradas en la tabla 'catalogo_lineas' para indexar el generador.")
+                        else:
+                            payloads_bulk = []
+                            
+                            # Configuración del intervalo cronológico (5 de Mayo 2025 al 28 de Febrero 2026)
+                            f_inicio = datetime(2025, 5, 5)
+                            f_fin = datetime(2026, 2, 28)
+                            rango_dias = (f_fin - f_inicio).days
+                            
+                            for linea in lineas_sistema:
+                                # A. Selección cronológica aleatoria uniforme
+                                dias_aleatorios = random.randint(0, rango_dias)
+                                fecha_calculada = f_inicio + timedelta(days=dias_aleatorios)
+                                
+                                # B. Definición de Temperatura (21.0 a 25.4 °C con 1 decimal)
+                                temp = round(random.uniform(21.0, 25.4), 1)
+                                
+                                # C. Ley de Correlación Climática Inversa (Alta Temp = Baja Humedad y viceversa)
+                                # Calculamos la posición relativa de la temperatura (0.0 es la más baja, 1.0 la más alta)
+                                posicion_relativa_temp = (temp - 21.0) / (25.4 - 21.0)
+                                # Invertimos la posición para la humedad
+                                posicion_relativa_hum = 1.0 - posicion_relativa_temp
+                                
+                                # Introducción de un factor de ruido orgánico uniforme (+/- 3%) para que no sea matemáticamente lineal pura
+                                ruido_climatico = random.uniform(-0.03, 0.03)
+                                posicion_final_hum = max(0.0, min(1.0, posicion_relativa_hum + ruido_climatico))
+                                
+                                # Escalamiento al rango solicitado (37.8% a 54.6%)
+                                hum = round(37.8 + (54.6 - 37.8) * posicion_final_hum, 1)
+                                
+                                # D. Simulación del Top 5 de Picos y Valles (Límites: 87V y -69V)
+                                # Generamos 5 picos positivos enteros ordenados descendentemente
+                                valores_picos = sorted([random.randint(5, 87) for _ in range(5)], reverse=True)
+                                # Generamos 5 valles negativos enteros ordenados ascendentemente
+                                valores_valles = sorted([random.randint(-69, -5) for _ in range(5)])
+                                
+                                pico_max_pos = valores_picos[0]
+                                pico_max_neg = valores_valles[0]
+                                
+                                # Serialización limpia a cadenas de texto separadas por comas (sin decimales)
+                                str_top5_picos = ", ".join(map(str, valores_picos))
+                                str_top5_valles = ", ".join(map(str, valores_valles))
+                                
+                                # Evaluación automática bajo el umbral normativo absoluto (< 100V) -> Siempre PASA
+                                estatus_normativo = "PASA"
+                                
+                                # E. Empaquetado del Payload estructural
+                                registro_simulado = {
+                                    "fecha_medicion": fecha_calculada.date().isoformat(),
+                                    "nombre_empleado": "Muestra Aleatoria Automatizada",
+                                    "linea_ubicacion": str(linea),
+                                    "temperatura": temp,
+                                    "humedad": hum,
+                                    "pico_positivo": pico_max_pos,
+                                    "pico_negativo": pico_max_neg,
+                                    "picos_positivos": str_top5_picos,
+                                    "picos_negativos": str_top5_valles,
+                                    "resultado_estatus": estatus_normativo,
+                                    "auditor": st.session_state.usuario_nombre if st.session_state.usuario_nombre else "Mesa de Administración"
+                                }
+                                payloads_bulk.append(registro_simulado)
+                            
+                            # Inyección masiva (Bulk Insert) en una sola transacción SQL
+                            if payloads_bulk:
+                                supabase.table("mediciones_walking_test").insert(payloads_bulk).execute()
+                                st.success(f"🎲 ¡Entorno poblado con éxito! Se inyectaron {len(payloads_bulk)} nuevos Walking Tests en Supabase.")
+                                st.cache_data.clear()
+                                time.sleep(1.5)
+                                st.rerun()
+                                
+                    except Exception as e:
+                        st.error(f"Fallo crítico al poblar el entorno de simulación: {e}")
         # =====================================================================
         # NUEVA HERRAMIENTA: DETECCIÓN Y RESOLUCIÓN DE DUPLICADOS CROSS-MÓDULO
         # =====================================================================
@@ -5317,7 +5413,7 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
                             st.rerun()
                         else:
                             st.error(f"Sincronización completada con {errores} fallas estructurales.")
-
+        
         # =====================================================================
         # HERRAMIENTA 2: VALIDACIÓN CRONOLÓGICA (INGRESO VS ENTRENAMIENTO)
         # =====================================================================
