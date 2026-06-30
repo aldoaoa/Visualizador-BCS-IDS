@@ -3430,8 +3430,12 @@ elif st.session_state.vista_actual == "Walking Test" and not st.session_state.mo
                             "img_b64": img_b64
                         })
                         
-                        st.session_state.wt_temp_mem = temp_match.group(1) if temp_match else None
-                        st.session_state.wt_hum_mem = hum_match.group(1) if hum_match else None
+                        # --- NUEVO: Extraer listas completas (hasta 5 valores) ---
+                        st.session_state.wt_p_vals_mem = p_vals[:5] if 'p_vals' in locals() and p_vals else []
+                        st.session_state.wt_v_vals_mem = v_vals[:5] if 'v_vals' in locals() and v_vals else []
+                        
+                        st.session_state.wt_temp_mem = temp_match.group(1) if temp_match else ""
+                        st.session_state.wt_hum_mem = hum_match.group(1) if hum_match else ""
                         st.session_state.wt_p_pos_mem = pico_max_positivo
                         st.session_state.wt_p_neg_mem = pico_max_negativo
                         
@@ -3660,6 +3664,7 @@ elif st.session_state.vista_actual == "Walking Test" and not st.session_state.mo
                 st.caption("Guarda los parámetros extraídos por el OCR directamente en el historial maestro de Walking Tests.")
 
                 with st.form("form_guardar_walking_test"):
+                    st.markdown("#### Configuración General")
                     col_w1, col_w2 = st.columns(2)
                     
                     if 'obtener_catalogo_lineas' in globals():
@@ -3669,6 +3674,13 @@ elif st.session_state.vista_actual == "Walking Test" and not st.session_state.mo
                         
                     ubicacion_w = col_w1.selectbox("Confirmar Línea / Ubicación", options=lineas_test)
                     operador_w = col_w2.text_input("Nombre / No. de Empleado Evaluado (Opcional)", value="N/D")
+                    
+                    st.markdown("#### ✏️ Revisión de OCR (Corrige si es necesario)")
+                    col_e1, col_e2 = st.columns(2)
+                    # El value lee lo que extrajo el OCR, pero te permite sobreescribirlo
+                    temp_edit = col_e1.text_input("Temperatura (°C)", value=str(st.session_state.wt_temp_mem) if st.session_state.wt_temp_mem else "")
+                    hum_edit = col_e2.text_input("Humedad (%)", value=str(st.session_state.wt_hum_mem) if st.session_state.wt_hum_mem else "")
+                    
                     notas_w = st.text_area("Notas u observaciones del Walking Test")
 
                     if st.form_submit_button("🚀 Confirmar y Almacenar en Supabase", type="primary", width="stretch"):
@@ -3676,9 +3688,11 @@ elif st.session_state.vista_actual == "Walking Test" and not st.session_state.mo
                         with st.spinner("Purificando datos e inyectando en SQL..."):
                             
                             def limpiar_num(val):
-                                if val is None or pd.isna(val): return None
+                                if val is None or str(val).strip() == "" or pd.isna(val): return None
                                 try:
-                                    f = float(val)
+                                    # Extrae solo números y puntos por si escribes accidentalmente "23 °C" en la caja
+                                    limpio = re.sub(r'[^\d.-]', '', str(val))
+                                    f = float(limpio)
                                     return None if math.isnan(f) else f
                                 except:
                                     return None
@@ -3690,14 +3704,20 @@ elif st.session_state.vista_actual == "Walking Test" and not st.session_state.mo
                             except:
                                 estatus_final_w = "PENDIENTE"
 
+                            # Convertimos las listas extraídas a strings limpios
+                            str_picos_pos = ", ".join(map(str, st.session_state.wt_p_vals_mem)) if st.session_state.wt_p_vals_mem else "N/D"
+                            str_picos_neg = ", ".join(map(str, st.session_state.wt_v_vals_mem)) if st.session_state.wt_v_vals_mem else "N/D"
+
                             payload_walking = {
                                 "fecha_medicion": st.session_state.wt_fecha_mem,
                                 "nombre_empleado": operador_w.strip(),
                                 "linea_ubicacion": ubicacion_w,
-                                "temperatura": limpiar_num(st.session_state.wt_temp_mem), 
-                                "humedad": limpiar_num(st.session_state.wt_hum_mem),       
+                                "temperatura": limpiar_num(temp_edit), 
+                                "humedad": limpiar_num(hum_edit),       
                                 "pico_positivo": limpiar_num(st.session_state.wt_p_pos_mem), 
                                 "pico_negativo": limpiar_num(st.session_state.wt_p_neg_mem), 
+                                "picos_positivos": str_picos_pos,
+                                "picos_negativos": str_picos_neg,
                                 "resultado_estatus": estatus_final_w,
                                 "auditor": st.session_state.usuario_nombre
                             }
@@ -3706,10 +3726,13 @@ elif st.session_state.vista_actual == "Walking Test" and not st.session_state.mo
                                 supabase.table("mediciones_walking_test").insert(payload_walking).execute()
                                 st.success("✅ ¡Reporte de Walking Test guardado exitosamente!")
                                 
+                                # Limpieza extendida de memoria
                                 del st.session_state['wt_temp_mem']
                                 del st.session_state['wt_hum_mem']
                                 del st.session_state['wt_p_pos_mem']
                                 del st.session_state['wt_p_neg_mem']
+                                del st.session_state['wt_p_vals_mem']
+                                del st.session_state['wt_v_vals_mem']
                                 del st.session_state['wt_fecha_mem']
                                 
                                 st.cache_data.clear()
@@ -3735,13 +3758,15 @@ elif st.session_state.vista_actual == "Walking Test" and not st.session_state.mo
                 
                 # Seleccionar y renombrar las columnas para una vista analítica
                 columnas_mostrar = {
-                    "fecha_medicion": "Fecha de Medición",
+                    "fecha_medicion": "Fecha",
                     "linea_ubicacion": "Línea/Ubicación",
                     "nombre_empleado": "Operador Evaluado",
                     "temperatura": "Temp (°C)",
                     "humedad": "Hum (%)",
-                    "pico_positivo": "Pico Pos (+) V",
-                    "pico_negativo": "Pico Neg (-) V",
+                    "pico_positivo": "Máx (+) V",
+                    "picos_positivos": "Top 5 (+)",
+                    "pico_negativo": "Máx (-) V",
+                    "picos_negativos": "Top 5 (-)",
                     "resultado_estatus": "Resultado",
                     "auditor": "Auditor"
                 }
