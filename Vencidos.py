@@ -5131,10 +5131,10 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
                                 def generar_cluster(es_positivo):
                                     # Definimos rango base para asegurar que quepan en los límites normativos
                                     if es_positivo:
-                                        centro = random.randint(25, 65)
+                                        centro = random.randint(5, 40)
                                         lim_inf, lim_sup = 5, 62
                                     else:
-                                        centro = random.randint(-45, -25)
+                                        centro = random.randint(-30, -10)
                                         lim_inf, lim_sup = -53, -5
                                     
                                     valores = []
