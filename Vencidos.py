@@ -5063,7 +5063,7 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
         # ... (Aquí termina el bloque de descarga de Maquinaria) ...
     
         # NUEVA HERRAMIENTA: GENERADOR ALEATORIO DE WALKING TEST
-        with st.expander("🎲 Generador de Walking Tests Aleatorios (Simulación Normativa)", expanded=False):
+        with st.expander("Muestreo de datos", expanded=False):
             st.markdown("#### 🏃‍♂️ Generación Automatizada de Muestras")
             st.info("Esta utilidad mapea el catálogo de ubicaciones actual y genera **un registro analítico por cada línea**, respetando las leyes físicas de correlación climática e intervalos térmicos parametrizados.")
             
