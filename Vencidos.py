@@ -1902,13 +1902,34 @@ elif st.session_state.vista_actual == "Mapa" and not st.session_state.modo_lectu
                     fechas_actividad.extend(df_maq_ov['fecha_medicion'].dropna().tolist())
                     # Para el estatus de cumplimiento, nos quedamos con la última medición válida
                     df_maq_ov = df_maq_ov.sort_values('fecha_medicion', ascending=False).drop_duplicates(subset=['id_maquinaria'], keep='first')
-                    
+
+                pasa_t = 0
+                falla_t = 0
+                
                 # B. Tierras
+                # 1. Cálculo de Tierras Auxiliares
                 resp_tierras_ov = supabase.table("tierras_auxiliares").select("id_punto, estatus, fecha_medicion").execute()
                 df_tierras_ov = pd.DataFrame(resp_tierras_ov.data)
+                
                 if not df_tierras_ov.empty:
                     fechas_actividad.extend(df_tierras_ov['fecha_medicion'].dropna().tolist())
                     df_tierras_ov = df_tierras_ov.sort_values('fecha_medicion', ascending=False).drop_duplicates(subset=['id_punto'])
+                    p_t, f_t, _ = contar_estatus(df_tierras_ov, 'estatus', 'PASA', 'FALLA')
+                    pasa_t += p_t
+                    falla_t += f_t
+        
+                # 2. Cálculo de Monitores Continuos (Directo desde el Inventario)
+                resp_monitores = supabase.table("inventario_esd").select("id_producto, estatus_verificacion, fecha_ultima_verif").eq("categoria", "Monitor Continuo").execute()
+                df_monitores = pd.DataFrame(resp_monitores.data)
+                
+                if not df_monitores.empty:
+                    fechas_actividad.extend(df_monitores['fecha_ultima_verif'].dropna().tolist())
+                    # Nos aseguramos de contar solo la última medición por monitor
+                    df_monitores = df_monitores.sort_values('fecha_ultima_verif', ascending=False).drop_duplicates(subset=['id_producto'])
+                    # Usamos estatus_verificacion que es el nombre de la columna en inventario_esd
+                    p_m, f_m, _ = contar_estatus(df_monitores, 'estatus_verificacion', 'PASA', 'FALLA')
+                    pasa_t += p_m
+                    falla_t += f_m
 
                 # C. Event Meter
                 resp_em_ov = supabase.table("event_meter").select("id_operacion, estatus_verificacion, fecha").execute()
