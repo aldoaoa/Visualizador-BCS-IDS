@@ -3524,9 +3524,9 @@ elif st.session_state.vista_actual == "Walking Test" and not st.session_state.mo
                         st.rerun()
                     except Exception as e:
                         st.error(f"Fallo de comunicación con Supabase: {e}")
-                # AHORA ESTÁ DENTRO DEL FORMULARIO Y SE ELIMINÓ EL WARNING USANDO width="stretch"
-                submit_reporte = st.form_submit_button("Generar Reporte Consolidado en PDF/HTML", width="stretch")
-                
+                    # AHORA ESTÁ DENTRO DEL FORMULARIO Y SE ELIMINÓ EL WARNING USANDO width="stretch"
+                    submit_reporte = st.form_submit_button("Generar Reporte Consolidado en PDF/HTML", width="stretch")
+                    
                 if submit_reporte:
                     # 1. Extraer el año (AA) desde la fecha de la prueba
                     try:
