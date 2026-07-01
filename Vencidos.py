@@ -5214,7 +5214,7 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
             # =====================================================================
         # NUEVA HERRAMIENTA: GENERADOR ALEATORIO DE CHECADORES (MENSUAL)
         # =====================================================================
-        with st.expander("🎲 Generador de Validaciones de Checadores", expanded=False):
+        with st.expander("🎲 Validacion de datos", expanded=False):
             st.markdown("#### 🛂 Simulación de Historial Mensual")
             st.info(r"Genera registros automáticos (Ene-Jun 2026) asegurando una validación por mes con valores de resistencia en el rango $2.46 \times 10^6 \pm 1 \times 10^6 \Omega$.")
             
