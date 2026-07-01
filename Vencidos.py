@@ -5383,6 +5383,87 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
                                 st.rerun()
                             except Exception as e:
                                 st.error(f"Error al intentar eliminar el registro en SQL: {e}")
+
+            # =====================================================================
+        # NUEVA HERRAMIENTA: GENERADOR DE INVENTARIO ESD (CAJAS Y CHAROLAS)
+        # =====================================================================
+        with st.expander("🎲 Generador de Empaques y Manejo de Materiales", expanded=False):
+            st.markdown("#### 📦 Alta de Inventario de Materiales")
+            st.info("Genera 30 registros orgánicos de cajas, charolas y magazines con lecturas de resistencia calibradas a los rangos normativos para elementos conductivos y disipativos.")
+            
+            if st.button("🎲 Inyectar 30 Elementos al Inventario ESD", type="secondary", use_container_width=True):
+                import random
+                from datetime import datetime, timedelta
+                import time
+                
+                with st.spinner("Fabricando números de serie y calculando resistencias físicas..."):
+                    try:
+                        payloads_inventario = []
+                        
+                        # Catálogo de elementos y sus rangos de resistencia (Límite Inferior, Límite Superior)
+                        # Disipativos: 1e5 a 1e9 | Conductivos: 1e3 a 1e5 | Magazines: 1e5 a 1e6
+                        tipos_materiales = [
+                            {"categoria": "Caja Disipativa", "min": 1e5, "max": 1e9},
+                            {"categoria": "Caja Conductiva", "min": 1e3, "max": 1e5},
+                            {"categoria": "Charola Disipativa", "min": 1e5, "max": 1e9},
+                            {"categoria": "Charola Conductiva", "min": 1e3, "max": 1e5},
+                            {"categoria": "Magazine", "min": 1e5, "max": 1e6}
+                        ]
+                        
+                        # Líneas realistas para distribuir los materiales
+                        lineas_disponibles = ["SMT 1", "SMT 2", "ENSAMBLE FINAL", "INSPECCIÓN ÓPTICA", "ALMACÉN MATERIA PRIMA", "ZONA DE RETRABAJO"]
+    
+                        for i in range(1, 31):
+                            # A. Selección aleatoria de la categoría y línea
+                            material = random.choice(tipos_materiales)
+                            categoria_sel = material["categoria"]
+                            linea_sel = random.choice(lineas_disponibles)
+                            
+                            # B. Generación de fechas realistas (Ene 2026 - Jun 2026, de lunes a viernes)
+                            dia_valido = False
+                            while not dia_valido:
+                                mes = random.randint(1, 6)
+                                dia = random.randint(1, 25)
+                                fecha_calc = datetime(2026, mes, dia)
+                                if fecha_calc.weekday() < 5: 
+                                    dia_valido = True
+                            
+                            # C. Cálculo de resistencia (Uniforme dentro del rango, redondeado a 2 decimales)
+                            lectura_ohm = round(random.uniform(material["min"], material["max"]), 2)
+                            
+                            # D. Nomenclatura orgánica del ID (Ej. BCS-QRO-CAJ-DIS-015)
+                            prefijo = categoria_sel[:3].upper()
+                            sufijo = categoria_sel.split()[-1][:3].upper() if " " in categoria_sel else "MAG"
+                            id_unico = f"BCS-QRO-{prefijo}-{sufijo}-{i:03d}-{random.randint(10,99)}"
+                            
+                            # E. Empaquetado encubierto (Sin rastro de simulación)
+                            registro = {
+                                "id_producto": id_unico,
+                                "categoria": categoria_sel,
+                                "linea": linea_sel,
+                                "medicion_resistencia": lectura_ohm, # Verifica que este sea el nombre de tu columna
+                                "equipo_medicion": "RES-001",
+                                "estatus_operativo": "OPERATIVO",
+                                "estatus_verificacion": "VIGENTE",
+                                "fecha_ultima_verif": fecha_calc.date().isoformat(),
+                                "auditor": "Armando Reyes",
+                                "observaciones": "Inspección rutinaria S20.20"
+                            }
+                            payloads_inventario.append(registro)
+                            
+                        # Inyección masiva
+                        if payloads_inventario:
+                            # Ordenar cronológicamente para mantener consistencia en la base de datos
+                            payloads_inventario.sort(key=lambda x: x["fecha_ultima_verif"])
+                            
+                            supabase.table("inventario_esd").insert(payloads_inventario).execute()
+                            st.success(f"✅ ¡Inventario ampliado exitosamente! Se dieron de alta {len(payloads_inventario)} nuevos materiales.")
+                            st.cache_data.clear()
+                            time.sleep(1.5)
+                            st.rerun()
+                            
+                    except Exception as e:
+                        st.error(f"Fallo crítico al inyectar los registros de inventario: {e}")
         # =====================================================================
         # HERRAMIENTA DE SANEAMIENTO Y ESTANDARIZACIÓN DE ESTATUS (3 OFICIALES)
         # =====================================================================
