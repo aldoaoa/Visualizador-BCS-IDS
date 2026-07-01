@@ -5269,7 +5269,7 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
                                 # C. Empaquetado del registro con las columnas exactas de la DB
                                 registro_checador = {
                                     "id_checador": checador,
-                                    "megohmetro_utilizado": "BCS-QRO-MEG-PATRON", # Equipo de calibración ficticio/fijo
+                                    "megohmetro_utilizado": "BCS-QRO-LAB-RES002", # Equipo de calibración ficticio/fijo
                                     "fecha_verificacion": fecha_calc.date().isoformat(),
                                     "frecuencia": "Mensual",
                                     "ref_izq": ref_izq,
@@ -5280,7 +5280,7 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
                                     "desviacion_der": desv_der,
                                     "estatus": "PASA",
                                     "auditor": "Armando Reyes",
-                                    "observaciones": "Simulación aleatoria S20.20 - Mensual"
+                                    "observaciones": "Mensual"
                                 }
                                 payloads_checadores.append(registro_checador)
                                 
