@@ -8334,7 +8334,7 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
                 else:
                     st.success("🎉 Óptimo: Todo el personal activo cuenta con entrenamiento vigente.")
 
-                st.markdown("##### 🔴 Notas Críticas Activas (≤ 70%)")
+                st.markdown("##### 🔴 Notas Críticas Activas (≤ 80%)")
                 if not df_bajos.empty:
                     # Usamos la fecha oficial unificada para mostrarla en la tabla
                     df_bajos_show = df_bajos[['num_empleado', 'nombre', 'nota_real_base_10', 'fecha_entrenamiento_oficial']].copy()
