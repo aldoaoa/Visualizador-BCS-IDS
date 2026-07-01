@@ -8317,7 +8317,7 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
             c_kpi1.metric("🚨 Sin Vigencia / Vencidos", len(df_sin_vigencia), delta="Acción Requerida", delta_color="inverse" if len(df_sin_vigencia) > 0 else "normal")
             c_kpi2.metric("📌 Vencen este Mes", len(df_vencen_mes), delta=f"Límite: {ultimo_dia_mes.strftime('%d-%b')}")
             c_kpi3.metric("📅 Proyección 365", len(df_vencen_anio), delta="Próximos 12 Meses", delta_color="off")
-            c_kpi4.metric("⚠️ Notas ≤ 70%", len(df_bajos), delta="Requieren Capacitación", delta_color="inverse" if len(df_bajos) > 0 else "normal")
+            c_kpi4.metric("⚠️ Notas ≤ 80%", len(df_bajos), delta="Requieren Capacitación", delta_color="inverse" if len(df_bajos) > 0 else "normal")
 
             st.divider()
 
