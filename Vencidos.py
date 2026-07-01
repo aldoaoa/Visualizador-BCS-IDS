@@ -5210,6 +5210,80 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
                                 
                     except Exception as e:
                         st.error(f"Fallo crítico al poblar el entorno de simulación: {e}")
+
+            # =====================================================================
+        # NUEVA HERRAMIENTA: GENERADOR ALEATORIO DE CHECADORES (MENSUAL)
+        # =====================================================================
+        with st.expander("🎲 Generador de Validaciones de Checadores", expanded=False):
+            st.markdown("#### 🛂 Simulación de Historial Mensual")
+            st.info(r"Genera registros automáticos (Ene-Jun 2026) asegurando una validación por mes con valores de resistencia en el rango $2.46 \times 10^6 \pm 1 \times 10^6 \Omega$.")
+            
+            if st.button("🎲 Inyectar Muestras Mensuales (Checadores)", type="secondary", use_container_width=True):
+                import random
+                from datetime import datetime, timedelta
+                import time
+                
+                with st.spinner("Calculando desviaciones de resistencia y asignando fechas..."):
+                    try:
+                        # 1. Obtener la lista de checadores existentes para no inventar IDs fantasmas
+                        resp_chec = supabase.table("verificacion_checadores").select("id_checador").execute()
+                        df_c = pd.DataFrame(resp_chec.data)
+                        
+                        if not df_c.empty:
+                            lista_checadores = df_c['id_checador'].dropna().unique().tolist()
+                        else:
+                            # Respaldo en caso de que la tabla esté completamente vacía
+                            lista_checadores = ["CHECADOR-ENTRADA-01", "CHECADOR-PRODUCCION-02"]
+    
+                        payloads_checadores = []
+                        meses_auditoria = [1, 2, 3, 4, 5, 6] # Enero a Junio 2026
+    
+                        for checador in lista_checadores:
+                            for mes in meses_auditoria:
+                                # A. Selección de un día hábil aleatorio dentro del mes
+                                dia_valido = False
+                                while not dia_valido:
+                                    # Tomamos del día 1 al 25 para evitar problemas con meses cortos
+                                    dia_aleatorio = random.randint(1, 25) 
+                                    fecha_calc = datetime(2026, mes, dia_aleatorio)
+                                    if fecha_calc.weekday() < 5:  # Lunes (0) a Viernes (4)
+                                        dia_valido = True
+                                
+                                # B. Simulación matemática de resistencias (2,460,000.0 +/- 1,000,000.0)
+                                # Límite Inferior: 1,460,000.0 | Límite Superior: 3,460,000.0
+                                val_checador = round(random.uniform(1460000.0, 3460000.0), 1)
+                                
+                                # Simulamos una ligera desviación en el megóhmetro patrón respecto al checador (+/- 50,000)
+                                # manteniéndolo dentro del límite normativo.
+                                desviacion_patron = random.uniform(-50000.0, 50000.0)
+                                val_megohmetro = round(val_checador + desviacion_patron, 1)
+                                
+                                # C. Empaquetado del registro
+                                registro_checador = {
+                                    "id_checador": checador,
+                                    "fecha_verificacion": fecha_calc.date().isoformat(),
+                                    "medicion_checador": val_checador,
+                                    "medicion_megohmetro": val_megohmetro,
+                                    "frecuencia": "Mensual",
+                                    "estatus": "PASA",
+                                    "auditor": "Armando Reyes"
+                                }
+                                payloads_checadores.append(registro_checador)
+                                
+                        # 2. Inyección masiva
+                        if payloads_checadores:
+                            # Ordenamos cronológicamente antes de subir para mantener la bitácora limpia
+                            payloads_checadores.sort(key=lambda x: x["fecha_verificacion"])
+                            
+                            supabase.table("verificacion_checadores").insert(payloads_checadores).execute()
+                            st.success(f"✅ ¡Historial poblado! Se inyectaron {len(payloads_checadores)} registros mensuales.")
+                            st.cache_data.clear()
+                            time.sleep(1.5)
+                            st.rerun()
+                            
+                    except Exception as e:
+                        st.error(f"Fallo crítico al inyectar los registros de checadores: {e}")
+        
         # =====================================================================
         # NUEVA HERRAMIENTA: DETECCIÓN Y RESOLUCIÓN DE DUPLICADOS CROSS-MÓDULO
         # =====================================================================
