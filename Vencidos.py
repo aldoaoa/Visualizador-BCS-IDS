@@ -5214,7 +5214,7 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
             # =====================================================================
         # NUEVA HERRAMIENTA: GENERADOR ALEATORIO DE CHECADORES (MENSUAL)
         # =====================================================================
-        with st.expander("🎲 Validacion de datos", expanded=False):
+        with st.expander("🎲 Generador de Validaciones de Checadores", expanded=False):
             st.markdown("#### 🛂 Simulación de Historial Mensual")
             st.info(r"Genera registros automáticos (Ene-Jun 2026) asegurando una validación por mes con valores de resistencia en el rango $2.46 \times 10^6 \pm 1 \times 10^6 \Omega$.")
             
@@ -5223,7 +5223,7 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
                 from datetime import datetime, timedelta
                 import time
                 
-                with st.spinner("Calculando desviaciones de resistencia y asignando fechas..."):
+                with st.spinner("Calculando desviaciones de resistencia (Izq/Der) y asignando fechas..."):
                     try:
                         # 1. Obtener la lista de checadores existentes para no inventar IDs fantasmas
                         resp_chec = supabase.table("verificacion_checadores").select("id_checador").execute()
@@ -5232,7 +5232,6 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
                         if not df_c.empty:
                             lista_checadores = df_c['id_checador'].dropna().unique().tolist()
                         else:
-                            # Respaldo en caso de que la tabla esté completamente vacía
                             lista_checadores = ["CHECADOR-ENTRADA-01", "CHECADOR-PRODUCCION-02"]
     
                         payloads_checadores = []
@@ -5243,40 +5242,55 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
                                 # A. Selección de un día hábil aleatorio dentro del mes
                                 dia_valido = False
                                 while not dia_valido:
-                                    # Tomamos del día 1 al 25 para evitar problemas con meses cortos
                                     dia_aleatorio = random.randint(1, 25) 
                                     fecha_calc = datetime(2026, mes, dia_aleatorio)
-                                    if fecha_calc.weekday() < 5:  # Lunes (0) a Viernes (4)
+                                    if fecha_calc.weekday() < 5:  # Lunes a Viernes
                                         dia_valido = True
                                 
-                                # B. Simulación matemática de resistencias (2,460,000.0 +/- 1,000,000.0)
-                                # Límite Inferior: 1,460,000.0 | Límite Superior: 3,460,000.0
-                                val_checador = round(random.uniform(1460000.0, 3460000.0), 1)
+                                # B. Simulación matemática de resistencias (Límites: 1.46e6 a 3.46e6)
+                                # Generamos la referencia base inyectada por el Megóhmetro patrón
+                                ref_base = round(random.uniform(1460000.0, 3460000.0), 1)
                                 
-                                # Simulamos una ligera desviación en el megóhmetro patrón respecto al checador (+/- 50,000)
-                                # manteniéndolo dentro del límite normativo.
-                                desviacion_patron = random.uniform(-50000.0, 50000.0)
-                                val_megohmetro = round(val_checador + desviacion_patron, 1)
+                                ref_izq = ref_base
+                                ref_der = ref_base
                                 
-                                # C. Empaquetado del registro
+                                # Simulamos la lectura del checador con una variación aleatoria controlada 
+                                # (entre -3% y +3% de desviación para no superar el límite de falla del 5%)
+                                var_izq = ref_izq * random.uniform(-0.03, 0.03)
+                                var_der = ref_der * random.uniform(-0.03, 0.03)
+                                
+                                lec_izq = round(ref_izq + var_izq, 1)
+                                lec_der = round(ref_der + var_der, 1)
+                                
+                                # Calculamos el % de desviación exacto
+                                desv_izq = round(abs(ref_izq - lec_izq) / ref_izq * 100, 2)
+                                desv_der = round(abs(ref_der - lec_der) / ref_der * 100, 2)
+                                
+                                # C. Empaquetado del registro con las columnas exactas de la DB
                                 registro_checador = {
                                     "id_checador": checador,
+                                    "megohmetro_utilizado": "BCS-QRO-MEG-PATRON", # Equipo de calibración ficticio/fijo
                                     "fecha_verificacion": fecha_calc.date().isoformat(),
-                                    "medicion_checador": val_checador,
-                                    "medicion_megohmetro": val_megohmetro,
                                     "frecuencia": "Mensual",
+                                    "ref_izq": ref_izq,
+                                    "lec_izq": lec_izq,
+                                    "desviacion_izq": desv_izq,
+                                    "ref_der": ref_der,
+                                    "lec_der": lec_der,
+                                    "desviacion_der": desv_der,
                                     "estatus": "PASA",
-                                    "auditor": "Armando Reyes"
+                                    "auditor": "Armando Reyes",
+                                    "observaciones": "Simulación aleatoria S20.20 - Mensual"
                                 }
                                 payloads_checadores.append(registro_checador)
                                 
                         # 2. Inyección masiva
                         if payloads_checadores:
-                            # Ordenamos cronológicamente antes de subir para mantener la bitácora limpia
+                            # Ordenamos cronológicamente antes de subir
                             payloads_checadores.sort(key=lambda x: x["fecha_verificacion"])
                             
                             supabase.table("verificacion_checadores").insert(payloads_checadores).execute()
-                            st.success(f"✅ ¡Historial poblado! Se inyectaron {len(payloads_checadores)} registros mensuales.")
+                            st.success(f"✅ ¡Historial poblado! Se inyectaron {len(payloads_checadores)} registros mensuales evaluando ambos pies.")
                             st.cache_data.clear()
                             time.sleep(1.5)
                             st.rerun()
