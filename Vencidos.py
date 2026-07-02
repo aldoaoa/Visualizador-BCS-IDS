@@ -2864,10 +2864,11 @@ elif st.session_state.vista_actual == "Escáner":
                                 status_maq = c_amb3.selectbox("Estatus Operativo", ["OPERATIVO", "NO OPERATIVO", "MANTENIMIENTO"])
                                 
                                 st.markdown("##### ⚡ 1. Resistencia a Tierra")
-                                col_r1, col_r2 = st.columns(2)
-                                resistencia = col_r1.number_input("Valor (Ohms)", min_value=0.0, step=0.01, format="%.2f", value=None, placeholder="0.0")
+                                col_r1, col_r2, col_r3 = st.columns([1.5, 1, 2])
+                                resistencia = col_r1.number_input("Valor (Ohms)*", min_value=0.0, step=0.01, format="%.2f", value=None, placeholder="0.0")
                                 limite_str = f"{limite_fijo:.2e} Ω" if limite_fijo > 10 else f"{limite_fijo:.2f} Ω"
                                 col_r2.text_input("Límite Máximo", value=limite_str, disabled=True)
+                                comentario_res = col_r3.text_input("Nota / Ubicación (Obligatorio)*", placeholder="Ej. Chasis principal")
                                 
                                 st.markdown("##### 🔌 2. Tomacorriente")
                                 col_t1, col_t2 = st.columns(2)
@@ -2880,19 +2881,31 @@ elif st.session_state.vista_actual == "Escáner":
                                         comentario_toma = col_t2.text_input("Comentario Falla (Requerido)")
                                         
                                 st.markdown("##### 🧲 3. Campo Estático")
-                                c_campo1, c_campo2 = st.columns(2)
-                                voltaje_campo = c_campo1.number_input("Voltaje (V)", min_value=0.0, format="%.2f", step=1.0, value=None, placeholder="0")
-                                comentario_campo = ""
-                                if voltaje_campo is not None and voltaje_campo > 0:
-                                    comentario_campo = c_campo2.text_input("Ubicación carga (Requerido)")
+                                c_campo1, c_campo2, c_campo3 = st.columns([1.5, 1, 2])
+                                voltaje_campo = c_campo1.number_input("Voltaje (V)*", min_value=0.0, format="%.2f", step=1.0, value=None, placeholder="0")
+                                c_campo2.text_input("Límite Max.", value="< 100 V", disabled=True)
+                                comentario_campo = c_campo3.text_input("Nota / Ubicación (Obligatorio)*", placeholder="Ej. Pantalla touch")
+                                
+                                # --- INYECCIÓN: MEDICIONES OPCIONALES ---
+                                with st.expander("➕ Añadir Mediciones Adicionales (Opcional)", expanded=False):
+                                    st.info("Utiliza estos campos si el protocolo requiere muestreo múltiple en esta máquina.")
+                                    col_opt1, col_opt2 = st.columns(2)
+                                    res_opt = col_opt1.number_input("Resistencia Adicional (Ω)", value=None, step=0.01, format="%.2f")
+                                    com_res_opt = col_opt1.text_input("Nota (Resistencia Adicional)")
                                     
+                                    volt_opt = col_opt2.number_input("Voltaje Adicional (V)", value=None, step=1.0)
+                                    com_volt_opt = col_opt2.text_input("Nota (Voltaje Adicional)")
+
                                 obs_maq = st.text_area("Notas / Observaciones Generales")
                                 
                                 if st.form_submit_button("💾 Guardar Validación Directa", use_container_width=True, type="primary"):
-                                    if aplica_toma and estado_toma == "FALLA" and not comentario_toma.strip():
+                                    # Validaciones estrictas
+                                    if resistencia is None or not comentario_res.strip():
+                                        st.error("⚠️ El valor y comentario de la Resistencia a Tierra son obligatorios.")
+                                    elif voltaje_campo is None or not comentario_campo.strip():
+                                        st.error("⚠️ El valor y comentario del Campo Estático son obligatorios.")
+                                    elif aplica_toma and estado_toma == "FALLA" and not comentario_toma.strip():
                                         st.error("⚠️ Debes escribir un comentario justificando la falla del tomacorriente.")
-                                    elif voltaje_campo is not None and voltaje_campo > 0 and not comentario_campo.strip():
-                                        st.error("⚠️ Como detectaste voltaje, debes indicar dónde se encontró la carga electrostática.")
                                     else:
                                         with st.spinner("Guardando registro en SQL..."):
                                             try:
@@ -2900,11 +2913,18 @@ elif st.session_state.vista_actual == "Escáner":
                                                 from dateutil.relativedelta import relativedelta
                                                 proxima_fecha = fecha_hoy + relativedelta(years=1)
                                                 
+                                                # Empaquetado de JSON para opcionales
+                                                extra_data = {}
+                                                if res_opt is not None:
+                                                    extra_data["resistencia_2"] = {"valor": res_opt, "comentario": com_res_opt}
+                                                if volt_opt is not None:
+                                                    extra_data["voltaje_2"] = {"valor": volt_opt, "comentario": com_volt_opt}
+
                                                 # Lógica de estatus oficial
-                                                if resistencia is None or resistencia == 0.0:
-                                                    estatus_calculado = "PENDIENTE"
-                                                elif proxima_fecha < fecha_hoy:
+                                                if proxima_fecha < fecha_hoy:
                                                     estatus_calculado = "VENCIDO"
+                                                elif resistencia > limite_fijo or voltaje_campo >= 100 or (aplica_toma and estado_toma == "FALLA"):
+                                                    estatus_calculado = "FALLA"
                                                 else:
                                                     estatus_calculado = "VIGENTE"
                                                     
@@ -2918,13 +2938,15 @@ elif st.session_state.vista_actual == "Escáner":
                                                     "humedad": humedad_maq,
                                                     "frecuencia_verificacion": "Anual",
                                                     "fecha_proxima": proxima_fecha.isoformat(),
-                                                    "resistencia_tierra": float(resistencia) if resistencia is not None and resistencia > 0 else None,
+                                                    "resistencia_tierra": float(resistencia),
                                                     "resistencia_max": limite_fijo,
+                                                    "comentario_resistencia": comentario_res, # Nueva DB column
                                                     "tomacorriente_aplica": aplica_toma,
                                                     "tomacorriente_estatus": estado_toma,
                                                     "tomacorriente_comentario": comentario_toma,
-                                                    "campo_estatico_voltaje": float(voltaje_campo) if voltaje_campo is not None else 0.0,
-                                                    "campo_estatico_comentario": comentario_campo,
+                                                    "campo_estatico_voltaje": float(voltaje_campo),
+                                                    "campo_estatico_comentario": comentario_campo, # Nueva DB column
+                                                    "mediciones_extra": extra_data, # JSONB DB column
                                                     "observaciones": obs_maq,
                                                     "fecha_medicion": datetime.now().isoformat(),
                                                     "auditor": st.session_state.usuario_nombre,
