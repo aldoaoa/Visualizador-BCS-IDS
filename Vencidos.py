@@ -5415,7 +5415,8 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
             
             if st.button("🎲 Inyectar 30 Elementos al Inventario ESD", type="secondary", use_container_width=True):
                 import random
-                from datetime import datetime, timedelta
+                from datetime import datetime
+                from dateutil.relativedelta import relativedelta
                 import time
                 
                 with st.spinner("Fabricando números de serie y calculando resistencias físicas..."):
@@ -5458,17 +5459,22 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
                             sufijo = categoria_sel.split()[-1][:3].upper() if " " in categoria_sel else "MAG"
                             id_unico = f"BCS-QRO-{prefijo}-{sufijo}-{i:03d}-{random.randint(10,99)}"
                             
-                            # E. Empaquetado encubierto (Sin rastro de simulación)
+                            # E. Cálculo de la próxima fecha de verificación (+ 1 año exacto)
+                            fecha_prox = fecha_calc + relativedelta(years=1)
+                            
+                            # F. Empaquetado encubierto usando solo las columnas oficiales de la DB
                             registro = {
                                 "id_producto": id_unico,
                                 "categoria": categoria_sel,
-                                "linea": linea_sel,
-                                "medicion_resistencia": lectura_ohm, # OJO: Si te da el mismo error con esta, cambiala por el nombre real de tu columna
-                                "equipo_medicion": "RES-001",
+                                "clasificacion": "Empaque y Manejo",
+                                "linea_ubicacion": linea_sel,
+                                "valor_actual": lectura_ohm, # Usamos la columna nativa
+                                "frecuencia": "Anual",
                                 "estatus_operativo": "OPERATIVO",
                                 "estatus_verificacion": "VIGENTE",
                                 "fecha_ultima_verif": fecha_calc.date().isoformat(),
-                                "observaciones": "Inspección rutinaria S20.20"
+                                "fecha_proxima_verif": fecha_prox.date().isoformat(),
+                                "auditor_responsable": "Armando Reyes"
                             }
                             payloads_inventario.append(registro)
                             
