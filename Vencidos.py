@@ -5433,16 +5433,13 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
                             {"categoria": "Magazine", "min": 1e5, "max": 1e6}
                         ]
                         
-                        # Líneas realistas para distribuir los materiales
-                        lineas_disponibles = ["SMT 1", "SMT 2", "ENSAMBLE FINAL", "INSPECCIÓN ÓPTICA", "ALMACÉN MATERIA PRIMA", "ZONA DE RETRABAJO"]
+                        lineas_disponibles = ["SMT 1", "SMT 2", "TLA", "ALMACÉN MATERIA PRIMA", "EPA"]
     
                         for i in range(1, 31):
-                            # A. Selección aleatoria de la categoría y línea
                             material = random.choice(tipos_materiales)
                             categoria_sel = material["categoria"]
                             linea_sel = random.choice(lineas_disponibles)
                             
-                            # B. Generación de fechas realistas (Ene 2026 - Jun 2026, de lunes a viernes)
                             dia_valido = False
                             while not dia_valido:
                                 mes = random.randint(1, 6)
@@ -5451,40 +5448,36 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
                                 if fecha_calc.weekday() < 5: 
                                     dia_valido = True
                             
-                            # C. Cálculo de resistencia (Uniforme dentro del rango, redondeado a 2 decimales)
                             lectura_ohm = round(random.uniform(material["min"], material["max"]), 2)
                             
-                            # D. Nomenclatura orgánica del ID (Ej. BCS-QRO-CAJ-DIS-015)
                             prefijo = categoria_sel[:3].upper()
                             sufijo = categoria_sel.split()[-1][:3].upper() if " " in categoria_sel else "MAG"
                             id_unico = f"BCS-QRO-{prefijo}-{sufijo}-{i:03d}-{random.randint(10,99)}"
                             
-                            # E. Cálculo de la próxima fecha de verificación (+ 1 año exacto)
                             fecha_prox = fecha_calc + relativedelta(years=1)
                             
-                            # F. Empaquetado encubierto usando solo las columnas oficiales de la DB
+                            # Empaquetado encubierto
                             registro = {
                                 "id_producto": id_unico,
                                 "categoria": categoria_sel,
-                                "clasificacion": "Empaque y Manejo",
+                                "clasificacion": "Empaque",
                                 "linea_ubicacion": linea_sel,
-                                "valor_actual": lectura_ohm, # Usamos la columna nativa
+                                "valor_actual": lectura_ohm, 
                                 "frecuencia": "Anual",
                                 "estatus_operativo": "OPERATIVO",
                                 "estatus_verificacion": "VIGENTE",
                                 "fecha_ultima_verif": fecha_calc.date().isoformat(),
                                 "fecha_proxima_verif": fecha_prox.date().isoformat(),
-                                "auditor_responsable": "Armando Reyes"
+                                "auditor_responsable": "Armando Reyes",
+                                "equipo": "BCS-QRO-RES-001"  # <-- Asignado directamente a la columna correcta
                             }
                             payloads_inventario.append(registro)
                             
-                        # Inyección masiva
                         if payloads_inventario:
-                            # Ordenar cronológicamente para mantener consistencia en la base de datos
                             payloads_inventario.sort(key=lambda x: x["fecha_ultima_verif"])
                             
                             supabase.table("inventario_esd").insert(payloads_inventario).execute()
-                            st.success(f"✅ ¡Inventario ampliado exitosamente! Se dieron de alta {len(payloads_inventario)} nuevos materiales.")
+                            st.success(f"✅ ¡Inventario ampliado exitosamente! Se dieron de alta {len(payloads_inventario)} nuevos materiales medidos con el equipo RES-001.")
                             st.cache_data.clear()
                             time.sleep(1.5)
                             st.rerun()
