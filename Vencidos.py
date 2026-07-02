@@ -5441,12 +5441,11 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
                                 "id_producto": id_unico,
                                 "categoria": categoria_sel,
                                 "linea": linea_sel,
-                                "medicion_resistencia": lectura_ohm, # Verifica que este sea el nombre de tu columna
+                                "medicion_resistencia": lectura_ohm, # OJO: Si te da el mismo error con esta, cambiala por el nombre real de tu columna
                                 "equipo_medicion": "RES-001",
                                 "estatus_operativo": "OPERATIVO",
                                 "estatus_verificacion": "VIGENTE",
                                 "fecha_ultima_verif": fecha_calc.date().isoformat(),
-                                "auditor": "Armando Reyes",
                                 "observaciones": "Inspección rutinaria S20.20"
                             }
                             payloads_inventario.append(registro)
