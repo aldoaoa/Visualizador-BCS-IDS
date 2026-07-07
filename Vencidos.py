@@ -962,16 +962,78 @@ else:
 RUTA_MAPA = "mapa.jpg" 
 RUTA_COORDENADAS = "coordenadas.csv"
 
+# --- EVALUACIÓN DE ROLES (Asegúrate de tener esto antes del sidebar) ---
+rol = st.session_state.get("rol_usuario", "Consulta")
+es_admin = rol in ["Admin", "Auditor"]
+es_rh = rol == "RH_Training"
+
 with st.sidebar:
-    st.image("https://raw.githubusercontent.com/aldoaoa/Visualizador-BCS-IDS/refs/heads/main/Logo_BCS_transparent%20(1).png", use_container_width=True)
+    # 1. LOGOTIPO (Siempre arriba)
+    st.image(
+        "https://raw.githubusercontent.com/aldoaoa/Visualizador-BCS-IDS/refs/heads/main/Logo_BCS_transparent%20(1).png", 
+        use_container_width=True
+    )
     st.divider()
 
-    ################# Sacamos del sidebar training y lo agregamos a los botones de navegación.##############################
-    #if st.button("🎓 Entrenamiento ESD", use_container_width=True, type="primary" if st.session_state.vista_actual == "Entrenamiento" else "secondary"):
-    #   st.session_state.vista_actual = "Entrenamiento"
-    #   limpiar_url_escaneo()
-    #   st.rerun()
+    # 2. MENÚ PRINCIPAL (Solo visible si el usuario ya inició sesión)
+    if not st.session_state.modo_lectura:
+        st.markdown("### 🧭 MENÚ PRINCIPAL")
         
+        # Modo Recursos Humanos
+        if es_rh:
+            st.info("👤 Modo RH: Acceso a Entrenamiento.")
+            if st.session_state.vista_actual != "Entrenamiento":
+                st.session_state.vista_actual = "Entrenamiento"
+                st.rerun()
+                
+        # Modo Administradores / Auditores
+        elif es_admin:
+            secciones_esd = {
+                "📊 Cumplimiento": [
+                    ("🗺️ Mapa y Reportes", "Mapa"),
+                    ("📅 Programación", "Schedule")
+                ],
+                "🏭 Auditorías": [
+                    ("📱 Escáner QR", "Escáner"),
+                    ("✅ Validación Integral", "Validación"),
+                    ("🆕 Alta/Baja de Equipos", "Alta"),
+                    ("🏭 Maquinaria", "Maquinaria")
+                ],
+                "🧪 Pruebas y análisis": [
+                    ("⚡ Event Meter", "Event Meter"),
+                    ("🚶‍♂️ Walking Test", "Walking Test"),
+                    ("🔌 Sensibilidad", "Sensibilidad")
+                ],
+                "🌍 Infraestructura": [
+                    ("🌍 Tierras y Piso", "Tierras")
+                ], 
+                "🎓 Soporte y Catálogos": [
+                    ("🎓 Entrenamiento", "Entrenamiento"),
+                ]
+            }
+
+            categoria_seleccionada = st.selectbox("Categoría:", list(secciones_esd.keys()))
+            
+            vistas_categoria = secciones_esd[categoria_seleccionada]
+            nombres_vistas = [v[0] for v in vistas_categoria]
+            valores_vistas = [v[1] for v in vistas_categoria]
+            
+            try:
+                index_actual = valores_vistas.index(st.session_state.vista_actual)
+            except ValueError:
+                index_actual = 0
+                
+            vista_elegida = st.radio("Módulo:", nombres_vistas, index=index_actual)
+            valor_real_vista = valores_vistas[nombres_vistas.index(vista_elegida)]
+            
+            if valor_real_vista != st.session_state.vista_actual:
+                st.session_state.vista_actual = valor_real_vista
+                limpiar_url_escaneo()
+                st.rerun()
+                
+        st.divider()
+
+    # 3. ZONA DE AUTENTICACIÓN / PERFIL DE USUARIO (Al fondo)
     if st.session_state.modo_lectura:
         st.warning("👁️ Modo Consulta Activo")
         st.markdown("---")
@@ -982,19 +1044,18 @@ with st.sidebar:
             if st.form_submit_button("Ingresar", use_container_width=True):
                 with st.spinner("Autenticando..."):
                     try:
-                        # Consulta directa a Supabase para validar usuario
                         resp_user = supabase.table("usuarios_app").select("*").eq("usuario", user_input).execute()
-                        
-                        # --- NUEVO: VERIFICACIÓN CON HASH ---
                         if len(resp_user.data) > 0:
                             hash_guardado = resp_user.data[0]["password"]
-                            
-                            # La función check_password_hash hace la magia de comparar el texto con el hash de forma segura
                             if check_password_hash(hash_guardado, pwd_input):
                                 nombre_real = resp_user.data[0]["nombre"]
                                 rol_asignado = resp_user.data[0]["rol"]
                                 
-                                # Guardamos nombre y rol en el token
+                                # Actualizamos el estado de la sesión
+                                st.session_state.usuario_nombre = nombre_real
+                                st.session_state.rol_usuario = rol_asignado
+                                st.session_state.modo_lectura = False
+                                
                                 token_str = f"{nombre_real}||{rol_asignado}"
                                 st.query_params["auth_token"] = codificar_sesion(token_str)
                                 st.rerun()
@@ -1002,13 +1063,13 @@ with st.sidebar:
                                 st.error("❌ Credenciales incorrectas")
                         else:
                             st.error("❌ Credenciales incorrectas")
-                            
                     except Exception as e:
                         st.error(f"⚠️ Error al conectar con la base de usuarios: {e}")
     else:
+        # Opciones de perfil si el usuario ya inició sesión
         st.success(f"👤 Auditor: {st.session_state.usuario_nombre}")
 
-        # --- MENÚ PARA CAMBIAR CONTRASEÑA ---
+        # Menú desplegable para cambiar contraseña
         with st.expander("🔑 Cambiar mi contraseña"):
             with st.form("form_cambiar_pwd"):
                 pwd_actual = st.text_input("Contraseña actual", type="password")
@@ -1023,20 +1084,16 @@ with st.sidebar:
                     else:
                         with st.spinner("Actualizando..."):
                             try:
-                                # 1. Buscamos al usuario en la BD por su nombre de sesión
                                 resp_actual = supabase.table("usuarios_app").select("id, password").eq("nombre", st.session_state.usuario_nombre).execute()
-                                
                                 if len(resp_actual.data) > 0:
                                     hash_guardado = resp_actual.data[0]["password"]
                                     id_user_db = resp_actual.data[0]["id"]
                                     
-                                    # 2. Verificamos que la contraseña actual que ingresó sea correcta
                                     if check_password_hash(hash_guardado, pwd_actual):
-                                        # 3. Generamos el nuevo hash y guardamos
                                         nuevo_hash = generate_password_hash(pwd_nueva)
                                         supabase.table("usuarios_app").update({"password": nuevo_hash}).eq("id", id_user_db).execute()
                                         st.success("✅ ¡Contraseña actualizada!")
-                                        time.sleep(1.5) # <--- PAUSA AGREGADA
+                                        time.sleep(1.5)
                                         st.rerun()
                                     else:
                                         st.error("❌ La contraseña actual es incorrecta.")
@@ -1045,9 +1102,8 @@ with st.sidebar:
                             except Exception as e:
                                 st.error(f"Error de conexión: {e}")
         
-        # --- MENÚ EXCLUSIVO PARA ADMINISTRADORES ---
+        # Botones finales: Ajustes (si es Admin) y Cerrar Sesión
         if st.session_state.rol_usuario == "Admin":
-            st.divider()
             if st.button("⚙️ Ajustes y Usuarios", use_container_width=True, type="primary" if st.session_state.vista_actual == "Ajustes" else "secondary"):
                 st.session_state.vista_actual = "Ajustes"
                 limpiar_url_escaneo()
@@ -1056,6 +1112,7 @@ with st.sidebar:
         if st.button("🚪 Cerrar Sesión", use_container_width=True):
             st.session_state.usuario_nombre = None
             st.session_state.modo_lectura = True
+            st.session_state.rol_usuario = "Consulta" # Refuerzo para limpiar el rol
             st.query_params.clear() 
             st.rerun()
 
@@ -1106,72 +1163,6 @@ es_rh = rol == "RH_Training"
 rol = st.session_state.get("rol_usuario", "Consulta")
 es_admin = rol in ["Admin", "Auditor"]
 es_rh = rol == "RH_Training"
-
-with st.sidebar:
-    st.divider()
-    
-    if not st.session_state.modo_lectura:
-        st.markdown("### MENÚ PRINCIPAL")
-        
-        # Modo Recursos Humanos
-        if es_rh:
-            st.info("👤 Modo RH: Acceso a Entrenamiento.")
-            if st.session_state.vista_actual != "Entrenamiento":
-                st.session_state.vista_actual = "Entrenamiento"
-                st.rerun()
-                
-        # Modo Administradores / Auditores
-        elif es_admin:
-            # Agrupamos las vistas en categorías lógicas usando diccionarios
-            secciones_esd = {
-                "📊 Cumplimiento": [
-                    ("🗺️ Mapa y Reportes", "Mapa"),
-                    ("📅 Programación", "Schedule")
-                ],
-                "🏭 Auditorías": [
-                    ("📱 Escáner QR", "Escáner"),
-                    ("✅ Validación Integral", "Validación"),
-                    ("🆕 Alta/Baja de Equipos", "Alta"),
-                    ("🏭 Maquinaria", "Maquinaria")
-                ],
-                "🧪 Pruebas y análisis": [
-                    ("⚡ Event Meter", "Event Meter"),
-                    ("🚶‍♂️ Walking Test", "Walking Test"),
-                    ("🔌 Sensibilidad", "Sensibilidad")
-                ],
-                "🌍 Infraestructura": [
-                    ("🌍 Tierras y Piso", "Tierras")
-                ], 
-                "🎓 Soporte y Catálogos": [
-                    ("🎓 Entrenamiento", "Entrenamiento"),
-                ]
-            }
-
-            # Renderizamos selectores nativos y limpios
-            categoria_seleccionada = st.selectbox("Categoría:", list(secciones_esd.keys()))
-            
-            # Extraemos los nombres visuales para el Radio Button
-            vistas_categoria = secciones_esd[categoria_seleccionada]
-            nombres_vistas = [v[0] for v in vistas_categoria]
-            valores_vistas = [v[1] for v in vistas_categoria]
-            
-            # Buscamos el índice actual para que no se reinicie visualmente
-            try:
-                index_actual = valores_vistas.index(st.session_state.vista_actual)
-            except ValueError:
-                index_actual = 0
-                
-            vista_elegida = st.radio("Módulo:", nombres_vistas, index=index_actual)
-            
-            # Mapeamos el nombre visual al valor real de tu st.session_state
-            valor_real_vista = valores_vistas[nombres_vistas.index(vista_elegida)]
-            
-            # Si el usuario cambia de vista, actualizamos el estado
-            if valor_real_vista != st.session_state.vista_actual:
-                st.session_state.vista_actual = valor_real_vista
-                # Llamamos tu función para limpiar parámetros de URL (QR)
-                limpiar_url_escaneo()
-                st.rerun()
 
 # ==========================================
 # VISTA: ALTA Y BAJA DE EQUIPOS
