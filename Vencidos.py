@@ -967,15 +967,20 @@ rol = st.session_state.get("rol_usuario", "Consulta")
 es_admin = rol in ["Admin", "Auditor"]
 es_rh = rol == "RH_Training"
 
+# --- EVALUACIÓN DE ROLES (Asegúrate de tener esto antes del sidebar) ---
+rol = st.session_state.get("rol_usuario", "Consulta")
+es_admin = rol in ["Admin", "Auditor"]
+es_rh = rol == "RH_Training"
+
 with st.sidebar:
-    # 1. LOGOTIPO (Siempre arriba)
+    # 1. LOGOTIPO (Siempre en la parte superior)
     st.image(
         "https://raw.githubusercontent.com/aldoaoa/Visualizador-BCS-IDS/refs/heads/main/Logo_BCS_transparent%20(1).png", 
         use_container_width=True
     )
     st.divider()
 
-    # 2. MENÚ PRINCIPAL (Solo visible si el usuario ya inició sesión)
+    # 2. MENÚ PRINCIPAL EN ACORDEONES (Solo si no está en modo lectura)
     if not st.session_state.modo_lectura:
         st.markdown("### 🧭 MENÚ PRINCIPAL")
         
@@ -1012,28 +1017,27 @@ with st.sidebar:
                 ]
             }
 
-            categoria_seleccionada = st.selectbox("Categoría:", list(secciones_esd.keys()))
-            
-            vistas_categoria = secciones_esd[categoria_seleccionada]
-            nombres_vistas = [v[0] for v in vistas_categoria]
-            valores_vistas = [v[1] for v in vistas_categoria]
-            
-            try:
-                index_actual = valores_vistas.index(st.session_state.vista_actual)
-            except ValueError:
-                index_actual = 0
-                
-            vista_elegida = st.radio("Módulo:", nombres_vistas, index=index_actual)
-            valor_real_vista = valores_vistas[nombres_vistas.index(vista_elegida)]
-            
-            if valor_real_vista != st.session_state.vista_actual:
-                st.session_state.vista_actual = valor_real_vista
-                limpiar_url_escaneo()
-                st.rerun()
-                
+            # Renderizado dinámico de categorías mediante acordeones
+            for categoria, vistas in secciones_esd.items():
+                # expanded=True mantiene las cajas desplegadas por defecto para acceso rápido
+                with st.expander(categoria, expanded=True): 
+                    for nombre_vista, valor_real in vistas:
+                        es_activa = (st.session_state.vista_actual == valor_real)
+                        
+                        # El botón de la vista activa se resalta automáticamente en color primario
+                        if st.button(
+                            nombre_vista, 
+                            key=f"nav_{valor_real}", 
+                            use_container_width=True, 
+                            type="primary" if es_activa else "secondary"
+                        ):
+                            st.session_state.vista_actual = valor_real
+                            limpiar_url_escaneo()
+                            st.rerun()
+                            
         st.divider()
 
-    # 3. ZONA DE AUTENTICACIÓN / PERFIL DE USUARIO (Al fondo)
+    # 3. ZONA DE AUTENTICACIÓN / PERFIL DE USUARIO (Al fondo de la barra)
     if st.session_state.modo_lectura:
         st.warning("👁️ Modo Consulta Activo")
         st.markdown("---")
@@ -1051,7 +1055,6 @@ with st.sidebar:
                                 nombre_real = resp_user.data[0]["nombre"]
                                 rol_asignado = resp_user.data[0]["rol"]
                                 
-                                # Actualizamos el estado de la sesión
                                 st.session_state.usuario_nombre = nombre_real
                                 st.session_state.rol_usuario = rol_asignado
                                 st.session_state.modo_lectura = False
@@ -1066,10 +1069,10 @@ with st.sidebar:
                     except Exception as e:
                         st.error(f"⚠️ Error al conectar con la base de usuarios: {e}")
     else:
-        # Opciones de perfil si el usuario ya inició sesión
+        # Perfil del usuario autenticado
         st.success(f"👤 Auditor: {st.session_state.usuario_nombre}")
 
-        # Menú desplegable para cambiar contraseña
+        # Configuración de contraseña segura
         with st.expander("🔑 Cambiar mi contraseña"):
             with st.form("form_cambiar_pwd"):
                 pwd_actual = st.text_input("Contraseña actual", type="password")
@@ -1102,17 +1105,18 @@ with st.sidebar:
                             except Exception as e:
                                 st.error(f"Error de conexión: {e}")
         
-        # Botones finales: Ajustes (si es Admin) y Cerrar Sesión
+        # Botón de Ajustes (Exclusivo administradores) fuera de los acordeones principales
         if st.session_state.rol_usuario == "Admin":
             if st.button("⚙️ Ajustes y Usuarios", use_container_width=True, type="primary" if st.session_state.vista_actual == "Ajustes" else "secondary"):
                 st.session_state.vista_actual = "Ajustes"
                 limpiar_url_escaneo()
                 st.rerun()
 
+        # Botón de salida
         if st.button("🚪 Cerrar Sesión", use_container_width=True):
             st.session_state.usuario_nombre = None
             st.session_state.modo_lectura = True
-            st.session_state.rol_usuario = "Consulta" # Refuerzo para limpiar el rol
+            st.session_state.rol_usuario = "Consulta"
             st.query_params.clear() 
             st.rerun()
 
