@@ -1020,7 +1020,7 @@ with st.sidebar:
             # Renderizado dinámico de categorías mediante acordeones
             for categoria, vistas in secciones_esd.items():
                 # expanded=True mantiene las cajas desplegadas por defecto para acceso rápido
-                with st.expander(categoria, expanded=True): 
+                with st.expander(categoria, expanded=False): 
                     for nombre_vista, valor_real in vistas:
                         es_activa = (st.session_state.vista_actual == valor_real)
                         
