@@ -1111,7 +1111,7 @@ with st.sidebar:
     st.divider()
     
     if not st.session_state.modo_lectura:
-        st.markdown("### 🧭 Menú Operativo")
+        st.markdown("### MENÚ PRINCIPAL")
         
         # Modo Recursos Humanos
         if es_rh:
@@ -1124,27 +1124,26 @@ with st.sidebar:
         elif es_admin:
             # Agrupamos las vistas en categorías lógicas usando diccionarios
             secciones_esd = {
-                "📊 Dirección y Cumplimiento": [
+                "📊 Cumplimiento": [
                     ("🗺️ Mapa y Reportes", "Mapa"),
                     ("📅 Programación", "Schedule")
                 ],
-                "🏭 Control Operativo": [
+                "🏭 Auditorías": [
                     ("📱 Escáner QR", "Escáner"),
                     ("✅ Validación Integral", "Validación"),
                     ("🆕 Alta/Baja de Equipos", "Alta"),
                     ("🏭 Maquinaria", "Maquinaria")
                 ],
-                "🧪 Pruebas y Laboratorio": [
+                "🧪 Pruebas y análisis": [
                     ("⚡ Event Meter", "Event Meter"),
                     ("🚶‍♂️ Walking Test", "Walking Test"),
                     ("🔌 Sensibilidad", "Sensibilidad")
                 ],
                 "🌍 Infraestructura": [
                     ("🌍 Tierras y Piso", "Tierras")
-                ],
+                ], 
                 "🎓 Soporte y Catálogos": [
                     ("🎓 Entrenamiento", "Entrenamiento"),
-                    ("⚙️ Ajustes", "Ajustes")
                 ]
             }
 
