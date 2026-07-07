@@ -1012,7 +1012,7 @@ with st.sidebar:
                 "🌍 Infraestructura": [
                     ("🌍 Tierras y Piso", "Tierras")
                 ], 
-                "🎓 Soporte y Catálogos": [
+                "🎓 Gestión de personal": [
                     ("🎓 Entrenamiento", "Entrenamiento"),
                 ]
             }
