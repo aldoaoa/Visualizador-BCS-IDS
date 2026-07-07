@@ -1102,83 +1102,77 @@ rol = st.session_state.get("rol_usuario", "Consulta")
 es_admin = rol in ["Admin", "Auditor"]
 es_rh = rol == "RH_Training"
 
-if not st.session_state.modo_lectura:
-    # Ajustamos a 6 columnas tras agrupar Auditorías y Pruebas
-    c_nav1, c_nav2, c_nav3, c_nav4, c_nav5, c_nav6, c_nav7 = st.columns(7)
-    # Pestañas generales (solo Personal ESD o admin)
-    if es_admin:
-        with c_nav1:
-            if st.button("🗺️ Mapa y Reportes", use_container_width=True, type="primary" if st.session_state.vista_actual == "Mapa" else "secondary"):
-                st.session_state.vista_actual = "Mapa"
-                limpiar_url_escaneo() 
-                st.rerun()
-                
-        with c_nav2:
-            # Menú desplegable para Auditorías
-            with st.popover("📋 Auditorías", use_container_width=True):
-                if st.button("📱 Escáner", use_container_width=True, type="primary" if st.session_state.vista_actual == "Escáner" else "secondary"):
-                    st.session_state.vista_actual = "Escáner"
-                    limpiar_url_escaneo()
-                    st.rerun()
-                if st.button("🆕 Alta/Baja", use_container_width=True, type="primary" if st.session_state.vista_actual == "Alta" else "secondary"):
-                    st.session_state.vista_actual = "Alta"
-                    limpiar_url_escaneo()
-                    st.rerun()
-                if st.button("🏭 Maquinaria", use_container_width=True, type="primary" if st.session_state.vista_actual == "Maquinaria" else "secondary"):
-                    st.session_state.vista_actual = "Maquinaria"
-                    limpiar_url_escaneo()
-                    st.rerun()
-                if st.button("🌍 Tierras", use_container_width=True, type="primary" if st.session_state.vista_actual == "Tierras" else "secondary"):
-                    st.session_state.vista_actual = "Tierras"
-                    limpiar_url_escaneo()
-                    st.rerun()
-                    
-        with c_nav3:
-            # Menú desplegable para Pruebas
-            with st.popover("🧪 Pruebas", use_container_width=True):
-                if st.button("⚡ Event Meter", use_container_width=True, type="primary" if st.session_state.vista_actual == "Event Meter" else "secondary"):
-                    st.session_state.vista_actual = "Event Meter"
-                    limpiar_url_escaneo()
-                    st.rerun()
-                if st.button("🚶‍♂️ Walking Test", use_container_width=True, type="primary" if st.session_state.vista_actual == "Walking Test" else "secondary"):
-                    st.session_state.vista_actual = "Walking Test"
-                    limpiar_url_escaneo()
-                    st.rerun()
-                    
-        with c_nav4:
-            if st.button("✅ Validación", use_container_width=True, type="primary" if st.session_state.vista_actual == "Validación" else "secondary"):
-                st.session_state.vista_actual = "Validación"
-                limpiar_url_escaneo()
-                st.rerun()
-                
-        with c_nav5:
-            if st.button("📅 Programación", use_container_width=True, type="primary" if st.session_state.vista_actual == "Schedule" else "secondary"):
-                st.session_state.vista_actual = "Schedule"
-                limpiar_url_escaneo()
-                st.rerun()  
-                
-        with c_nav6:
-            if st.button("🔌 Sensibilidad", use_container_width=True, type="primary" if st.session_state.vista_actual == "Sensibilidad" else "secondary"):
-                st.session_state.vista_actual = "Sensibilidad"
-                limpiar_url_escaneo()
-                st.rerun()
-    # Pestaña de Entrenamiento (Visible para ambos)
-    with c_nav7:
-        if st.button("🎓 Entrenamiento", width="stretch", type="primary" if st.session_state.vista_actual == "Entrenamiento" else "secondary"):
-            st.session_state.vista_actual = "Entrenamiento"
-            st.rerun()
+# --- MENÚ DE NAVEGACIÓN DINÁMICO (SIDEBAR) ---
+rol = st.session_state.get("rol_usuario", "Consulta")
+es_admin = rol in ["Admin", "Auditor"]
+es_rh = rol == "RH_Training"
 
-    # Si es solo RH, ocultamos el resto de botones
-    if es_rh:
-        st.info("👤 Modo RH: Acceso restringido a módulo de Entrenamiento.")
-        # Aquí puedes forzar que si intentan cambiar de vista, los regrese
-        if st.session_state.vista_actual not in ["Entrenamiento"]:
-            st.session_state.vista_actual = "Entrenamiento"
-            st.rerun()            
-else:
-    st.session_state.vista_actual = "Escáner"
+with st.sidebar:
+    st.divider()
+    
+    if not st.session_state.modo_lectura:
+        st.markdown("### 🧭 Menú Operativo")
+        
+        # Modo Recursos Humanos
+        if es_rh:
+            st.info("👤 Modo RH: Acceso a Entrenamiento.")
+            if st.session_state.vista_actual != "Entrenamiento":
+                st.session_state.vista_actual = "Entrenamiento"
+                st.rerun()
+                
+        # Modo Administradores / Auditores
+        elif es_admin:
+            # Agrupamos las vistas en categorías lógicas usando diccionarios
+            secciones_esd = {
+                "📊 Dirección y Cumplimiento": [
+                    ("🗺️ Mapa y Reportes", "Mapa"),
+                    ("📅 Programación", "Schedule")
+                ],
+                "🏭 Control Operativo": [
+                    ("📱 Escáner QR", "Escáner"),
+                    ("✅ Validación Integral", "Validación"),
+                    ("🆕 Alta/Baja de Equipos", "Alta"),
+                    ("🏭 Maquinaria", "Maquinaria")
+                ],
+                "🧪 Pruebas y Laboratorio": [
+                    ("⚡ Event Meter", "Event Meter"),
+                    ("🚶‍♂️ Walking Test", "Walking Test"),
+                    ("🔌 Sensibilidad", "Sensibilidad")
+                ],
+                "🌍 Infraestructura": [
+                    ("🌍 Tierras y Piso", "Tierras")
+                ],
+                "🎓 Soporte y Catálogos": [
+                    ("🎓 Entrenamiento", "Entrenamiento"),
+                    ("⚙️ Ajustes", "Ajustes")
+                ]
+            }
 
-st.divider()
+            # Renderizamos selectores nativos y limpios
+            categoria_seleccionada = st.selectbox("Categoría:", list(secciones_esd.keys()))
+            
+            # Extraemos los nombres visuales para el Radio Button
+            vistas_categoria = secciones_esd[categoria_seleccionada]
+            nombres_vistas = [v[0] for v in vistas_categoria]
+            valores_vistas = [v[1] for v in vistas_categoria]
+            
+            # Buscamos el índice actual para que no se reinicie visualmente
+            try:
+                index_actual = valores_vistas.index(st.session_state.vista_actual)
+            except ValueError:
+                index_actual = 0
+                
+            vista_elegida = st.radio("Módulo:", nombres_vistas, index=index_actual)
+            
+            # Mapeamos el nombre visual al valor real de tu st.session_state
+            valor_real_vista = valores_vistas[nombres_vistas.index(vista_elegida)]
+            
+            # Si el usuario cambia de vista, actualizamos el estado
+            if valor_real_vista != st.session_state.vista_actual:
+                st.session_state.vista_actual = valor_real_vista
+                # Llamamos tu función para limpiar parámetros de URL (QR)
+                limpiar_url_escaneo()
+                st.rerun()
 
 # ==========================================
 # VISTA: ALTA Y BAJA DE EQUIPOS
