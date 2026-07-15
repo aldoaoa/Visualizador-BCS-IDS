@@ -6652,6 +6652,7 @@ elif st.session_state.vista_actual == "Maquinaria" and not st.session_state.modo
                     st.session_state.df_mediciones_extra = pd.DataFrame(columns=["Tipo", "Valor", "Ubicación / Comentario"])
 
                 # Renderizar tabla editable que soporta agregar/borrar filas dinámicamente
+                # Renderizar tabla editable que soporta agregar/borrar filas dinámicamente
                 editor_mediciones = st.data_editor(
                     st.session_state.df_mediciones_extra,
                     column_config={
@@ -6664,16 +6665,16 @@ elif st.session_state.vista_actual == "Maquinaria" and not st.session_state.modo
                         "Valor": st.column_config.NumberColumn(
                             "Valor Numérico",
                             help="Formato automático (admite notación científica Ej: 1e6)",
-                            format="%g", # Automático: decimal para V, exponencial para Ohms
+                            format="%g", 
                             required=True
                         ),
                         "Ubicación / Comentario": st.column_config.TextColumn(
                             "Ubicación / Comentario",
-                            placeholder="Ej. Fricción en rodillos...",
+                            # placeholder="Ej. Fricción en rodillos..."  <-- ¡ESTA LÍNEA CAUSABA EL ERROR!
                             required=True
                         )
                     },
-                    num_rows="dynamic", # ¡Esto activa el botón '+' integrado!
+                    num_rows="dynamic", 
                     use_container_width=True,
                     hide_index=True,
                     key="editor_dyn_maq"
