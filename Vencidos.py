@@ -6642,63 +6642,42 @@ elif st.session_state.vista_actual == "Maquinaria" and not st.session_state.modo
                     comentario_campo = c_campo2.text_input("Ubicación de la carga (Requerido)", placeholder="Ej: En la banda...")
                 
                 # ==============================================================
-                # ⚡ NUEVO CÓDIGO: MEDICIONES DINÁMICAS (JSON)
+                # ⚡ NUEVO CÓDIGO: MEDICIONES DINÁMICAS CON DATA EDITOR
                 # ==============================================================
                 st.markdown("##### ⚡ Capturas Adicionales (Opcional)")
-                st.caption("Añade múltiples capturas de voltaje o resistencia en diferentes puntos de la máquina.")
+                st.caption("Añade capturas extra. Haz clic en la tabla inferior para escribir y usa la última fila vacía (con el '+') para agregar nuevas mediciones.")
                 
-                # 1. Inicializar el estado de la sesión
-                if "mediciones_extra_maq" not in st.session_state:
-                    st.session_state.mediciones_extra_maq = []
+                # Definir estructura inicial vacía para la tabla
+                if "df_mediciones_extra" not in st.session_state:
+                    st.session_state.df_mediciones_extra = pd.DataFrame(columns=["Tipo", "Valor", "Ubicación / Comentario"])
 
-                # 2. Botones para discernir qué tipo de medición se quiere agregar
-                col_btn_v, col_btn_r = st.columns(2)
-                if col_btn_v.button("➕ Añadir medición de Voltaje"):
-                    st.session_state.mediciones_extra_maq.append({"tipo": "voltaje", "valor": 0.0, "comentario": ""})
-                    st.rerun()
-                    
-                if col_btn_r.button("➕ Añadir medición de Resistencia"):
-                    # Valor inicial en notación científica para resistencias
-                    st.session_state.mediciones_extra_maq.append({"tipo": "resistencia", "valor": 1.0e6, "comentario": ""})
-                    st.rerun()
-
-                # 3. Renderizado dinámico condicionado al "tipo"
-                for i, med in enumerate(st.session_state.mediciones_extra_maq):
-                    c_din1, c_din2, c_din3 = st.columns([2, 3, 1])
-                    
-                    # Adaptar el input según el tipo de medición
-                    if med["tipo"] == "voltaje":
-                        label_input = f"Voltaje (V) #{i+1}"
-                        formato = "%.2f"
-                        paso = 1.0
-                    else:
-                        label_input = f"Resistencia (Ω) #{i+1}"
-                        formato = "%.2e"  # Notación científica para resistencia
-                        paso = 1e6
-                        
-                    # Campo del valor
-                    st.session_state.mediciones_extra_maq[i]["valor"] = c_din1.number_input(
-                        label_input, 
-                        value=float(med["valor"]), 
-                        step=paso, 
-                        format=formato, 
-                        key=f"val_dyn_{i}"
-                    )
-                    
-                    # Campo del comentario
-                    st.session_state.mediciones_extra_maq[i]["comentario"] = c_din2.text_input(
-                        f"Ubicación / Nota #{i+1}", 
-                        value=med["comentario"], 
-                        key=f"c_dyn_{i}", 
-                        placeholder="Ej. Fricción en rodillos, chasis trasero..."
-                    )
-                    
-                    # Botón de eliminar
-                    with c_din3:
-                        st.markdown("<br>", unsafe_allow_html=True)
-                        if st.button("🗑️", key=f"del_dyn_{i}"):
-                            st.session_state.mediciones_extra_maq.pop(i)
-                            st.rerun()
+                # Renderizar tabla editable que soporta agregar/borrar filas dinámicamente
+                editor_mediciones = st.data_editor(
+                    st.session_state.df_mediciones_extra,
+                    column_config={
+                        "Tipo": st.column_config.SelectboxColumn(
+                            "Tipo de Medición",
+                            help="Elige Voltaje o Resistencia",
+                            options=["Voltaje", "Resistencia"],
+                            required=True
+                        ),
+                        "Valor": st.column_config.NumberColumn(
+                            "Valor Numérico",
+                            help="Formato automático (admite notación científica Ej: 1e6)",
+                            format="%g", # Automático: decimal para V, exponencial para Ohms
+                            required=True
+                        ),
+                        "Ubicación / Comentario": st.column_config.TextColumn(
+                            "Ubicación / Comentario",
+                            placeholder="Ej. Fricción en rodillos...",
+                            required=True
+                        )
+                    },
+                    num_rows="dynamic", # ¡Esto activa el botón '+' integrado!
+                    use_container_width=True,
+                    hide_index=True,
+                    key="editor_dyn_maq"
+                )
                 # ==============================================================
 
                 obs_maq = st.text_area("Notas / Observaciones Generales")
@@ -6706,15 +6685,25 @@ elif st.session_state.vista_actual == "Maquinaria" and not st.session_state.modo
                 submit_maq = st.form_submit_button("💾 Guardar Nueva Validación en Historial", use_container_width=True)
             
                 if submit_maq:
-                    # 1. Validar que si hay un voltaje dinámico, tenga un comentario
-                    errores_dinamicos = any(m["voltaje"] > 0 and not m["comentario"].strip() for m in st.session_state.mediciones_extra_maq)
+                    # 1. Transformar el DataFrame del editor a una lista de diccionarios (JSON)
+                    mediciones_finales = []
+                    for _, row in editor_mediciones.iterrows():
+                        if pd.notna(row["Tipo"]) and pd.notna(row["Valor"]):
+                            mediciones_finales.append({
+                                "tipo": str(row["Tipo"]).lower(),
+                                "valor": float(row["Valor"]),
+                                "comentario": str(row["Ubicación / Comentario"]) if pd.notna(row["Ubicación / Comentario"]) else ""
+                            })
+
+                    # 2. Validar que no haya comentarios vacíos en las capturas extra
+                    errores_dinamicos = any(m["comentario"].strip() == "" for m in mediciones_finales)
 
                     if aplica_toma and estado_toma == "FALLA" and not comentario_toma.strip():
                         st.error("⚠️ Debes escribir un comentario justificando la falla del tomacorriente.")
                     elif voltaje_campo > 0 and not comentario_campo.strip():
                         st.error("⚠️ Como detectaste voltaje en el campo principal, debes indicar dónde se encontró.")
                     elif errores_dinamicos:
-                        st.error("⚠️ Has detectado voltaje en las capturas adicionales. Debes indicar la ubicación de cada una.")
+                        st.error("⚠️ Has agregado capturas adicionales. Debes indicar la 'Ubicación / Comentario' en todas ellas.")
                     else:
                         with st.spinner("Actualizando registro transaccional en SQL..."):
                             try:
@@ -6746,8 +6735,8 @@ elif st.session_state.vista_actual == "Maquinaria" and not st.session_state.modo
                                     "campo_estatico_voltaje": float(voltaje_campo),
                                     "campo_estatico_comentario": comentario_campo,
                                     
-                                    # INYECCIÓN DEL JSONB DIRECTO A SUPABASE
-                                    "mediciones_extra": st.session_state.mediciones_extra_maq, 
+                                    # INYECCIÓN DEL JSONB (LISTA DE DICCIONARIOS)
+                                    "mediciones_extra": mediciones_finales, 
                                     
                                     "observaciones": obs_maq,
                                     "fecha_medicion": datetime.now().isoformat(),
@@ -6757,8 +6746,9 @@ elif st.session_state.vista_actual == "Maquinaria" and not st.session_state.modo
                                 
                                 supabase.table("mediciones_maquinaria").insert(data_insert).execute()
                                 
-                                # Limpiamos el array de la memoria para que el siguiente escaneo empiece en blanco
-                                st.session_state.mediciones_extra_maq = []
+                                # Limpiamos la tabla extra para el próximo escaneo
+                                if "editor_dyn_maq" in st.session_state:
+                                    del st.session_state["editor_dyn_maq"]
 
                                 st.success(f"✅ ¡Medición guardada! Próxima verificación calculada para: {proxima_fecha.strftime('%d-%b-%Y')}")
                                 st.balloons()
