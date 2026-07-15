@@ -6634,37 +6634,100 @@ elif st.session_state.vista_actual == "Maquinaria" and not st.session_state.modo
                     if estado_toma == "FALLA":
                         comentario_toma = col_t2.text_input("Comentario de Falla (Requerido)", placeholder="Ej: Polaridad invertida...")
 
-                st.markdown("##### 🧲 3. Medición de Campo Electrostático")
+                st.markdown("##### 🧲 3. Medición de Campo Electrostático (Principal)")
                 c_campo1, c_campo2 = st.columns(2)
                 voltaje_campo = c_campo1.number_input("Voltaje Detectado (V)", min_value=0.0, format="%.2f", step=1.0)
                 comentario_campo = ""
                 if voltaje_campo > 0:
                     comentario_campo = c_campo2.text_input("Ubicación de la carga (Requerido)", placeholder="Ej: En la banda...")
-            
+                
+                # ==============================================================
+                # ⚡ NUEVO CÓDIGO: MEDICIONES DINÁMICAS (JSON)
+                # ==============================================================
+                st.markdown("##### ⚡ Capturas Adicionales (Opcional)")
+                st.caption("Añade múltiples capturas de voltaje o resistencia en diferentes puntos de la máquina.")
+                
+                # 1. Inicializar el estado de la sesión
+                if "mediciones_extra_maq" not in st.session_state:
+                    st.session_state.mediciones_extra_maq = []
+
+                # 2. Botones para discernir qué tipo de medición se quiere agregar
+                col_btn_v, col_btn_r = st.columns(2)
+                if col_btn_v.button("➕ Añadir medición de Voltaje"):
+                    st.session_state.mediciones_extra_maq.append({"tipo": "voltaje", "valor": 0.0, "comentario": ""})
+                    st.rerun()
+                    
+                if col_btn_r.button("➕ Añadir medición de Resistencia"):
+                    # Valor inicial en notación científica para resistencias
+                    st.session_state.mediciones_extra_maq.append({"tipo": "resistencia", "valor": 1.0e6, "comentario": ""})
+                    st.rerun()
+
+                # 3. Renderizado dinámico condicionado al "tipo"
+                for i, med in enumerate(st.session_state.mediciones_extra_maq):
+                    c_din1, c_din2, c_din3 = st.columns([2, 3, 1])
+                    
+                    # Adaptar el input según el tipo de medición
+                    if med["tipo"] == "voltaje":
+                        label_input = f"Voltaje (V) #{i+1}"
+                        formato = "%.2f"
+                        paso = 1.0
+                    else:
+                        label_input = f"Resistencia (Ω) #{i+1}"
+                        formato = "%.2e"  # Notación científica para resistencia
+                        paso = 1e6
+                        
+                    # Campo del valor
+                    st.session_state.mediciones_extra_maq[i]["valor"] = c_din1.number_input(
+                        label_input, 
+                        value=float(med["valor"]), 
+                        step=paso, 
+                        format=formato, 
+                        key=f"val_dyn_{i}"
+                    )
+                    
+                    # Campo del comentario
+                    st.session_state.mediciones_extra_maq[i]["comentario"] = c_din2.text_input(
+                        f"Ubicación / Nota #{i+1}", 
+                        value=med["comentario"], 
+                        key=f"c_dyn_{i}", 
+                        placeholder="Ej. Fricción en rodillos, chasis trasero..."
+                    )
+                    
+                    # Botón de eliminar
+                    with c_din3:
+                        st.markdown("<br>", unsafe_allow_html=True)
+                        if st.button("🗑️", key=f"del_dyn_{i}"):
+                            st.session_state.mediciones_extra_maq.pop(i)
+                            st.rerun()
+                # ==============================================================
+
                 obs_maq = st.text_area("Notas / Observaciones Generales")
             
                 submit_maq = st.form_submit_button("💾 Guardar Nueva Validación en Historial", use_container_width=True)
             
                 if submit_maq:
+                    # 1. Validar que si hay un voltaje dinámico, tenga un comentario
+                    errores_dinamicos = any(m["voltaje"] > 0 and not m["comentario"].strip() for m in st.session_state.mediciones_extra_maq)
+
                     if aplica_toma and estado_toma == "FALLA" and not comentario_toma.strip():
                         st.error("⚠️ Debes escribir un comentario justificando la falla del tomacorriente.")
                     elif voltaje_campo > 0 and not comentario_campo.strip():
-                        st.error("⚠️ Como detectaste voltaje, debes indicar dónde se encontró la carga electrostática.")
+                        st.error("⚠️ Como detectaste voltaje en el campo principal, debes indicar dónde se encontró.")
+                    elif errores_dinamicos:
+                        st.error("⚠️ Has detectado voltaje en las capturas adicionales. Debes indicar la ubicación de cada una.")
                     else:
                         with st.spinner("Actualizando registro transaccional en SQL..."):
                             try:
                                 fecha_hoy = datetime.today().date()
                                 proxima_fecha = calcular_proxima_fecha(fecha_hoy, frecuencia_maq)
 
-                                # Implementación de la nueva lógica de negocio
                                 if resistencia is None or resistencia == 0.0: 
-                                # Si dejas la resistencia vacía o en 0 en el number_input
                                     estatus_calculado = "PENDIENTE"
                                 elif proxima_fecha < fecha_hoy:
                                     estatus_calculado = "VENCIDO"
                                 else:
                                     estatus_calculado = "VIGENTE"
-                            
+                                
                                 data_insert = {
                                     "linea_ubicacion": linea_sel,
                                     "id_maquinaria": maquina_sel,
@@ -6673,7 +6736,7 @@ elif st.session_state.vista_actual == "Maquinaria" and not st.session_state.modo
                                     "status_operativo": status_maq,
                                     "temperatura": temperatura_maq,
                                     "humedad":  humedad_maq,
-                                    "frecuencia_verificacion": "Anual",              # Forzado a "Anual" como solicitaste
+                                    "frecuencia_verificacion": "Anual",              
                                     "fecha_proxima": proxima_fecha.isoformat(),
                                     "resistencia_tierra": float(resistencia) if resistencia > 0 else None,
                                     "resistencia_max": limite_fijo, 
@@ -6682,14 +6745,21 @@ elif st.session_state.vista_actual == "Maquinaria" and not st.session_state.modo
                                     "tomacorriente_comentario": comentario_toma,
                                     "campo_estatico_voltaje": float(voltaje_campo),
                                     "campo_estatico_comentario": comentario_campo,
+                                    
+                                    # INYECCIÓN DEL JSONB DIRECTO A SUPABASE
+                                    "mediciones_extra": st.session_state.mediciones_extra_maq, 
+                                    
                                     "observaciones": obs_maq,
                                     "fecha_medicion": datetime.now().isoformat(),
                                     "auditor": st.session_state.usuario_nombre,
-                                    "resultado_estatus": estatus_calculado           # Tu nueva lógica automatizada
+                                    "resultado_estatus": estatus_calculado           
                                 }
-                            
+                                
                                 supabase.table("mediciones_maquinaria").insert(data_insert).execute()
-                            
+                                
+                                # Limpiamos el array de la memoria para que el siguiente escaneo empiece en blanco
+                                st.session_state.mediciones_extra_maq = []
+
                                 st.success(f"✅ ¡Medición guardada! Próxima verificación calculada para: {proxima_fecha.strftime('%d-%b-%Y')}")
                                 st.balloons()
                                 time.sleep(1)
@@ -6697,7 +6767,6 @@ elif st.session_state.vista_actual == "Maquinaria" and not st.session_state.modo
                                 st.rerun()
                             except Exception as e:
                                 st.error(f"Error al guardar: {e}")
-
     # ==========================================
     # MODO 2: CAPTURA EN LOTE (RESPONSIVA PARA TABLET/MÓVIL)
     # ==========================================
