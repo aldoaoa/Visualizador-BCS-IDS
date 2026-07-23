@@ -217,42 +217,172 @@ def gestionar_rutas_producto():
     st.divider()
 
     # 4. Visualización de Productos y Rutas Secuenciales Registradas
-    st.markdown("#### 🗺️ Diagrama de Rutas por Producto")
+    st.markdown("#### 🗺️ Diagrama y Reportes de Rutas por Producto")
     
     try:
         resp_prod = supabase.table("catalogo_productos").select("*").order("created_at", desc=True).execute()
         
         if resp_prod.data:
-            # Opción A: Vista en tarjetas con diagrama de secuencia visual
             for prod in resp_prod.data:
                 nombre = prod.get("nombre_producto", "Sin Nombre")
                 ruta = prod.get("lineas_asociadas", [])
-                fecha = prod.get("created_at", "")[:10]
                 
-                with st.expander(f"📦 **{nombre}** ({len(ruta)} Estaciones)", expanded=True):
+                with st.expander(f"📦 **{nombre}** ({len(ruta)} Estaciones)", expanded=False):
                     if isinstance(ruta, list) and len(ruta) > 0:
+                        # ===== SECCIÓN VISUAL (Diagrama de secuencia) =====
                         st.markdown("**Secuencia de Producción:**")
-                        
-                        # Generación visual de pasos secuenciales
-                        cols = st.columns(min(len(ruta), 6)) # Distribución horizontal
+                        cols = st.columns(min(len(ruta), 6))
                         for idx, estacion in enumerate(ruta):
                             col_idx = idx % 6
                             with cols[col_idx]:
                                 st.metric(label=f"Paso {idx + 1}", value=estacion)
                         
-                        # Línea de flujo unificada con flechas
-                        flujo_texto = " ➔ ".join([f"`Paso {i+1}: {e}`" for i, e in enumerate(ruta)])
-                        st.caption(f"**Ruta completa:** {flujo_texto}")
+                        # ===== SECCIÓN DE GENERACIÓN DE REPORTE =====
+                        st.divider()
+                        col_info, col_boton = st.columns([2, 1])
+                        
+                        with col_info:
+                            st.caption(f"Genera un documento con el estado ESD actual (medición y fecha de caducidad) de las {len(ruta)} líneas de este producto.")
+                        
+                        with col_boton:
+                            # Al usar un botón normal para preparar datos y un download_button
+                            if st.button(f"📊 Preparar Reporte de '{nombre}'", key=f"btn_prep_{nombre}"):
+                                with st.spinner('Consultando estatus de las líneas...'):
+                                    df_ruta_status = obtener_datos_ruta_producto(ruta)
+                                    html_reporte = generar_html_reporte_ruta(nombre, df_ruta_status)
+                                    
+                                    # NOTA: Si en tu app conviertes HTML a PDF usando pdfkit o weasyprint, 
+                                    # puedes insertar la conversión aquí. Si no, descargar como .html es 
+                                    # soportado nativamente por todos los navegadores (que luego imprimen a PDF).
+                                    
+                                    st.download_button(
+                                        label=f"📥 Descargar Reporte (Formato Web/PDF)",
+                                        data=html_reporte,
+                                        file_name=f"Reporte_Ruta_{nombre.replace(' ', '_')}.html",
+                                        mime="text/html",
+                                        key=f"dl_btn_{nombre}"
+                                    )
                     else:
                         st.warning("Sin ruta de líneas definida.")
-                    
-                    st.caption(f"📅 Registrado el: {fecha}")
-
         else:
             st.info("Aún no hay productos ni rutas registradas.")
             
     except Exception as e:
         st.error(f"Error al cargar las rutas de productos: {e}")
+
+def obtener_datos_ruta_producto(ruta):
+    """
+    Consulta en Supabase la última medición de cada línea en la ruta.
+    NOTA: Ajusta el nombre de la tabla ('validaciones_esd') y las columnas 
+    según la estructura real de tu base de datos.
+    """
+    datos_ruta = []
+    
+    for estacion in ruta:
+        try:
+            # Busca la última medición registrada para esta estación
+            # Cambia 'validaciones_esd' y 'linea' por tus nombres reales de tabla y columna
+            respuesta = supabase.table("validaciones_esd") \
+                .select("valor_medicion, estatus, fecha_proxima_validacion, created_at") \
+                .eq("linea", estacion) \
+                .order("created_at", desc=True) \
+                .limit(1) \
+                .execute()
+            
+            if respuesta.data:
+                registro = respuesta.data[0]
+                datos_ruta.append({
+                    "Operación": estacion,
+                    "Última Medición": registro.get("valor_medicion", "N/A"),
+                    "Estatus": registro.get("estatus", "N/A"),
+                    "Próxima Validación": registro.get("fecha_proxima_validacion", "N/A")
+                })
+            else:
+                # Si no hay registros previos
+                datos_ruta.append({
+                    "Operación": estacion,
+                    "Última Medición": "Sin registro",
+                    "Estatus": "Pendiente / Sin Datos",
+                    "Próxima Validación": "N/A"
+                })
+        except Exception as e:
+            st.error(f"Error al consultar la línea {estacion}: {e}")
+            
+    return pd.DataFrame(datos_ruta)
+
+
+def generar_html_reporte_ruta(nombre_producto, df_ruta):
+    """
+    Genera la estructura HTML (estilo PDF) del reporte del producto.
+    Compatible con los reportes de Programación que ya tienes.
+    """
+    fecha_hoy = datetime.today().strftime("%d-%b-%Y %H:%M")
+    
+    filas_html = ""
+    for idx, row in df_ruta.iterrows():
+        # Lógica de colores según el status
+        estatus = row.get('Estatus', '').lower()
+        if "aprobado" in estatus or "pass" in estatus:
+            color = "#28a745" # Verde
+        elif "rechazado" in estatus or "fail" in estatus or "vencido" in estatus:
+            color = "#dc3545" # Rojo
+        else:
+            color = "#ffc107" # Amarillo / Naranja
+            
+        filas_html += f"""
+        <tr>
+            <td style="padding: 10px; border: 1px solid #ddd; text-align: center; font-weight: bold;">{idx + 1}</td>
+            <td style="padding: 10px; border: 1px solid #ddd;"><b>{row['Operación']}</b></td>
+            <td style="padding: 10px; border: 1px solid #ddd; text-align: center;">{row['Última Medición']}</td>
+            <td style="padding: 10px; border: 1px solid #ddd; text-align: center; color: {color}; font-weight: bold;">{row['Estatus'].upper()}</td>
+            <td style="padding: 10px; border: 1px solid #ddd; text-align: center;">{row['Próxima Validación']}</td>
+        </tr>
+        """
+        
+    html = f"""
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <style>
+            body {{ font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; margin: 40px; color: #333; }}
+            .header {{ text-align: center; border-bottom: 3px solid #0056b3; padding-bottom: 15px; margin-bottom: 30px; }}
+            .title {{ font-size: 26px; font-weight: bold; color: #0056b3; }}
+            .subtitle {{ font-size: 16px; color: #555; margin-top: 8px; }}
+            table {{ width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 14px; }}
+            th {{ background-color: #0056b3; color: white; padding: 12px; text-align: center; border: 1px solid #004494; }}
+            .footer {{ margin-top: 50px; font-size: 11px; color: #888; text-align: center; border-top: 1px solid #ddd; padding-top: 10px; }}
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <div class="title">Reporte Integral de Ruta ESD</div>
+            <div class="subtitle">Producto: <b>{nombre_producto}</b> | Generado el: {fecha_hoy}</div>
+        </div>
+        
+        <h4 style="color: #444;">Secuencia de Operaciones y Estado Actual de Validación:</h4>
+        <table>
+            <thead>
+                <tr>
+                    <th width="5%">Paso</th>
+                    <th width="35%">Línea / Operación</th>
+                    <th width="20%">Última Medición</th>
+                    <th width="20%">Estatus ESD</th>
+                    <th width="20%">Próxima Validación</th>
+                </tr>
+            </thead>
+            <tbody>
+                {filas_html}
+            </tbody>
+        </table>
+        
+        <div class="footer">
+            Documento generado automáticamente por el Sistema de Gestión ESD BCS-AIS QUERÉTARO.<br>
+            <i>Las fechas y valores reflejan el estatus en tiempo real al momento de la descarga.</i>
+        </div>
+    </body>
+    </html>
+    """
+    return html
 
 def generar_html_reporte_calificaciones(df_calif, auditor):
     año_actual = datetime.today().strftime("%y")
