@@ -237,6 +237,10 @@ def gestionar_rutas_producto():
                             with cols[col_idx]:
                                 st.metric(label=f"Paso {idx + 1}", value=estacion)
                         
+                        # --- RECUPERACIÓN DEL TEXTO EN COLOR VERDE ---
+                        flujo_texto = " ➔ ".join([f"[{i+1}] {e}" for i, e in enumerate(ruta)])
+                        st.success(f"**Flujo completo:** {flujo_texto}")
+                        
                         # ===== SECCIÓN DE GENERACIÓN DE REPORTE =====
                         st.divider()
                         col_info, col_boton = st.columns([2, 1])
@@ -245,15 +249,10 @@ def gestionar_rutas_producto():
                             st.caption(f"Genera un documento con el estado ESD actual (medición y fecha de caducidad) de las {len(ruta)} líneas de este producto.")
                         
                         with col_boton:
-                            # Al usar un botón normal para preparar datos y un download_button
                             if st.button(f"📊 Preparar Reporte de '{nombre}'", key=f"btn_prep_{nombre}"):
                                 with st.spinner('Consultando estatus de las líneas...'):
                                     df_ruta_status = obtener_datos_ruta_producto(ruta)
                                     html_reporte = generar_html_reporte_ruta(nombre, df_ruta_status)
-                                    
-                                    # NOTA: Si en tu app conviertes HTML a PDF usando pdfkit o weasyprint, 
-                                    # puedes insertar la conversión aquí. Si no, descargar como .html es 
-                                    # soportado nativamente por todos los navegadores (que luego imprimen a PDF).
                                     
                                     st.download_button(
                                         label=f"📥 Descargar Reporte (Formato Web/PDF)",
@@ -269,6 +268,7 @@ def gestionar_rutas_producto():
             
     except Exception as e:
         st.error(f"Error al cargar las rutas de productos: {e}")
+
 
 def obtener_datos_ruta_producto(ruta):
     """
