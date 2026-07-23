@@ -275,16 +275,20 @@ def obtener_datos_ruta_producto(ruta):
     Consulta mediciones_maquinaria e inventario_esd consolidando la ruta:
     1. Ordena Maquinaria primero y Mobiliario/Ionizadores después.
     2. Deduplica por ID de equipo mostrando únicamente la última validación registrada.
-    3. Muestra estatus individual por equipo y formatea las resistencias:
-       - Maquinaria (2 decimales fijos).
-       - Mobiliario (Notación científica a 2 decimales).
+    3. Formatea resistencias (2 decimales para Maquinaria, Notación Científica para Mobiliario).
+    4. Estructura el desglose en una sub-tabla HTML con alineación vertical perfecta en columnas:
+       - Activo / Tipo
+       - Resistencia
+       - Voltaje
+       - Estatus
+    5. Calcula el estatus global (VIGENTE, VENCIDO, SIN DATOS).
     """
     datos_ruta = []
     
     for estacion in ruta:
         try:
             # -------------------------------------------------------------
-            # 1. CONSULTAR MAQUINARIA 
+            # 1. CONSULTAR MAQUINARIA (Prioridad 1)
             # -------------------------------------------------------------
             resp_maq = supabase.table("mediciones_maquinaria") \
                 .select("id_maquinaria, clasificacion, resistencia_tierra, campo_estatico_voltaje, resultado_estatus, fecha_proxima, fecha_medicion, status_operativo") \
@@ -301,7 +305,7 @@ def obtener_datos_ruta_producto(ruta):
                         maquinas_unicas[id_m] = item
 
             # -------------------------------------------------------------
-            # 2. CONSULTAR MOBILIARIO E IONIZADORES
+            # 2. CONSULTAR MOBILIARIO E IONIZADORES (Prioridad 2)
             # -------------------------------------------------------------
             resp_inv = supabase.table("inventario_esd") \
                 .select("id_producto, clasificacion, valor_actual, balance_ionizador, estatus_verificacion, fecha_proxima_verif, fecha_ultima_verif, estatus_operativo") \
@@ -318,12 +322,12 @@ def obtener_datos_ruta_producto(ruta):
                         inventario_unico[id_p] = item
 
             # -------------------------------------------------------------
-            # 3. PROCESAR Y DAR FORMATO 
+            # 3. GENERAR FILAS HTML ALINEADAS VERTICALMENTE
             # -------------------------------------------------------------
-            detalles_html = []
+            filas_activos = []
             elementos_evaluados = []
             
-            # A) Procesar Maquinaria (Formato: 2 decimales fijos)
+            # A) Procesar Maquinaria (Resistencia: 2 decimales fijos)
             for id_m, item in maquinas_unicas.items():
                 val_ohms = item.get("resistencia_tierra")
                 if val_ohms not in [None, "", "N/D"]:
@@ -335,35 +339,43 @@ def obtener_datos_ruta_producto(ruta):
                     str_ohms = "N/D Ω"
                 
                 val_volts = item.get("campo_estatico_voltaje")
-                str_volts = f"{val_volts} V" if val_volts not in [None, "", "N/D"] else "N/D V"
+                if val_volts not in [None, "", "N/D"]:
+                    try:
+                        str_volts = f"{float(val_volts):.1f} V"
+                    except (ValueError, TypeError):
+                        str_volts = f"{val_volts} V"
+                else:
+                    str_volts = "N/D V"
                 
-                clasif = str(item.get("clasificacion", "Maquinaria"))
+                clasif = str(item.get("clasificacion", "Maquinaria")).strip()
                 estatus_item = str(item.get("resultado_estatus", "PENDIENTE")).strip().upper()
                 
                 if "VIGENTE" in estatus_item or "PASA" in estatus_item:
-                    badge_color = "#28a745"
+                    badge_color = "#16a34a" # Verde
                     est_badge = "VIGENTE"
                 else:
-                    badge_color = "#dc3545"
+                    badge_color = "#dc2626" # Rojo
                     est_badge = "VENCIDO"
                 
-                detalles_html.append(
-                    f"• <b>[MAQ] {id_m}</b> <span style='font-size:10px; color:#555;'>({clasif})</span>: "
-                    f"{str_ohms} | {str_volts} "
-                    f"➔ <b style='color:{badge_color}; font-size:11px;'>[{est_badge}]</b>"
-                )
+                filas_activos.append(f"""
+                <tr style="border-bottom: 1px dashed #e5e7eb;">
+                    <td style="padding: 3px 5px; text-align: left;"><b>[MAQ] {id_m}</b> <span style="font-size:10px; color:#6b7280;">({clasif})</span></td>
+                    <td style="padding: 3px 5px; text-align: right; font-family: monospace;">{str_ohms}</td>
+                    <td style="padding: 3px 5px; text-align: right; font-family: monospace;">{str_volts}</td>
+                    <td style="padding: 3px 5px; text-align: center; font-weight: bold; color: {badge_color};">{est_badge}</td>
+                </tr>
+                """)
                 
                 elementos_evaluados.append({
                     "estatus": est_badge,
                     "proxima_fecha": item.get("fecha_proxima")
                 })
                 
-            # B) Procesar Mobiliario / Ionizadores (Formato: Notación Científica 2 decimales)
+            # B) Procesar Mobiliario / Ionizadores (Resistencia: Notación Científica)
             for id_p, item in inventario_unico.items():
                 val_ohms = item.get("valor_actual")
                 if val_ohms not in [None, "", "N/D"]:
                     try:
-                        # Si es 1000000 -> 1.00e+06 -> lo limpiamos a 1.00e6
                         str_ohms = f"{float(val_ohms):.2e}".replace("e+0", "e+").replace("e-0", "e-") + " Ω"
                     except (ValueError, TypeError):
                         str_ohms = f"{val_ohms} Ω"
@@ -371,23 +383,32 @@ def obtener_datos_ruta_producto(ruta):
                     str_ohms = "N/D Ω"
                 
                 val_volts = item.get("balance_ionizador")
-                str_volts = f"{val_volts} V" if val_volts not in [None, "", "N/D"] else "N/D V"
+                if val_volts not in [None, "", "N/D"]:
+                    try:
+                        str_volts = f"{float(val_volts):.1f} V"
+                    except (ValueError, TypeError):
+                        str_volts = f"{val_volts} V"
+                else:
+                    str_volts = "N/D V"
                 
-                clasif = str(item.get("clasificacion", "Mobiliario"))
+                clasif = str(item.get("clasificacion", "Mobiliario")).strip()
                 estatus_item = str(item.get("estatus_verificacion", "PENDIENTE")).strip().upper()
                 
                 if "VIGENTE" in estatus_item or "PASA" in estatus_item:
-                    badge_color = "#28a745"
+                    badge_color = "#16a34a"
                     est_badge = "VIGENTE"
                 else:
-                    badge_color = "#dc3545"
+                    badge_color = "#dc2626"
                     est_badge = "VENCIDO"
                     
-                detalles_html.append(
-                    f"• <b>[MOB] {id_p}</b> <span style='font-size:10px; color:#555;'>({clasif})</span>: "
-                    f"{str_ohms} | {str_volts} "
-                    f"➔ <b style='color:{badge_color}; font-size:11px;'>[{est_badge}]</b>"
-                )
+                filas_activos.append(f"""
+                <tr style="border-bottom: 1px dashed #e5e7eb;">
+                    <td style="padding: 3px 5px; text-align: left;"><b>[MOB] {id_p}</b> <span style="font-size:10px; color:#6b7280;">({clasif})</span></td>
+                    <td style="padding: 3px 5px; text-align: right; font-family: monospace;">{str_ohms}</td>
+                    <td style="padding: 3px 5px; text-align: right; font-family: monospace;">{str_volts}</td>
+                    <td style="padding: 3px 5px; text-align: center; font-weight: bold; color: {badge_color};">{est_badge}</td>
+                </tr>
+                """)
                 
                 elementos_evaluados.append({
                     "estatus": est_badge,
@@ -395,7 +416,7 @@ def obtener_datos_ruta_producto(ruta):
                 })
 
             # -------------------------------------------------------------
-            # 4. EVALUACIÓN DEL ESTATUS GLOBAL DE LA ESTACIÓN
+            # 4. ARMAR SUB-TABLA DE DETALLE Y ESTATUS GLOBAL
             # -------------------------------------------------------------
             if elementos_evaluados:
                 estatus_global = "VIGENTE"
@@ -409,18 +430,34 @@ def obtener_datos_ruta_producto(ruta):
                         fechas_validas.append(str(el["proxima_fecha"])[:10])
                 
                 proxima_val = min(fechas_validas) if fechas_validas else "Sin fecha"
-                texto_detalle_final = "<br>".join(detalles_html)
+                
+                # Crear la sub-tabla interna con encabezados ordenados
+                tabla_detalle_html = f"""
+                <table style="width:100%; border-collapse:collapse; font-size:11px; margin: 2px 0;">
+                    <thead>
+                        <tr style="border-bottom: 1.5px solid #003366; color: #003366; background-color: #f8fafc;">
+                            <th style="padding: 3px 5px; text-align: left; width: 42%;">Activo / Tipo</th>
+                            <th style="padding: 3px 5px; text-align: right; width: 23%;">Resistencia</th>
+                            <th style="padding: 3px 5px; text-align: right; width: 17%;">Voltaje</th>
+                            <th style="padding: 3px 5px; text-align: center; width: 18%;">Estatus</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {"".join(filas_activos)}
+                    </tbody>
+                </table>
+                """
                 
                 datos_ruta.append({
                     "Operación": estacion,
-                    "Última Medición": texto_detalle_final,
+                    "Última Medición": tabla_detalle_html,
                     "Estatus": estatus_global,
                     "Próxima Validación": proxima_val
                 })
             else:
                 datos_ruta.append({
                     "Operación": estacion,
-                    "Última Medición": "<i style='color:#888;'>Sin activos registrados u operativos en esta estación.</i>",
+                    "Última Medición": "<i style='color:#888; font-size:11px;'>Sin activos registrados u operativos en esta estación.</i>",
                     "Estatus": "SIN DATOS",
                     "Próxima Validación": "N/A"
                 })
