@@ -271,196 +271,157 @@ def gestionar_rutas_producto():
 
 
 def obtener_datos_ruta_producto(ruta):
-    """
-    Consulta mediciones_maquinaria e inventario_esd consolidando la ruta:
-    1. Ordena Maquinaria primero y Mobiliario/Ionizadores después.
-    2. Deduplica por ID de equipo mostrando únicamente la última validación registrada.
-    3. Formatea resistencias (2 decimales para Maquinaria, Notación Científica para Mobiliario).
-    4. Estructura el desglose en una sub-tabla HTML con alineación vertical perfecta en columnas:
-       - Activo / Tipo
-       - Resistencia
-       - Voltaje
-       - Estatus
-    5. Calcula el estatus global (VIGENTE, VENCIDO, SIN DATOS).
-    """
     datos_ruta = []
     
     for estacion in ruta:
         try:
             # -------------------------------------------------------------
-            # 1. CONSULTAR MAQUINARIA (Prioridad 1)
+            # 1. OBTENER EL "DEBER SER": EL CATÁLOGO MAESTRO DE LA LÍNEA
             # -------------------------------------------------------------
-            resp_maq = supabase.table("mediciones_maquinaria") \
-                .select("id_maquinaria, clasificacion, resistencia_tierra, campo_estatico_voltaje, resultado_estatus, fecha_proxima, fecha_medicion, status_operativo") \
+            resp_master = supabase.table("catalogo_maestro_activos") \
+                .select("*") \
                 .eq("linea_ubicacion", estacion) \
-                .order("fecha_medicion", desc=True) \
+                .eq("estatus_operativo", "OPERATIVO") \
+                .order("tipo_categoria", desc=False) \
                 .execute()
                 
-            maquinas_unicas = {}
+            activos_maestros = resp_master.data if resp_master.data else []
+            
+            # Si no hay activos configurados para esta estación en el catálogo
+            if not activos_maestros:
+                datos_ruta.append({
+                    "Operación": estacion,
+                    "Última Medición": "<i style='color:#888; font-size:11px;'>No hay equipos asignados a esta estación en el Catálogo Maestro.</i>",
+                    "Estatus": "SIN DATOS",
+                    "Próxima Validación": "N/A"
+                })
+                continue
+
+            # -------------------------------------------------------------
+            # 2. OBTENER LAS MEDICIONES MÁS RECIENTES (Historial)
+            # -------------------------------------------------------------
+            resp_maq = supabase.table("mediciones_maquinaria").select("*").eq("linea_ubicacion", estacion).order("fecha_medicion", desc=True).execute()
+            resp_inv = supabase.table("inventario_esd").select("*").eq("linea_ubicacion", estacion).order("fecha_ultima_verif", desc=True).execute()
+            
+            # Crear un diccionario unificado para búsqueda rápida de mediciones
+            mediciones_recientes = {}
             if resp_maq.data:
                 for item in resp_maq.data:
                     id_m = item.get("id_maquinaria")
-                    status_op = str(item.get("status_operativo", "")).upper()
-                    if id_m and id_m not in maquinas_unicas and "NO OPERATIVO" not in status_op and "BAJA" not in status_op:
-                        maquinas_unicas[id_m] = item
-
-            # -------------------------------------------------------------
-            # 2. CONSULTAR MOBILIARIO E IONIZADORES (Prioridad 2)
-            # -------------------------------------------------------------
-            resp_inv = supabase.table("inventario_esd") \
-                .select("id_producto, clasificacion, valor_actual, balance_ionizador, estatus_verificacion, fecha_proxima_verif, fecha_ultima_verif, estatus_operativo") \
-                .eq("linea_ubicacion", estacion) \
-                .order("fecha_ultima_verif", desc=True) \
-                .execute()
-                
-            inventario_unico = {}
+                    if id_m and id_m not in mediciones_recientes:
+                        mediciones_recientes[id_m] = item
+                        
             if resp_inv.data:
                 for item in resp_inv.data:
                     id_p = item.get("id_producto")
-                    status_op = str(item.get("estatus_operativo", "")).upper()
-                    if id_p and id_p not in inventario_unico and "NO OPERATIVO" not in status_op and "BAJA" not in status_op:
-                        inventario_unico[id_p] = item
+                    if id_p and id_p not in mediciones_recientes:
+                        mediciones_recientes[id_p] = item
 
             # -------------------------------------------------------------
-            # 3. GENERAR FILAS HTML ALINEADAS VERTICALMENTE
+            # 3. CRUZAR CATÁLOGO VS MEDICIONES REALES
             # -------------------------------------------------------------
             filas_activos = []
             elementos_evaluados = []
             
-            # A) Procesar Maquinaria (Resistencia: 2 decimales fijos)
-            for id_m, item in maquinas_unicas.items():
-                val_ohms = item.get("resistencia_tierra")
-                if val_ohms not in [None, "", "N/D"]:
-                    try:
-                        str_ohms = f"{float(val_ohms):.2f} Ω"
-                    except (ValueError, TypeError):
-                        str_ohms = f"{val_ohms} Ω"
+            for activo in activos_maestros:
+                id_activo = activo.get("id_activo")
+                tipo_cat = activo.get("tipo_categoria", "MAQUINARIA").upper()
+                clasif = str(activo.get("clasificacion", "")).strip()
+                prefijo = "[MAQ]" if "MAQ" in tipo_cat else "[MOB]"
+                
+                # Buscar si el activo maestro tiene una medición real
+                medicion = mediciones_recientes.get(id_activo)
+
+                if medicion:
+                    # ✅ EL EQUIPO SÍ FUE MEDIDO
+                    if "MAQ" in tipo_cat:
+                        val_ohms = medicion.get("resistencia_tierra")
+                        try: str_ohms = f"{float(val_ohms):.2f} Ω" if val_ohms not in [None, "", "N/D"] else "N/D Ω"
+                        except: str_ohms = f"{val_ohms} Ω"
+                        
+                        val_volts = medicion.get("campo_estatico_voltaje")
+                        try: str_volts = f"{float(val_volts):.1f} V" if val_volts not in [None, "", "N/D"] else "N/D V"
+                        except: str_volts = f"{val_volts} V"
+                        
+                        estatus_item = str(medicion.get("resultado_estatus", "PENDIENTE")).strip().upper()
+                        fecha_prox = medicion.get("fecha_proxima")
+                    else:
+                        val_ohms = medicion.get("valor_actual")
+                        try: str_ohms = f"{float(val_ohms):.2e}".replace("e+0", "e+").replace("e-0", "e-") + " Ω" if val_ohms not in [None, "", "N/D"] else "N/D Ω"
+                        except: str_ohms = f"{val_ohms} Ω"
+                        
+                        val_volts = medicion.get("balance_ionizador")
+                        try: str_volts = f"{float(val_volts):.1f} V" if val_volts not in [None, "", "N/D"] else "N/D V"
+                        except: str_volts = f"{val_volts} V"
+                        
+                        estatus_item = str(medicion.get("estatus_verificacion", "PENDIENTE")).strip().upper()
+                        fecha_prox = medicion.get("fecha_proxima_verif")
+
+                    if "VIGENTE" in estatus_item or "PASA" in estatus_item:
+                        badge_color, est_badge = "#16a34a", "VIGENTE"
+                    else:
+                        badge_color, est_badge = "#dc2626", "VENCIDO"
+                
                 else:
-                    str_ohms = "N/D Ω"
+                    # ❌ EL EQUIPO ESTÁ EN EL CATÁLOGO PERO NUNCA SE HA MEDIDO
+                    str_ohms = "<span style='color:#dc2626;'>SIN MEDIR</span>"
+                    str_volts = "<span style='color:#dc2626;'>SIN MEDIR</span>"
+                    badge_color, est_badge = "#ea580c", "SIN DATOS" # Naranja alerta
+                    fecha_prox = None
                 
-                val_volts = item.get("campo_estatico_voltaje")
-                if val_volts not in [None, "", "N/D"]:
-                    try:
-                        str_volts = f"{float(val_volts):.1f} V"
-                    except (ValueError, TypeError):
-                        str_volts = f"{val_volts} V"
-                else:
-                    str_volts = "N/D V"
-                
-                clasif = str(item.get("clasificacion", "Maquinaria")).strip()
-                estatus_item = str(item.get("resultado_estatus", "PENDIENTE")).strip().upper()
-                
-                if "VIGENTE" in estatus_item or "PASA" in estatus_item:
-                    badge_color = "#16a34a" # Verde
-                    est_badge = "VIGENTE"
-                else:
-                    badge_color = "#dc2626" # Rojo
-                    est_badge = "VENCIDO"
-                
+                # Insertar fila tabular
                 filas_activos.append(f"""
                 <tr style="border-bottom: 1px dashed #e5e7eb;">
-                    <td style="padding: 3px 5px; text-align: left;"><b>[MAQ] {id_m}</b> <span style="font-size:10px; color:#6b7280;">({clasif})</span></td>
+                    <td style="padding: 3px 5px; text-align: left;"><b>{prefijo} {id_activo}</b> <span style="font-size:10px; color:#6b7280;">({clasif})</span></td>
                     <td style="padding: 3px 5px; text-align: right; font-family: monospace;">{str_ohms}</td>
                     <td style="padding: 3px 5px; text-align: right; font-family: monospace;">{str_volts}</td>
                     <td style="padding: 3px 5px; text-align: center; font-weight: bold; color: {badge_color};">{est_badge}</td>
                 </tr>
                 """)
                 
-                elementos_evaluados.append({
-                    "estatus": est_badge,
-                    "proxima_fecha": item.get("fecha_proxima")
-                })
-                
-            # B) Procesar Mobiliario / Ionizadores (Resistencia: Notación Científica)
-            for id_p, item in inventario_unico.items():
-                val_ohms = item.get("valor_actual")
-                if val_ohms not in [None, "", "N/D"]:
-                    try:
-                        str_ohms = f"{float(val_ohms):.2e}".replace("e+0", "e+").replace("e-0", "e-") + " Ω"
-                    except (ValueError, TypeError):
-                        str_ohms = f"{val_ohms} Ω"
-                else:
-                    str_ohms = "N/D Ω"
-                
-                val_volts = item.get("balance_ionizador")
-                if val_volts not in [None, "", "N/D"]:
-                    try:
-                        str_volts = f"{float(val_volts):.1f} V"
-                    except (ValueError, TypeError):
-                        str_volts = f"{val_volts} V"
-                else:
-                    str_volts = "N/D V"
-                
-                clasif = str(item.get("clasificacion", "Mobiliario")).strip()
-                estatus_item = str(item.get("estatus_verificacion", "PENDIENTE")).strip().upper()
-                
-                if "VIGENTE" in estatus_item or "PASA" in estatus_item:
-                    badge_color = "#16a34a"
-                    est_badge = "VIGENTE"
-                else:
-                    badge_color = "#dc2626"
-                    est_badge = "VENCIDO"
-                    
-                filas_activos.append(f"""
-                <tr style="border-bottom: 1px dashed #e5e7eb;">
-                    <td style="padding: 3px 5px; text-align: left;"><b>[MOB] {id_p}</b> <span style="font-size:10px; color:#6b7280;">({clasif})</span></td>
-                    <td style="padding: 3px 5px; text-align: right; font-family: monospace;">{str_ohms}</td>
-                    <td style="padding: 3px 5px; text-align: right; font-family: monospace;">{str_volts}</td>
-                    <td style="padding: 3px 5px; text-align: center; font-weight: bold; color: {badge_color};">{est_badge}</td>
-                </tr>
-                """)
-                
-                elementos_evaluados.append({
-                    "estatus": est_badge,
-                    "proxima_fecha": item.get("fecha_proxima_verif")
-                })
+                elementos_evaluados.append({"estatus": est_badge, "proxima_fecha": fecha_prox})
 
             # -------------------------------------------------------------
-            # 4. ARMAR SUB-TABLA DE DETALLE Y ESTATUS GLOBAL
+            # 4. EVALUAR ESTATUS GLOBAL (Ahora penaliza la falta de datos)
             # -------------------------------------------------------------
-            if elementos_evaluados:
-                estatus_global = "VIGENTE"
-                fechas_validas = []
+            estatus_global = "VIGENTE"
+            fechas_validas = []
+            
+            for el in elementos_evaluados:
+                # Prioridad de alertas: 1. Vencido, 2. Incompleto (Sin datos)
+                if el["estatus"] == "VENCIDO":
+                    estatus_global = "VENCIDO" 
+                elif el["estatus"] == "SIN DATOS" and estatus_global != "VENCIDO":
+                    estatus_global = "INCOMPLETO"
                 
-                for el in elementos_evaluados:
-                    if el["estatus"] == "VENCIDO":
-                        estatus_global = "VENCIDO" 
-                    
-                    if el["proxima_fecha"] and str(el["proxima_fecha"]).strip() not in ["None", "N/D", ""]:
-                        fechas_validas.append(str(el["proxima_fecha"])[:10])
-                
-                proxima_val = min(fechas_validas) if fechas_validas else "Sin fecha"
-                
-                # Crear la sub-tabla interna con encabezados ordenados
-                tabla_detalle_html = f"""
-                <table style="width:100%; border-collapse:collapse; font-size:11px; margin: 2px 0;">
-                    <thead>
-                        <tr style="border-bottom: 1.5px solid #003366; color: #003366; background-color: #f8fafc;">
-                            <th style="padding: 3px 5px; text-align: left; width: 42%;">Activo / Tipo</th>
-                            <th style="padding: 3px 5px; text-align: right; width: 23%;">Resistencia</th>
-                            <th style="padding: 3px 5px; text-align: right; width: 17%;">Voltaje</th>
-                            <th style="padding: 3px 5px; text-align: center; width: 18%;">Estatus</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {"".join(filas_activos)}
-                    </tbody>
-                </table>
-                """
-                
-                datos_ruta.append({
-                    "Operación": estacion,
-                    "Última Medición": tabla_detalle_html,
-                    "Estatus": estatus_global,
-                    "Próxima Validación": proxima_val
-                })
-            else:
-                datos_ruta.append({
-                    "Operación": estacion,
-                    "Última Medición": "<i style='color:#888; font-size:11px;'>Sin activos registrados u operativos en esta estación.</i>",
-                    "Estatus": "SIN DATOS",
-                    "Próxima Validación": "N/A"
-                })
+                if el["proxima_fecha"] and str(el["proxima_fecha"]).strip() not in ["None", "N/D", ""]:
+                    fechas_validas.append(str(el["proxima_fecha"])[:10])
+            
+            proxima_val = min(fechas_validas) if fechas_validas else "N/A"
+            
+            # Ensamblar tabla HTML
+            tabla_detalle_html = f"""
+            <table style="width:100%; border-collapse:collapse; font-size:11px; margin: 2px 0;">
+                <thead>
+                    <tr style="border-bottom: 1.5px solid #003366; color: #003366; background-color: #f8fafc;">
+                        <th style="padding: 3px 5px; text-align: left; width: 42%;">Activo / Tipo</th>
+                        <th style="padding: 3px 5px; text-align: right; width: 23%;">Resistencia</th>
+                        <th style="padding: 3px 5px; text-align: right; width: 17%;">Voltaje</th>
+                        <th style="padding: 3px 5px; text-align: center; width: 18%;">Estatus</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {"".join(filas_activos)}
+                </tbody>
+            </table>
+            """
+            
+            datos_ruta.append({
+                "Operación": estacion,
+                "Última Medición": tabla_detalle_html,
+                "Estatus": estatus_global,
+                "Próxima Validación": proxima_val
+            })
                 
         except Exception as e:
             st.error(f"Error al procesar la línea {estacion}: {e}")
