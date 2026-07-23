@@ -275,14 +275,16 @@ def obtener_datos_ruta_producto(ruta):
     Consulta mediciones_maquinaria e inventario_esd consolidando la ruta:
     1. Ordena Maquinaria primero y Mobiliario/Ionizadores después.
     2. Deduplica por ID de equipo mostrando únicamente la última validación registrada.
-    3. Muestra estatus individual por equipo y calcula el estatus global de la línea.
+    3. Muestra estatus individual por equipo y formatea las resistencias:
+       - Maquinaria (2 decimales fijos).
+       - Mobiliario (Notación científica a 2 decimales).
     """
     datos_ruta = []
     
     for estacion in ruta:
         try:
             # -------------------------------------------------------------
-            # 1. CONSULTAR MAQUINARIA (Prioridad 1: Primero en la lista)
+            # 1. CONSULTAR MAQUINARIA 
             # -------------------------------------------------------------
             resp_maq = supabase.table("mediciones_maquinaria") \
                 .select("id_maquinaria, clasificacion, resistencia_tierra, campo_estatico_voltaje, resultado_estatus, fecha_proxima, fecha_medicion, status_operativo") \
@@ -290,18 +292,16 @@ def obtener_datos_ruta_producto(ruta):
                 .order("fecha_medicion", desc=True) \
                 .execute()
                 
-            # Deduplicación: Conservar solo la última medición por id_maquinaria
             maquinas_unicas = {}
             if resp_maq.data:
                 for item in resp_maq.data:
                     id_m = item.get("id_maquinaria")
                     status_op = str(item.get("status_operativo", "")).upper()
-                    # Omitir si ya guardamos su última medición o si está dado de baja
                     if id_m and id_m not in maquinas_unicas and "NO OPERATIVO" not in status_op and "BAJA" not in status_op:
                         maquinas_unicas[id_m] = item
 
             # -------------------------------------------------------------
-            # 2. CONSULTAR MOBILIARIO E IONIZADORES (Prioridad 2: Después)
+            # 2. CONSULTAR MOBILIARIO E IONIZADORES
             # -------------------------------------------------------------
             resp_inv = supabase.table("inventario_esd") \
                 .select("id_producto, clasificacion, valor_actual, balance_ionizador, estatus_verificacion, fecha_proxima_verif, fecha_ultima_verif, estatus_operativo") \
@@ -309,7 +309,6 @@ def obtener_datos_ruta_producto(ruta):
                 .order("fecha_ultima_verif", desc=True) \
                 .execute()
                 
-            # Deduplicación: Conservar solo la última medición por id_producto
             inventario_unico = {}
             if resp_inv.data:
                 for item in resp_inv.data:
@@ -319,15 +318,21 @@ def obtener_datos_ruta_producto(ruta):
                         inventario_unico[id_p] = item
 
             # -------------------------------------------------------------
-            # 3. PROCESAR Y DAR FORMATO (MAQUINARIA ➔ MOBILIARIO)
+            # 3. PROCESAR Y DAR FORMATO 
             # -------------------------------------------------------------
             detalles_html = []
             elementos_evaluados = []
             
-            # A) Procesar Maquinaria
+            # A) Procesar Maquinaria (Formato: 2 decimales fijos)
             for id_m, item in maquinas_unicas.items():
                 val_ohms = item.get("resistencia_tierra")
-                str_ohms = f"{val_ohms} Ω" if val_ohms not in [None, "", "N/D"] else "N/D Ω"
+                if val_ohms not in [None, "", "N/D"]:
+                    try:
+                        str_ohms = f"{float(val_ohms):.2f} Ω"
+                    except (ValueError, TypeError):
+                        str_ohms = f"{val_ohms} Ω"
+                else:
+                    str_ohms = "N/D Ω"
                 
                 val_volts = item.get("campo_estatico_voltaje")
                 str_volts = f"{val_volts} V" if val_volts not in [None, "", "N/D"] else "N/D V"
@@ -335,12 +340,11 @@ def obtener_datos_ruta_producto(ruta):
                 clasif = str(item.get("clasificacion", "Maquinaria"))
                 estatus_item = str(item.get("resultado_estatus", "PENDIENTE")).strip().upper()
                 
-                # Etiqueta de color individual
                 if "VIGENTE" in estatus_item or "PASA" in estatus_item:
-                    badge_color = "#28a745" # Verde
+                    badge_color = "#28a745"
                     est_badge = "VIGENTE"
                 else:
-                    badge_color = "#dc3545" # Rojo
+                    badge_color = "#dc3545"
                     est_badge = "VENCIDO"
                 
                 detalles_html.append(
@@ -354,10 +358,17 @@ def obtener_datos_ruta_producto(ruta):
                     "proxima_fecha": item.get("fecha_proxima")
                 })
                 
-            # B) Procesar Mobiliario / Ionizadores
+            # B) Procesar Mobiliario / Ionizadores (Formato: Notación Científica 2 decimales)
             for id_p, item in inventario_unico.items():
                 val_ohms = item.get("valor_actual")
-                str_ohms = f"{val_ohms} Ω" if val_ohms not in [None, "", "N/D"] else "N/D Ω"
+                if val_ohms not in [None, "", "N/D"]:
+                    try:
+                        # Si es 1000000 -> 1.00e+06 -> lo limpiamos a 1.00e6
+                        str_ohms = f"{float(val_ohms):.2e}".replace("e+0", "e+").replace("e-0", "e-") + " Ω"
+                    except (ValueError, TypeError):
+                        str_ohms = f"{val_ohms} Ω"
+                else:
+                    str_ohms = "N/D Ω"
                 
                 val_volts = item.get("balance_ionizador")
                 str_volts = f"{val_volts} V" if val_volts not in [None, "", "N/D"] else "N/D V"
@@ -392,7 +403,7 @@ def obtener_datos_ruta_producto(ruta):
                 
                 for el in elementos_evaluados:
                     if el["estatus"] == "VENCIDO":
-                        estatus_global = "VENCIDO" # Si uno falla, la línea completa se marca VENCIDO
+                        estatus_global = "VENCIDO" 
                     
                     if el["proxima_fecha"] and str(el["proxima_fecha"]).strip() not in ["None", "N/D", ""]:
                         fechas_validas.append(str(el["proxima_fecha"])[:10])
@@ -407,7 +418,6 @@ def obtener_datos_ruta_producto(ruta):
                     "Próxima Validación": proxima_val
                 })
             else:
-                # Si la estación no tiene activos vigentes
                 datos_ruta.append({
                     "Operación": estacion,
                     "Última Medición": "<i style='color:#888;'>Sin activos registrados u operativos en esta estación.</i>",
@@ -419,7 +429,6 @@ def obtener_datos_ruta_producto(ruta):
             st.error(f"Error al procesar la línea {estacion}: {e}")
             
     return pd.DataFrame(datos_ruta)
-
 
 def generar_html_reporte_ruta(nombre_producto, df_ruta, auditor="Sistema ESD", comentarios="Sin observaciones.", db_id=1):
     año_actual = datetime.today().strftime("%y")
