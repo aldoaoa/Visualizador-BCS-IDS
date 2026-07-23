@@ -154,6 +154,97 @@ def limpiar_id(texto):
     # Convierte a texto, quita espacios raros, borra espacios al inicio/fin y lo hace mayúscula
     return str(texto).replace('\xa0', ' ').strip().upper()
 
+# ==========================================
+# VISTA: GESTIÓN DE RUTAS Y PRODUCTOS
+# ==========================================
+def gestionar_rutas_producto():
+    st.markdown("### 📦 Alta y Enrutamiento de Productos")
+    st.info("Registra un nuevo producto y define la ruta completa de líneas/operaciones por las que pasa.")
+    
+    # 1. Obtener las líneas disponibles desde tu catálogo maestro
+    try:
+        lineas_disponibles = obtener_catalogo_lineas()
+    except Exception:
+        lineas_disponibles = []
+
+    # 2. Formulario de captura
+    with st.form("form_alta_producto", clear_on_submit=True):
+        col1, col2 = st.columns([1, 2])
+        
+        with col1:
+            nombre_producto_input = st.text_input("Nombre del Producto", placeholder="Ej. SCCM Ford")
+            
+        with col2:
+            lineas_seleccionadas = st.multiselect(
+                "Líneas/Operaciones por las que corre",
+                options=sorted(lineas_disponibles) if lineas_disponibles else [],
+                help="Selecciona todas las estaciones involucradas en el ensamble de este producto."
+            )
+            
+        submit_btn = st.form_submit_button("Guardar Ruta de Producto")
+        
+        # 3. Guardado en Supabase
+        if submit_btn:
+            # Reutiliza tu función de limpieza de IDs/textos
+            nombre_limpio = limpiar_id(nombre_producto_input) if 'limpiar_id' in globals() else nombre_producto_input.strip()
+            
+            if not nombre_limpio:
+                st.warning("⚠️ Debes ingresar un nombre válido para el producto.")
+            elif not lineas_seleccionadas:
+                st.warning("⚠️ Debes seleccionar al menos una línea o estación.")
+            else:
+                try:
+                    datos_insercion = {
+                        "nombre_producto": nombre_limpio,
+                        "lineas_asociadas": lineas_seleccionadas 
+                    }
+                    
+                    respuesta = supabase.table("catalogo_productos").insert(datos_insercion).execute() 
+                    
+                    if respuesta.data:
+                        st.success(f"✅ Producto '{nombre_limpio}' registrado exitosamente con {len(lineas_seleccionadas)} líneas asociadas.")
+                        st.rerun()
+                except Exception as e:
+                    if "duplicate key value" in str(e) or "23505" in str(e):
+                        st.error(f"❌ El producto '{nombre_limpio}' ya está registrado.")
+                    else:
+                        st.error(f"❌ Error al guardar en la base de datos: {e}")
+
+    st.divider()
+
+    # 4. Tabla de consulta de productos registrados
+    st.markdown("#### 📋 Productos y Rutas Registradas")
+    try:
+        resp_prod = supabase.table("catalogo_productos").select("*").order("created_at", desc=True).execute()
+        
+        if resp_prod.data:
+            df_prod = pd.DataFrame(resp_prod.data)
+            
+            # Formatear el arreglo de líneas a texto legible
+            df_prod['lineas_asociadas'] = df_prod['lineas_asociadas'].apply(
+                lambda x: ", ".join(x) if isinstance(x, list) else x
+            )
+            
+            df_prod = df_prod.rename(columns={
+                "nombre_producto": "Producto",
+                "lineas_asociadas": "Ruta de Líneas",
+                "created_at": "Fecha de Registro"
+            })
+            
+            if 'Fecha de Registro' in df_prod.columns:
+                df_prod['Fecha de Registro'] = pd.to_datetime(df_prod['Fecha de Registro']).dt.strftime('%Y-%m-%d %H:%M')
+            
+            st.dataframe(
+                df_prod[['Producto', 'Ruta de Líneas', 'Fecha de Registro']], 
+                use_container_width=True, 
+                hide_index=True
+            )
+        else:
+            st.info("Aún no hay productos registrados en el catálogo.")
+            
+    except Exception as e:
+        st.error(f"Error al consultar el catálogo de productos: {e}")
+
 def generar_html_reporte_calificaciones(df_calif, auditor):
     año_actual = datetime.today().strftime("%y")
     fecha_hoy = datetime.today().strftime("%d-%b-%Y")
