@@ -158,34 +158,38 @@ def limpiar_id(texto):
 # VISTA: GESTIÓN DE RUTAS Y PRODUCTOS
 # ==========================================
 def gestionar_rutas_producto():
-    st.markdown("### 📦 Alta y Enrutamiento de Productos")
-    st.info("Registra un nuevo producto y define la ruta completa de líneas/operaciones por las que pasa.")
+    st.markdown("### 📦 Alta, Enrutamiento y Secuencia de Productos")
+    st.info("Registra productos y define el orden secuencial estricto de las líneas/estaciones por las que transita (de primera a última).")
     
     # 1. Obtener las líneas disponibles desde tu catálogo maestro
     try:
         lineas_disponibles = obtener_catalogo_lineas()
     except Exception:
-        lineas_disponibles = []
+        lineas_disponibles = ["SMT9", "ICT 22", "Router 9", "Ford SCCM", "Conformal Coating", "Final Assembly", "Empaque"]
 
-    # 2. Formulario de captura
+    # 2. Formulario de captura con previsualización secuencial
     with st.form("form_alta_producto", clear_on_submit=True):
-        col1, col2 = st.columns([1, 2])
+        nombre_producto_input = st.text_input("Nombre del Producto", placeholder="Ej. SCCM Ford")
         
-        with col1:
-            nombre_producto_input = st.text_input("Nombre del Producto", placeholder="Ej. SCCM Ford")
+        st.markdown("**Selección de Secuencia del Proceso:**")
+        st.caption("💡 *Tip: Selecciona las líneas en el orden exacto en que pasa el producto (de la primera operación a la última).*")
+        
+        lineas_seleccionadas = st.multiselect(
+            "Selecciona y ordena la ruta de líneas:",
+            options=lineas_disponibles,
+            help="El orden en que selecciones las líneas determinará la secuencia oficial del proceso."
+        )
+        
+        # Previsualización del flujo en tiempo real dentro del formulario
+        if lineas_seleccionadas:
+            st.markdown("##### 🔍 Previsualización de la Secuencia:")
+            pasos_html = " ➡️ ".join([f"**[{i+1}] {linea}**" for i, linea in enumerate(lineas_seleccionadas)])
+            st.success(pasos_html)
             
-        with col2:
-            lineas_seleccionadas = st.multiselect(
-                "Líneas/Operaciones por las que corre",
-                options=sorted(lineas_disponibles) if lineas_disponibles else [],
-                help="Selecciona todas las estaciones involucradas en el ensamble de este producto."
-            )
-            
-        submit_btn = st.form_submit_button("Guardar Ruta de Producto")
+        submit_btn = st.form_submit_button("💾 Guardar Ruta de Producto")
         
         # 3. Guardado en Supabase
         if submit_btn:
-            # Reutiliza tu función de limpieza de IDs/textos
             nombre_limpio = limpiar_id(nombre_producto_input) if 'limpiar_id' in globals() else nombre_producto_input.strip()
             
             if not nombre_limpio:
@@ -196,13 +200,13 @@ def gestionar_rutas_producto():
                 try:
                     datos_insercion = {
                         "nombre_producto": nombre_limpio,
-                        "lineas_asociadas": lineas_seleccionadas 
+                        "lineas_asociadas": lineas_seleccionadas # Preserva el orden secuencial array
                     }
                     
                     respuesta = supabase.table("catalogo_productos").insert(datos_insercion).execute() 
                     
                     if respuesta.data:
-                        st.success(f"✅ Producto '{nombre_limpio}' registrado exitosamente con {len(lineas_seleccionadas)} líneas asociadas.")
+                        st.success(f"✅ Producto '{nombre_limpio}' registrado exitosamente con una ruta de {len(lineas_seleccionadas)} estaciones.")
                         st.rerun()
                 except Exception as e:
                     if "duplicate key value" in str(e) or "23505" in str(e):
@@ -212,38 +216,43 @@ def gestionar_rutas_producto():
 
     st.divider()
 
-    # 4. Tabla de consulta de productos registrados
-    st.markdown("#### 📋 Productos y Rutas Registradas")
+    # 4. Visualización de Productos y Rutas Secuenciales Registradas
+    st.markdown("#### 🗺️ Diagrama de Rutas por Producto")
+    
     try:
         resp_prod = supabase.table("catalogo_productos").select("*").order("created_at", desc=True).execute()
         
         if resp_prod.data:
-            df_prod = pd.DataFrame(resp_prod.data)
-            
-            # Formatear el arreglo de líneas a texto legible
-            df_prod['lineas_asociadas'] = df_prod['lineas_asociadas'].apply(
-                lambda x: ", ".join(x) if isinstance(x, list) else x
-            )
-            
-            df_prod = df_prod.rename(columns={
-                "nombre_producto": "Producto",
-                "lineas_asociadas": "Ruta de Líneas",
-                "created_at": "Fecha de Registro"
-            })
-            
-            if 'Fecha de Registro' in df_prod.columns:
-                df_prod['Fecha de Registro'] = pd.to_datetime(df_prod['Fecha de Registro']).dt.strftime('%Y-%m-%d %H:%M')
-            
-            st.dataframe(
-                df_prod[['Producto', 'Ruta de Líneas', 'Fecha de Registro']], 
-                use_container_width=True, 
-                hide_index=True
-            )
+            # Opción A: Vista en tarjetas con diagrama de secuencia visual
+            for prod in resp_prod.data:
+                nombre = prod.get("nombre_producto", "Sin Nombre")
+                ruta = prod.get("lineas_asociadas", [])
+                fecha = prod.get("created_at", "")[:10]
+                
+                with st.expander(f"📦 **{nombre}** ({len(ruta)} Estaciones)", expanded=True):
+                    if isinstance(ruta, list) and len(ruta) > 0:
+                        st.markdown("**Secuencia de Producción:**")
+                        
+                        # Generación visual de pasos secuenciales
+                        cols = st.columns(min(len(ruta), 6)) # Distribución horizontal
+                        for idx, estacion in enumerate(ruta):
+                            col_idx = idx % 6
+                            with cols[col_idx]:
+                                st.metric(label=f"Paso {idx + 1}", value=estacion)
+                        
+                        # Línea de flujo unificada con flechas
+                        flujo_texto = " ➔ ".join([f"`Paso {i+1}: {e}`" for i, e in enumerate(ruta)])
+                        st.caption(f"**Ruta completa:** {flujo_texto}")
+                    else:
+                        st.warning("Sin ruta de líneas definida.")
+                    
+                    st.caption(f"📅 Registrado el: {fecha}")
+
         else:
-            st.info("Aún no hay productos registrados en el catálogo.")
+            st.info("Aún no hay productos ni rutas registradas.")
             
     except Exception as e:
-        st.error(f"Error al consultar el catálogo de productos: {e}")
+        st.error(f"Error al cargar las rutas de productos: {e}")
 
 def generar_html_reporte_calificaciones(df_calif, auditor):
     año_actual = datetime.today().strftime("%y")
