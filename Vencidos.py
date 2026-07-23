@@ -148,6 +148,24 @@ def obtener_catalogo_lineas():
         return [x['nombre_linea'] for x in resp.data] if resp.data else ["Sin Ubicaciones"]
     except:
         return ["Sin Ubicaciones"]
+
+def registrar_en_catalogo_maestro(id_activo, tipo_categoria, clasificacion, linea_ubicacion, estatus_operativo="OPERATIVO"):
+    """
+    Guarda o actualiza automáticamente el activo en el Catálogo Maestro
+    al momento de crearlo en los formularios de Alta o Maquinaria.
+    """
+    try:
+        datos = {
+            "id_activo": str(id_activo).strip(),
+            "tipo_categoria": "Maquinaria" if "MAQ" in str(tipo_categoria).upper() else "Mobiliario",
+            "clasificacion": str(clasificacion).strip(),
+            "linea_ubicacion": str(linea_ubicacion).strip(),
+            "estatus_operativo": estatus_operativo
+        }
+        # upsert inserta el registro o actualiza sus datos si ya existe el id_activo
+        supabase.table("catalogo_maestro_activos").upsert(datos, on_conflict="id_activo").execute()
+    except Exception as e:
+        print(f"Error al sincronizar con catalogo_maestro_activos: {e}")
         
 def limpiar_id(texto):
     if not texto: return ""
@@ -1120,6 +1138,80 @@ def limpiar_url_escaneo():
     if "qr_baja" in st.query_params:
         del st.query_params["qr_baja"]
 
+def gestionar_catalogo_maestro_activos():
+    st.markdown("### 📋 Catálogo Maestro de Activos por Línea")
+    st.info("Administra la lista maestra de todos los equipos y mobiliarios que pertenecen a cada estación. Los activos aquí registrados son los que se exigirán en los reportes de ruta.")
+
+    try:
+        lineas_disponibles = obtener_catalogo_lineas()
+    except:
+        lineas_disponibles = []
+
+    # A) Formulario de Alta / Asignación Manual
+    with st.expander("➕ Registrar / Asignar Activo al Catálogo Maestro", expanded=False):
+        with st.form("form_alta_activo_maestro", clear_on_submit=True):
+            col1, col2 = st.columns(2)
+            with col1:
+                id_activo_input = st.text_input("ID del Activo / Equipo", placeholder="Ej: CONV-SMT9-01 o MES-SMT9-01")
+                tipo_cat_input = st.selectbox("Categoría", ["Maquinaria", "Mobiliario"])
+            with col2:
+                clasif_input = st.text_input("Clasificación", placeholder="Ej: Conveyor, Mesa ESD, Ionizador")
+                linea_input = st.selectbox("Línea / Ubicación Asignada", options=lineas_disponibles if lineas_disponibles else ["SMT9"])
+            
+            submit_btn = st.form_submit_button("💾 Guardar en Catálogo Maestro")
+            
+            if submit_btn:
+                id_limpio = id_activo_input.strip()
+                if not id_limpio:
+                    st.warning("⚠️ Debes ingresar un ID de activo válido.")
+                else:
+                    registrar_en_catalogo_maestro(
+                        id_activo=id_limpio,
+                        tipo_categoria=tipo_cat_input,
+                        clasificacion=clasif_input,
+                        linea_ubicacion=linea_input
+                    )
+                    st.success(f"✅ Activo '{id_limpio}' registrado/actualizado en el Catálogo Maestro.")
+                    st.rerun()
+
+    st.divider()
+
+    # B) Tabla de Consulta y Filtrado
+    col_f1, col_f2 = st.columns(2)
+    with col_f1:
+        linea_filtro = st.selectbox("Filtrar por Línea:", options=["TODAS"] + lineas_disponibles if lineas_disponibles else ["TODAS"])
+    with col_f2:
+        estatus_filtro = st.selectbox("Filtrar por Estatus Operativo:", ["TODOS", "OPERATIVO", "NO OPERATIVO", "BAJA"])
+
+    try:
+        query = supabase.table("catalogo_maestro_activos").select("*")
+        if linea_filtro != "TODAS":
+            query = query.eq("linea_ubicacion", linea_filtro)
+        if estatus_filtro != "TODOS":
+            query = query.eq("estatus_operativo", estatus_filtro)
+            
+        resp = query.order("linea_ubicacion").order("tipo_categoria").execute()
+        
+        if resp.data:
+            df_activos = pd.DataFrame(resp.data)
+            df_activos = df_activos.rename(columns={
+                "id_activo": "ID Activo",
+                "tipo_categoria": "Categoría",
+                "clasificacion": "Clasificación",
+                "linea_ubicacion": "Línea / Ubicación",
+                "estatus_operativo": "Estatus"
+            })
+            
+            st.dataframe(
+                df_activos[["ID Activo", "Categoría", "Clasificación", "Línea / Ubicación", "Estatus"]],
+                use_container_width=True,
+                hide_index=True
+            )
+        else:
+            st.info("No se encontraron activos registrados con los filtros seleccionados.")
+    except Exception as e:
+        st.error(f"Error al cargar el Catálogo Maestro de Activos: {e}")
+
 def subir_evidencia_storage(img_file, id_elemento):
     """Sube la imagen a Supabase Storage y retorna la URL pública."""
     if img_file is not None:
@@ -1840,6 +1932,19 @@ if st.session_state.vista_actual == "Alta" and not st.session_state.modo_lectura
                         
                         try:
                             supabase.table("inventario_esd").insert(data_insert).execute()
+                            
+                            # --- NUEVO: REGISTRO EN CATÁLOGO MAESTRO (ALTA) ---
+                            # Si existe la función, sincronizamos automáticamente el activo maestro
+                            if 'registrar_en_catalogo_maestro' in globals():
+                                registrar_en_catalogo_maestro(
+                                    id_activo=id_limpio_alta,
+                                    tipo_categoria="Mobiliario", # Se asume mobiliario para inventario_esd
+                                    clasificacion=nuevo_tipo,
+                                    linea_ubicacion=nueva_linea,
+                                    estatus_operativo="OPERATIVO"
+                                )
+                            # --------------------------------------------------
+
                             st.success(f"✅ ¡Activo {nuevo_id} registrado con éxito en estatus: {estatus_final}!")
                             st.balloons()
                             st.cache_data.clear()
@@ -2000,6 +2105,15 @@ if st.session_state.vista_actual == "Alta" and not st.session_state.modo_lectura
                                             "estatus_verificacion": "PENDIENTE" # Estandarizado a PENDIENTE, como es baja, no debe ser VIGENTE ni VENCIDO.
                                         }).eq("id_producto", id_exacto_db).execute()
                                         
+                                        # --- NUEVO: ACTUALIZAR ESTATUS EN CATÁLOGO MAESTRO (BAJA) ---
+                                        try:
+                                            supabase.table("catalogo_maestro_activos").update({
+                                                "estatus_operativo": "NO OPERATIVO"
+                                            }).eq("id_activo", id_exacto_db).execute()
+                                        except Exception as sub_e:
+                                            print(f"Aviso: No se pudo actualizar el catálogo maestro: {sub_e}")
+                                        # -----------------------------------------------------------
+
                                         st.success("✅ ¡Desactivado de Inventario!")
                                         st.cache_data.clear()
                                         limpiar_url_escaneo()
@@ -2028,6 +2142,16 @@ if st.session_state.vista_actual == "Alta" and not st.session_state.modo_lectura
                                             "status_operativo": "NO OPERATIVO",
                                             "resultado_estatus": "PENDIENTE" # Estandarizado a PENDIENTE.
                                         }).eq("id_maquinaria", id_limpio_baja).execute()
+                                        
+                                        # --- NUEVO: ACTUALIZAR ESTATUS EN CATÁLOGO MAESTRO (BAJA) ---
+                                        try:
+                                            supabase.table("catalogo_maestro_activos").update({
+                                                "estatus_operativo": "NO OPERATIVO"
+                                            }).eq("id_activo", id_limpio_baja).execute()
+                                        except Exception as sub_e:
+                                            print(f"Aviso: No se pudo actualizar el catálogo maestro: {sub_e}")
+                                        # -----------------------------------------------------------
+
                                         st.success("✅ ¡Desactivado de Maquinaria!")
                                         st.cache_data.clear()
                                         limpiar_url_escaneo()
@@ -3111,7 +3235,26 @@ elif st.session_state.vista_actual == "Escáner":
                                             id_exacto_db = str(equipo.get('Id de producto', id_limpio))
                                             
                                             res_upd = supabase.table("inventario_esd").update(update_data).eq("id_producto", id_exacto_db).execute()
+# ... (código existente) ...
+                                            # --- EL TRUCO ESTÁ AQUÍ: Extraer el ID literal de la base de datos ---
+                                            id_exacto_db = str(equipo.get('Id de producto', id_limpio))
                                             
+                                            res_upd = supabase.table("inventario_esd").update(update_data).eq("id_producto", id_exacto_db).execute()
+                                            
+                                            # --- NUEVO: SINCRONIZAR REUBICACIÓN EN CATÁLOGO MAESTRO ---
+                                            if 'registrar_en_catalogo_maestro' in globals():
+                                                try:
+                                                    registrar_en_catalogo_maestro(
+                                                        id_activo=id_exacto_db,
+                                                        tipo_categoria="Mobiliario",
+                                                        clasificacion=nueva_clasif_upd,
+                                                        linea_ubicacion=nueva_linea_upd, # <--- La línea que seleccionó el auditor
+                                                        estatus_operativo="OPERATIVO"
+                                                    )
+                                                except Exception as cat_err:
+                                                    print(f"Error al sincronizar catálogo maestro: {cat_err}")
+                                            # --------------------------------------------------------
+
                                             # Verificación de seguridad: ¿Se actualizó realmente alguna fila?
                                             if len(res_upd.data) == 0:
                                                 st.error(f"❌ Fallo silencioso evitado: El ID '{id_exacto_db}' tiene un formato especial (minúsculas o espacios) en la base de datos que impidió la actualización. Búscalo en la pestaña de Alta/Baja para corregirlo.")
@@ -3335,6 +3478,19 @@ elif st.session_state.vista_actual == "Escáner":
                                                 }
                                                 
                                                 supabase.table("mediciones_maquinaria").insert(data_insert).execute()
+                                                # --- NUEVO: SINCRONIZAR REUBICACIÓN EN CATÁLOGO MAESTRO ---
+                                                if 'registrar_en_catalogo_maestro' in globals():
+                                                    try:
+                                                        registrar_en_catalogo_maestro(
+                                                            id_activo=maquina_sel,
+                                                            tipo_categoria="Maquinaria",
+                                                            clasificacion=clasificacion_equipo,
+                                                            linea_ubicacion=linea_ubicacion, # <--- La línea actual
+                                                            estatus_operativo=status_maq
+                                                        )
+                                                    except Exception as cat_err:
+                                                        print(f"Error al sincronizar catálogo maestro: {cat_err}")
+                                                # --------------------------------------------------------
                                                 st.success(f"✅ ¡Validación guardada exitosamente para {maquina_sel}!")
                                                 st.cache_data.clear()
                                                 time.sleep(1.5)
@@ -3384,8 +3540,7 @@ elif st.session_state.vista_actual == "Escáner":
                         
                         freq = st.selectbox("Frecuencia de Verificación Normativa", ["Anual", "Semestral", "Trimestral", "Mensual", "Semanal", "Diario"])
                         
-                        # Usamos 'stretch' para cumplir con los nuevos estándares de Streamlit
-                        if st.form_submit_button("💾 Guardar y Registrar en Base de Datos", type="primary", use_container_width=True):
+                       if st.form_submit_button("💾 Guardar y Registrar en Base de Datos", type="primary", use_container_width=True):
                             if not clasificacion.strip():
                                 st.error("⚠️ La clasificación es un campo obligatorio.")
                             else:
@@ -3413,6 +3568,18 @@ elif st.session_state.vista_actual == "Escáner":
                                                 "auditor": st.session_state.usuario_nombre
                                             }
                                             supabase.table("mediciones_maquinaria").insert(payload).execute()
+                                            
+                                            # --- NUEVO: REGISTRO EN CATÁLOGO MAESTRO (MAQUINARIA) ---
+                                            if 'registrar_en_catalogo_maestro' in globals():
+                                                registrar_en_catalogo_maestro(
+                                                    id_activo=id_limpio,
+                                                    tipo_categoria="Maquinaria",
+                                                    clasificacion=clasificacion,
+                                                    linea_ubicacion=linea,
+                                                    estatus_operativo="OPERATIVO"
+                                                )
+                                            # --------------------------------------------------------
+
                                         else:
                                             payload = {
                                                 "id_producto": id_limpio,
@@ -3428,6 +3595,17 @@ elif st.session_state.vista_actual == "Escáner":
                                                 "auditor_responsable": st.session_state.usuario_nombre
                                             }
                                             supabase.table("inventario_esd").insert(payload).execute()
+                                            
+                                            # --- NUEVO: REGISTRO EN CATÁLOGO MAESTRO (MOBILIARIO/INVENTARIO) ---
+                                            if 'registrar_en_catalogo_maestro' in globals():
+                                                registrar_en_catalogo_maestro(
+                                                    id_activo=id_limpio,
+                                                    tipo_categoria="Mobiliario", # Ajusta según el tipo si es necesario
+                                                    clasificacion=clasificacion,
+                                                    linea_ubicacion=linea,
+                                                    estatus_operativo="OPERATIVO"
+                                                )
+                                            # -------------------------------------------------------------------
                                             
                                         st.success(f"✅ ¡El equipo {id_limpio} ha sido dado de alta oficialmente!")
                                         st.cache_data.clear()
@@ -5107,7 +5285,7 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
     st.markdown("### ⚙️ Ajustes del Sistema (Catálogos)")
     st.info("Administra de forma centralizada las Líneas/Ubicaciones y los Equipos de Medición para que estén disponibles en todos los módulos de captura.")
 
-    tab_ubicaciones, tab_equipos, tab_maquinaria, tab_exportar, tab_usuarios = st.tabs(["📍 Líneas y Ubicaciones", "🛠️ Equipos de Medición", "🏭 Maquinaria (Operaciones)", "💾 Administracion de Datos", "🔐 Usuarios"])
+    tab_ubicaciones, tab_equipos, tab_maquinaria, tab_exportar, tab_usuarios, tab_catalogo= st.tabs(["📍 Líneas y Ubicaciones", "🛠️ Equipos de Medición", "🏭 Maquinaria (Operaciones)", "💾 Administracion de Datos", "🔐 Usuarios", "Catálogo"])
 
 # --- PESTAÑA 1: UBICACIONES ---
     with tab_ubicaciones:
@@ -5231,6 +5409,9 @@ elif st.session_state.vista_actual == "Ajustes" and not st.session_state.modo_le
                 else:
                     st.error("Por favor, selecciona una línea válida.")
 
+    with tab_catalogo:
+        gestionar_catalogo_maestro_activos()
+    
     # --- PESTAÑA 2: EQUIPOS DE MEDICIÓN ---
     with tab_equipos:
         st.markdown("#### ➕ Agregar Nuevo Equipo de Medición")
