@@ -273,37 +273,67 @@ def gestionar_rutas_producto():
 def obtener_datos_ruta_producto(ruta):
     """
     Consulta en inventario_esd y mediciones_maquinaria todos los elementos 
-    pertenecientes a cada línea de la ruta y consolida su estado.
+    pertenecientes a cada línea de la ruta. Extrae mediciones exactas y 
+    consolida un estatus global estricto.
     """
     datos_ruta = []
     
     for estacion in ruta:
         try:
-            # 1. Consultar Mobiliario e Ionizadores
+            # 1. Consultar Mobiliario e Ionizadores (Tabla: inventario_esd)
             resp_inv = supabase.table("inventario_esd") \
-                .select("estatus_verificacion, fecha_proxima_verif") \
+                .select("id_producto, clasificacion, valor_actual, balance_ionizador, estatus_verificacion, fecha_proxima_verif") \
                 .eq("linea_ubicacion", estacion) \
                 .execute()
                 
-            # 2. Consultar Maquinaria
+            # 2. Consultar Maquinaria (Tabla: mediciones_maquinaria)
             resp_maq = supabase.table("mediciones_maquinaria") \
-                .select("resultado_estatus, fecha_proxima") \
+                .select("id_maquinaria, clasificacion, resistencia_tierra, campo_estatico_voltaje, resultado_estatus, fecha_proxima") \
                 .eq("linea_ubicacion", estacion) \
                 .execute()
                 
             elementos_totales = []
+            detalles_html = [] # Aquí guardaremos el texto formateado de cada equipo
             
-            # Recopilar datos de inventario
+            # Procesar datos de inventario
             if resp_inv.data:
                 for item in resp_inv.data:
+                    # Extraer y dar formato a Ohms
+                    val_ohms = item.get("valor_actual")
+                    str_ohms = f"{val_ohms} Ω" if val_ohms not in [None, ""] else "N/D Ω"
+                    
+                    # Extraer y dar formato a Volts
+                    val_volts = item.get("balance_ionizador")
+                    str_volts = f"{val_volts} V" if val_volts not in [None, ""] else "N/D V"
+                    
+                    nombre = str(item.get("id_producto", "Desconocido"))
+                    clasif = str(item.get("clasificacion", ""))
+                    
+                    # Crear la línea de texto para el PDF
+                    detalles_html.append(f"• <b>{nombre}</b> <span style='font-size: 10px; color:#555;'>({clasif})</span>: {str_ohms} | {str_volts}")
+                    
                     elementos_totales.append({
                         "estatus": item.get("estatus_verificacion", "N/A"),
                         "proxima_fecha": item.get("fecha_proxima_verif")
                     })
                     
-            # Recopilar datos de maquinaria
+            # Procesar datos de maquinaria
             if resp_maq.data:
                 for item in resp_maq.data:
+                    # Extraer y dar formato a Ohms
+                    val_ohms = item.get("resistencia_tierra")
+                    str_ohms = f"{val_ohms} Ω" if val_ohms not in [None, ""] else "N/D Ω"
+                    
+                    # Extraer y dar formato a Volts
+                    val_volts = item.get("campo_estatico_voltaje")
+                    str_volts = f"{val_volts} V" if val_volts not in [None, ""] else "N/D V"
+                    
+                    nombre = str(item.get("id_maquinaria", "Desconocido"))
+                    clasif = str(item.get("clasificacion", ""))
+
+                    # Crear la línea de texto para el PDF
+                    detalles_html.append(f"• <b>{nombre}</b> <span style='font-size: 10px; color:#555;'>({clasif})</span>: {str_ohms} | {str_volts}")
+                    
                     elementos_totales.append({
                         "estatus": item.get("resultado_estatus", "N/A"),
                         "proxima_fecha": item.get("fecha_proxima")
@@ -311,39 +341,38 @@ def obtener_datos_ruta_producto(ruta):
                     
             # 3. Procesar y consolidar la información de la estación
             if elementos_totales:
-                estatus_global = "VIGENTE" # Asumimos aprobado por defecto
+                estatus_global = "VIGENTE" # Asumimos vigente inicialmente
                 fechas_validas = []
                 
                 for el in elementos_totales:
                     est_upper = str(el["estatus"]).upper()
                     
-                    # Regla estricta: Si un solo elemento falla, la estación está en riesgo
-                    if "VENCIDO" in est_upper or "RECHAZADO" in est_upper or "FAIL" in est_upper or "PENDIENTE" in est_upper:
-                        estatus_global = "RECHAZADO / VENCIDO"
-                    elif estatus_global != "RECHAZADO / VENCIDO" and ("VIGENTE" in est_upper or "APROBADO" in est_upper):
-                        estatus_global = "VIGENTE"
+                    # Regla estricta: si uno solo está mal, la línea entera es "VENCIDO"
+                    if any(palabra in est_upper for palabra in ["VENCIDO", "RECHAZADO", "FAIL", "PENDIENTE"]):
+                        estatus_global = "VENCIDO"
                     
-                    # Recolectar fechas para encontrar la más próxima a vencer
+                    # Limpiar fecha
                     if el["proxima_fecha"] and str(el["proxima_fecha"]).strip() != "None":
-                        # Solo nos quedamos con la parte de la fecha (YYYY-MM-DD) por si trae horas
                         fecha_limpia = str(el["proxima_fecha"])[:10]
                         fechas_validas.append(fecha_limpia)
                 
-                # La próxima validación de la línea será la fecha del elemento que venza primero
                 proxima_val = min(fechas_validas) if fechas_validas else "Sin fecha"
+                
+                # Unir todos los equipos con un salto de línea de HTML
+                texto_detalle_final = "<br>".join(detalles_html)
                 
                 datos_ruta.append({
                     "Operación": estacion,
-                    "Última Medición": f"{len(elementos_totales)} elementos activos",
-                    "Estatus": estatus_global,
+                    "Última Medición": texto_detalle_final, # Ahora contiene la lista detallada
+                    "Estatus": estatus_global,              # Solo será "VIGENTE" o "VENCIDO"
                     "Próxima Validación": proxima_val
                 })
             else:
-                # Si la estación existe en el catálogo pero no tiene equipos ni mesas asignadas
+                # Si no hay equipos dados de alta en esa línea
                 datos_ruta.append({
                     "Operación": estacion,
-                    "Última Medición": "0 elementos registrados",
-                    "Estatus": "SIN DATOS",
+                    "Última Medición": "<i style='color:#888;'>Ningún equipo asignado o registrado en esta operación.</i>",
+                    "Estatus": "SIN DATOS",                 # Estatus exacto solicitado
                     "Próxima Validación": "N/A"
                 })
                 
