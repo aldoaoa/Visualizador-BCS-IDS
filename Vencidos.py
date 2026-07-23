@@ -1093,7 +1093,8 @@ with st.sidebar:
                     ("📱 Escáner QR", "Escáner"),
                     ("✅ Validación Integral", "Validación"),
                     ("🆕 Alta/Baja de Equipos", "Alta"),
-                    ("🏭 Maquinaria", "Maquinaria")
+                    ("🏭 Maquinaria", "Maquinaria"),
+                    (" Rutas de producto", "Rutas de Producto")
                 ],
                 "🧪 Pruebas y análisis": [
                     ("⚡ Event Meter", "Event Meter"),
@@ -9435,3 +9436,9 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
                                 st.success("✅ ¡Registros actualizados!")
                                 st.session_state.anomalias_entrenamiento = None
                                 st.rerun()
+
+# ==========================================
+# GESTIÓN DE PROYECTOS POR LÍNEAS DE PRODUCCIÓN
+# ==========================================
+elif st.session_state.vista_actual == "Rutas de Producto" and not st.session_state.modo_lectura:
+    gestionar_rutas_producto()
