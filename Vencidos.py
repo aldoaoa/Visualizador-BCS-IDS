@@ -3540,7 +3540,7 @@ elif st.session_state.vista_actual == "Escáner":
                         
                         freq = st.selectbox("Frecuencia de Verificación Normativa", ["Anual", "Semestral", "Trimestral", "Mensual", "Semanal", "Diario"])
                         
-                       if st.form_submit_button("💾 Guardar y Registrar en Base de Datos", type="primary", use_container_width=True):
+                        if st.form_submit_button("💾 Guardar y Registrar en Base de Datos", type="primary", use_container_width=True):
                             if not clasificacion.strip():
                                 st.error("⚠️ La clasificación es un campo obligatorio.")
                             else:
