@@ -272,41 +272,83 @@ def gestionar_rutas_producto():
 
 def obtener_datos_ruta_producto(ruta):
     """
-    Consulta en Supabase la última medición de cada línea en la ruta.
-    NOTA: Ajusta el nombre de la tabla ('validaciones_esd') y las columnas 
-    según la estructura real de tu base de datos.
+    Consulta en inventario_esd y mediciones_maquinaria todos los elementos 
+    pertenecientes a cada línea de la ruta y consolida su estado.
     """
     datos_ruta = []
     
     for estacion in ruta:
         try:
-            # Busca la última medición registrada para esta estación
-            # Cambia 'validaciones_esd' y 'linea' por tus nombres reales de tabla y columna
-            respuesta = supabase.table("validaciones_esd") \
-                .select("valor_medicion, estatus, fecha_proxima_validacion, created_at") \
-                .eq("linea", estacion) \
-                .order("created_at", desc=True) \
-                .limit(1) \
+            # 1. Consultar Mobiliario e Ionizadores
+            resp_inv = supabase.table("inventario_esd") \
+                .select("estatus_verificacion, fecha_proxima_verif") \
+                .eq("linea_ubicacion", estacion) \
                 .execute()
+                
+            # 2. Consultar Maquinaria
+            resp_maq = supabase.table("mediciones_maquinaria") \
+                .select("resultado_estatus, fecha_proxima") \
+                .eq("linea_ubicacion", estacion) \
+                .execute()
+                
+            elementos_totales = []
             
-            if respuesta.data:
-                registro = respuesta.data[0]
+            # Recopilar datos de inventario
+            if resp_inv.data:
+                for item in resp_inv.data:
+                    elementos_totales.append({
+                        "estatus": item.get("estatus_verificacion", "N/A"),
+                        "proxima_fecha": item.get("fecha_proxima_verif")
+                    })
+                    
+            # Recopilar datos de maquinaria
+            if resp_maq.data:
+                for item in resp_maq.data:
+                    elementos_totales.append({
+                        "estatus": item.get("resultado_estatus", "N/A"),
+                        "proxima_fecha": item.get("fecha_proxima")
+                    })
+                    
+            # 3. Procesar y consolidar la información de la estación
+            if elementos_totales:
+                estatus_global = "VIGENTE" # Asumimos aprobado por defecto
+                fechas_validas = []
+                
+                for el in elementos_totales:
+                    est_upper = str(el["estatus"]).upper()
+                    
+                    # Regla estricta: Si un solo elemento falla, la estación está en riesgo
+                    if "VENCIDO" in est_upper or "RECHAZADO" in est_upper or "FAIL" in est_upper or "PENDIENTE" in est_upper:
+                        estatus_global = "RECHAZADO / VENCIDO"
+                    elif estatus_global != "RECHAZADO / VENCIDO" and ("VIGENTE" in est_upper or "APROBADO" in est_upper):
+                        estatus_global = "VIGENTE"
+                    
+                    # Recolectar fechas para encontrar la más próxima a vencer
+                    if el["proxima_fecha"] and str(el["proxima_fecha"]).strip() != "None":
+                        # Solo nos quedamos con la parte de la fecha (YYYY-MM-DD) por si trae horas
+                        fecha_limpia = str(el["proxima_fecha"])[:10]
+                        fechas_validas.append(fecha_limpia)
+                
+                # La próxima validación de la línea será la fecha del elemento que venza primero
+                proxima_val = min(fechas_validas) if fechas_validas else "Sin fecha"
+                
                 datos_ruta.append({
                     "Operación": estacion,
-                    "Última Medición": registro.get("valor_medicion", "N/A"),
-                    "Estatus": registro.get("estatus", "N/A"),
-                    "Próxima Validación": registro.get("fecha_proxima_validacion", "N/A")
+                    "Última Medición": f"{len(elementos_totales)} elementos activos",
+                    "Estatus": estatus_global,
+                    "Próxima Validación": proxima_val
                 })
             else:
-                # Si no hay registros previos
+                # Si la estación existe en el catálogo pero no tiene equipos ni mesas asignadas
                 datos_ruta.append({
                     "Operación": estacion,
-                    "Última Medición": "Sin registro",
-                    "Estatus": "Pendiente / Sin Datos",
+                    "Última Medición": "0 elementos registrados",
+                    "Estatus": "SIN DATOS",
                     "Próxima Validación": "N/A"
                 })
+                
         except Exception as e:
-            st.error(f"Error al consultar la línea {estacion}: {e}")
+            st.error(f"Error al consolidar datos para la línea {estacion}: {e}")
             
     return pd.DataFrame(datos_ruta)
 
