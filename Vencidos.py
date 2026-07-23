@@ -353,77 +353,122 @@ def obtener_datos_ruta_producto(ruta):
     return pd.DataFrame(datos_ruta)
 
 
-def generar_html_reporte_ruta(nombre_producto, df_ruta):
-    """
-    Genera la estructura HTML (estilo PDF) del reporte del producto.
-    Compatible con los reportes de Programación que ya tienes.
-    """
-    fecha_hoy = datetime.today().strftime("%d-%b-%Y %H:%M")
+def generar_html_reporte_ruta(nombre_producto, df_ruta, auditor="Sistema ESD", comentarios="Sin observaciones.", db_id=1):
+    año_actual = datetime.today().strftime("%y")
+    fecha_hoy = datetime.today().strftime("%d-%b-%Y")
+    fecha_pie = datetime.today().strftime("%Y/%m/%d")
     
+    # Construir las filas de la tabla basadas en las operaciones de la ruta
     filas_html = ""
-    for idx, row in df_ruta.iterrows():
-        # Lógica de colores según el status
-        estatus = row.get('Estatus', '').lower()
-        if "aprobado" in estatus or "pass" in estatus:
-            color = "#28a745" # Verde
-        elif "rechazado" in estatus or "fail" in estatus or "vencido" in estatus:
-            color = "#dc3545" # Rojo
+    for i, row in enumerate(df_ruta.to_dict('records'), 1):
+        operacion = str(row.get('Operación', 'N/D'))
+        detalle_activos = str(row.get('Última Medición', 'N/D')) 
+        vencimiento = str(row.get('Próxima Validación', 'N/D'))
+        estatus_raw = str(row.get('Estatus', '')).upper()
+        
+        # Limpiar el emoji del estatus si viene con él
+        estatus_limpio = estatus_raw.replace('🟢', '').replace('🔴', '').replace('🟡', '').strip()
+        
+        # Lógica de semáforo
+        if "VIGENTE" in estatus_limpio or "PASA" in estatus_limpio or "APROBADO" in estatus_limpio:
+            color_txt = "text-green-600"
+        elif "VENCIDO" in estatus_limpio or "FALLA" in estatus_limpio or "RECHAZADO" in estatus_limpio:
+            color_txt = "text-red-600"
         else:
-            color = "#ffc107" # Amarillo / Naranja
-            
+            color_txt = "text-yellow-600"
+        
         filas_html += f"""
-        <tr>
-            <td style="padding: 10px; border: 1px solid #ddd; text-align: center; font-weight: bold;">{idx + 1}</td>
-            <td style="padding: 10px; border: 1px solid #ddd;"><b>{row['Operación']}</b></td>
-            <td style="padding: 10px; border: 1px solid #ddd; text-align: center;">{row['Última Medición']}</td>
-            <td style="padding: 10px; border: 1px solid #ddd; text-align: center; color: {color}; font-weight: bold;">{row['Estatus'].upper()}</td>
-            <td style="padding: 10px; border: 1px solid #ddd; text-align: center;">{row['Próxima Validación']}</td>
+        <tr class="text-center border-b border-gray-300 print:border-black">
+            <td class="border-r border-gray-300 p-2 print:border-black">{i}</td>
+            <td class="border-r border-gray-300 p-2 font-bold text-left print:border-black text-[#003366]">{operacion}</td>
+            <td class="border-r border-gray-300 p-2 text-left print:border-black">{detalle_activos}</td>
+            <td class="border-r border-gray-300 p-2 font-mono print:border-black">{vencimiento}</td>
+            <td class="p-2 font-bold {color_txt}">{estatus_limpio}</td>
         </tr>
         """
         
-    html = f"""
-    <html>
-    <head>
-        <meta charset="utf-8">
-        <style>
-            body {{ font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; margin: 40px; color: #333; }}
-            .header {{ text-align: center; border-bottom: 3px solid #0056b3; padding-bottom: 15px; margin-bottom: 30px; }}
-            .title {{ font-size: 26px; font-weight: bold; color: #0056b3; }}
-            .subtitle {{ font-size: 16px; color: #555; margin-top: 8px; }}
-            table {{ width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 14px; }}
-            th {{ background-color: #0056b3; color: white; padding: 12px; text-align: center; border: 1px solid #004494; }}
-            .footer {{ margin-top: 50px; font-size: 11px; color: #888; text-align: center; border-top: 1px solid #ddd; padding-top: 10px; }}
-        </style>
-    </head>
-    <body>
-        <div class="header">
-            <div class="title">Reporte Integral de Ruta ESD</div>
-            <div class="subtitle">Producto: <b>{nombre_producto}</b> | Generado el: {fecha_hoy}</div>
+    html = f"""<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>BCS-RUT-{db_id:03d}-{año_actual}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>@media print {{ body {{ -webkit-print-color-adjust: exact; }} }}</style>
+</head>
+<body class="bg-gray-100 p-4 md:p-8 font-sans text-sm print:bg-white print:p-0">
+    <div class="max-w-5xl mx-auto mb-6 bg-white p-4 rounded-lg shadow flex justify-end print:hidden">
+        <button onclick="window.print()" class="bg-blue-600 text-white px-6 py-2 rounded font-bold shadow-sm">🖨️ Imprimir / Guardar PDF</button>
+    </div>
+    <div class="max-w-5xl mx-auto bg-white shadow-xl print:shadow-none print:w-full print:border print:border-black">
+        <div class="border-b-2 border-gray-800 p-6 flex items-start justify-between print:border-black">
+            <div class="w-1/3">
+                <img src="https://github.com/aldoaoa/Visualizador-BCS-IDS/blob/main/BCS%20LOGO.png?raw=true" alt="BCS Logo" class="h-16 object-contain" />
+            </div>
+            <div class="w-1/3 text-center">
+                <h1 class="text-lg font-bold text-gray-800">REPORTE DE VALIDACIÓN DE RUTA (ESD)</h1>
+                <p class="text-xs text-gray-600">Cumplimiento Integral ANSI/ESD S20.20</p>
+            </div>
+            <div class="w-1/3 text-right text-sm">
+                <div class="font-bold text-red-700 text-lg mb-2">Folio: BCS-RUT-{db_id:03d}-{año_actual}</div>
+                <div class="flex justify-end gap-2 mb-1">
+                    <span class="font-bold">Fecha de Emisión:</span><span>{fecha_hoy}</span>
+                </div>
+            </div>
         </div>
-        
-        <h4 style="color: #444;">Secuencia de Operaciones y Estado Actual de Validación:</h4>
-        <table>
-            <thead>
-                <tr>
-                    <th width="5%">Paso</th>
-                    <th width="35%">Línea / Operación</th>
-                    <th width="20%">Última Medición</th>
-                    <th width="20%">Estatus ESD</th>
-                    <th width="20%">Próxima Validación</th>
-                </tr>
-            </thead>
-            <tbody>
-                {filas_html}
-            </tbody>
-        </table>
-        
-        <div class="footer">
-            Documento generado automáticamente por el Sistema de Gestión ESD BCS-AIS QUERÉTARO.<br>
-            <i>Las fechas y valores reflejan el estatus en tiempo real al momento de la descarga.</i>
+
+        <div class="p-6 space-y-6">
+            <div class="bg-gray-100 p-4 border border-gray-300 rounded print:border-black print:bg-transparent">
+                <div class="grid grid-cols-2 gap-4">
+                    <div><span class="font-bold text-[#003366]">Producto Evaluado:</span> <span class="text-lg font-bold">{nombre_producto}</span></div>
+                    <div><span class="font-bold text-[#003366]">Generado por:</span> {auditor}</div>
+                </div>
+            </div>
+
+            <div>
+                <div class="bg-[#003366] text-white font-bold px-2 py-1 uppercase text-xs print:bg-black">Secuencia de Operaciones y Estatus de Estaciones</div>
+                <table class="w-full text-sm border-collapse border border-gray-300 print:border-black">
+                    <tr class="bg-gray-200 border-b border-gray-300 print:bg-transparent print:border-black">
+                        <th class="p-2 border-r border-gray-300 print:border-black w-10">Paso</th>
+                        <th class="p-2 border-r border-gray-300 print:border-black text-left">Línea / Operación</th>
+                        <th class="p-2 border-r border-gray-300 print:border-black text-left">Detalle de Activos Evaluados</th>
+                        <th class="p-2 border-r border-gray-300 print:border-black">Próx. Vencimiento</th>
+                        <th class="p-2 border-r border-gray-300 print:border-black w-32">Estatus Global</th>
+                    </tr>
+                    {filas_html}
+                </table>
+            </div>
+
+            <div class="mt-4 border border-gray-300 p-3 bg-gray-50 print:border-black print:bg-transparent">
+                <div class="font-bold text-[#003366] text-xs uppercase mb-1 print:text-black">Comentarios / Observaciones de la Ruta:</div>
+                <div class="text-sm">{comentarios}</div>
+            </div>
+
+            <div class="mt-16 mb-8 pt-8 [page-break-inside:avoid]">
+                <div class="w-1/2 mx-auto text-center border-t-2 border-gray-800 pt-2 print:border-black">
+                    <div class="font-bold uppercase text-sm mb-1">REVISADO POR:</div>
+                    <div class="text-center font-bold text-gray-700 print:text-black">{auditor}</div>
+                    <div class="text-xs text-gray-500">Aseguramiento de Calidad / ESD</div>
+                </div>
+            </div>
+            
+            <div class="border-t-[3px] border-b-[3px] border-black mt-16 py-1 text-[11px] font-sans [page-break-inside:avoid]">
+                <div class="flex justify-between items-end">
+                    <div class="text-left leading-tight">
+                        <div>B_010_4_013_QRO_SP Rev. A</div>
+                        <div>Registro de trazabilidad de ruta.</div>
+                    </div>
+                    <div class="text-center leading-tight">
+                        <div>Fecha: {fecha_pie}</div>
+                    </div>
+                    <div class="text-right leading-tight">
+                        <div>Ref.B_010_3_002_QRO_SP</div>
+                    </div>
+                </div>
+            </div>
         </div>
-    </body>
-    </html>
-    """
+    </div>
+</body>
+</html>"""
     return html
 
 def generar_html_reporte_calificaciones(df_calif, auditor):
