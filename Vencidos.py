@@ -616,20 +616,24 @@ def generar_html_reporte_ruta(nombre_producto, df_ruta, fig_mapa=None, auditor="
     mapa_html = ""
     if fig_mapa is not None:
         try:
-            # Convertimos la gráfica a PNG en memoria (requiere la librería 'kaleido')
-            img_bytes = fig_mapa.to_image(format="png", width=1000, height=500, scale=2)
-            img_base64 = base64.b64encode(img_bytes).decode('utf-8')
+            # Alternativa 1: Exportación estática sin Kaleido (usando orca o el renderizador interno)
+            # A veces to_image() falla si el engine no está bien configurado en el server.
+            # En Streamlit Cloud, la forma más segura de meter un Plotly en un HTML crudo
+            # es generar el DIV interactivo de Plotly en lugar de una imagen estática.
+            
+            html_grafica = fig_mapa.to_html(full_html=False, include_plotlyjs='cdn')
             
             mapa_html = f"""
             <div class="mt-4 mb-6 [page-break-inside:avoid]">
                 <div class="bg-[#003366] text-white font-bold px-2 py-1 uppercase text-xs print:bg-black">Diagrama de Flujo Físico en Planta</div>
-                <div class="border border-gray-300 p-2 bg-gray-50 flex justify-center print:border-black print:bg-transparent">
-                    <img src="data:image/png;base64,{img_base64}" alt="Mapa de Ruta" style="max-width: 100%; height: auto;" />
+                <div class="border border-gray-300 p-2 bg-gray-50 print:border-black print:bg-transparent">
+                    {html_grafica}
                 </div>
+                <div class="text-[10px] text-gray-500 mt-1 italic print:hidden">Nota: El mapa es interactivo en la versión digital. Al imprimir, el navegador capturará la vista actual.</div>
             </div>
             """
         except Exception as e:
-            mapa_html = f"<div class='text-red-500 text-xs mb-4'>⚠️ No se pudo incrustar el mapa visual. Asegúrate de tener instalada la librería 'kaleido' (Error: {e})</div>"
+            mapa_html = f"<div class='text-red-500 text-xs mb-4'>⚠️ No se pudo inyectar el mapa. Error: {e}</div>"
 
     # ---------------------------------------------------------
     # 2. CONSTRUIR FILAS DE LA TABLA DE OPERACIONES
