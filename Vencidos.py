@@ -345,10 +345,13 @@ def crear_mapa_ruta(ruta_lineas, df_coords):
     textos_hover = []
     
     for i, estacion in enumerate(ruta_lineas):
-        # Buscar la coordenada de esta estación
-        match = df_coords[df_coords['Nombre_Ubicacion'].str.upper() == str(estacion).upper()]
+        # 🔴 CAMBIA 'Nombre_Ubicacion' por el nombre real de tu columna en el CSV
+        # Ejemplos comunes: 'Linea', 'Ubicacion', 'nombre'
+        match = df_coords[df_coords['Línea'].astype(str).str.upper() == str(estacion).upper()]
+        
         if not match.empty:
-            cx = match.iloc[0]['X']
+            # 🔴 Si tus columnas de coordenadas no se llaman 'X' y 'Y' mayúsculas, cámbialas también
+            cx = match.iloc[0]['X'] 
             cy = match.iloc[0]['Y']
             coords_ruta.append((cx, cy))
             textos_hover.append(f"Paso {i+1}: {estacion}")
