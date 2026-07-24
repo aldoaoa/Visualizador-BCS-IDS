@@ -440,52 +440,48 @@ def crear_mapa_ruta(ruta_grupos, df_coords):
     return fig
     
 def obtener_datos_ruta_producto(ruta_grupos):
+    """
+    Consulta en el catálogo maestro y el historial para construir el reporte de ruta,
+    soportando estaciones paralelas (grupos/bifurcaciones).
+    """
     datos_ruta = []
     
-    # Asegurar que es lista de listas
+    # 1. Asegurar que es una lista de listas (incluso si era una ruta simple antigua)
     if ruta_grupos and not isinstance(ruta_grupos[0], list):
         ruta_grupos = [[e] for e in ruta_grupos]
-    
+        
     for paso_idx, grupo in enumerate(ruta_grupos):
-        # 1. Obtenemos el Catálogo Maestro para TODAS las estaciones de este paso
-        activos_maestros = []
         try:
+            # Unimos los nombres del grupo para el reporte (Ej: "Router 1 / Router 2")
+            nombre_paso = f"Paso {paso_idx + 1}: " + " / ".join(grupo)
+            
+            # -------------------------------------------------------------
+            # 2. OBTENER EL "DEBER SER": EL CATÁLOGO MAESTRO PARA TODO EL GRUPO
+            # -------------------------------------------------------------
             resp_master = supabase.table("catalogo_maestro_activos") \
                 .select("*") \
                 .in_("linea_ubicacion", grupo) \
                 .eq("estatus_operativo", "OPERATIVO") \
                 .order("tipo_categoria", desc=False) \
                 .execute()
+                
             activos_maestros = resp_master.data if resp_master.data else []
-        except Exception as e:
-            print(f"Error consultando maestros: {e}")
+            
+            # Si el grupo no tiene activos maestros registrados
+            if not activos_maestros:
+                datos_ruta.append({
+                    "Operación": nombre_paso,
+                    "Última Medición": "<i style='color:#888; font-size:11px;'>No hay equipos asignados a estas estaciones en el Catálogo Maestro.</i>",
+                    "Estatus": "SIN DATOS",
+                    "Próxima Validación": "N/A"
+                })
+                continue
 
-        # Unimos los nombres del grupo para el reporte (Ej: "Router 1, Router 2")
-        nombre_paso = f"Paso {paso_idx + 1}: " + " / ".join(grupo)
-
-        # Si el grupo no tiene activos maestros registrados
-        if not activos_maestros:
-            datos_ruta.append({
-                "Operación": nombre_paso,
-                "Última Medición": "<i style='color:#888; font-size:11px;'>No hay equipos asignados a estas estaciones en el Catálogo Maestro.</i>",
-                "Estatus": "SIN DATOS",
-                "Próxima Validación": "N/A"
-            })
-            continue
-
-        # 2. OBTENER LAS MEDICIONES MÁS RECIENTES (Historial) para TODAS las estaciones del grupo
-        # (El resto del código de la función obtener_datos_ruta_producto queda igual,
-        # solo asegúrate de cambiar los .ilike() por .in_() para que busque en la lista 'grupo'.)
-        
-        try:
+            # -------------------------------------------------------------
+            # 3. OBTENER LAS MEDICIONES MÁS RECIENTES (Historial)
+            # -------------------------------------------------------------
             resp_maq = supabase.table("mediciones_maquinaria").select("*").in_("linea_ubicacion", grupo).order("fecha_medicion", desc=True).execute()
             resp_inv = supabase.table("inventario_esd").select("*").in_("linea_ubicacion", grupo).order("fecha_ultima_verif", desc=True).execute()
-        except:
-            resp_maq, resp_inv = None, None
-            
-        # ... Continúa con el resto de tu código normal (mediciones_recientes, filas_activos, etc) ...
-        # Solo asegúrate de agregar los datos usando la variable 'nombre_paso':
-        # datos_ruta.append({ "Operación": nombre_paso, ... })
             
             # Crear un diccionario unificado para búsqueda rápida de mediciones
             mediciones_recientes = {}
@@ -502,15 +498,16 @@ def obtener_datos_ruta_producto(ruta_grupos):
                         mediciones_recientes[id_p] = item
 
             # -------------------------------------------------------------
-            # 3. CRUZAR CATÁLOGO VS MEDICIONES REALES
+            # 4. CRUZAR CATÁLOGO VS MEDICIONES REALES
             # -------------------------------------------------------------
             filas_activos = []
             elementos_evaluados = []
             
             for activo in activos_maestros:
                 id_activo = activo.get("id_activo")
-                tipo_cat = activo.get("tipo_categoria", "MAQUINARIA").upper()
+                tipo_cat = str(activo.get("tipo_categoria", "MAQUINARIA")).upper()
                 clasif = str(activo.get("clasificacion", "")).strip()
+                ubic_activo = str(activo.get("linea_ubicacion", ""))
                 prefijo = "[MAQ]" if "MAQ" in tipo_cat else "[MOB]"
                 
                 # Buscar si el activo maestro tiene una medición real
@@ -521,22 +518,22 @@ def obtener_datos_ruta_producto(ruta_grupos):
                     if "MAQ" in tipo_cat:
                         val_ohms = medicion.get("resistencia_tierra")
                         try: str_ohms = f"{float(val_ohms):.2f} Ω" if val_ohms not in [None, "", "N/D"] else "N/D Ω"
-                        except: str_ohms = f"{val_ohms} Ω"
+                        except (ValueError, TypeError): str_ohms = f"{val_ohms} Ω"
                         
                         val_volts = medicion.get("campo_estatico_voltaje")
                         try: str_volts = f"{float(val_volts):.1f} V" if val_volts not in [None, "", "N/D"] else "N/D V"
-                        except: str_volts = f"{val_volts} V"
+                        except (ValueError, TypeError): str_volts = f"{val_volts} V"
                         
                         estatus_item = str(medicion.get("resultado_estatus", "PENDIENTE")).strip().upper()
                         fecha_prox = medicion.get("fecha_proxima")
                     else:
                         val_ohms = medicion.get("valor_actual")
                         try: str_ohms = f"{float(val_ohms):.2e}".replace("e+0", "e+").replace("e-0", "e-") + " Ω" if val_ohms not in [None, "", "N/D"] else "N/D Ω"
-                        except: str_ohms = f"{val_ohms} Ω"
+                        except (ValueError, TypeError): str_ohms = f"{val_ohms} Ω"
                         
                         val_volts = medicion.get("balance_ionizador")
                         try: str_volts = f"{float(val_volts):.1f} V" if val_volts not in [None, "", "N/D"] else "N/D V"
-                        except: str_volts = f"{val_volts} V"
+                        except (ValueError, TypeError): str_volts = f"{val_volts} V"
                         
                         estatus_item = str(medicion.get("estatus_verificacion", "PENDIENTE")).strip().upper()
                         fecha_prox = medicion.get("fecha_proxima_verif")
@@ -550,13 +547,13 @@ def obtener_datos_ruta_producto(ruta_grupos):
                     # ❌ EL EQUIPO ESTÁ EN EL CATÁLOGO PERO NUNCA SE HA MEDIDO
                     str_ohms = "<span style='color:#dc2626;'>SIN MEDIR</span>"
                     str_volts = "<span style='color:#dc2626;'>SIN MEDIR</span>"
-                    badge_color, est_badge = "#ea580c", "SIN DATOS" # Naranja alerta
+                    badge_color, est_badge = "#ea580c", "SIN DATOS" 
                     fecha_prox = None
                 
-                # Insertar fila tabular
+                # Insertar fila tabular (Añadí la ubicación del activo en gris para más claridad)
                 filas_activos.append(f"""
                 <tr style="border-bottom: 1px dashed #e5e7eb;">
-                    <td style="padding: 3px 5px; text-align: left;"><b>{prefijo} {id_activo}</b> <span style="font-size:10px; color:#6b7280;">({clasif})</span></td>
+                    <td style="padding: 3px 5px; text-align: left;"><b>{prefijo} {id_activo}</b> <span style="font-size:10px; color:#6b7280;">({ubic_activo})</span></td>
                     <td style="padding: 3px 5px; text-align: right; font-family: monospace;">{str_ohms}</td>
                     <td style="padding: 3px 5px; text-align: right; font-family: monospace;">{str_volts}</td>
                     <td style="padding: 3px 5px; text-align: center; font-weight: bold; color: {badge_color};">{est_badge}</td>
@@ -566,13 +563,12 @@ def obtener_datos_ruta_producto(ruta_grupos):
                 elementos_evaluados.append({"estatus": est_badge, "proxima_fecha": fecha_prox})
 
             # -------------------------------------------------------------
-            # 4. EVALUAR ESTATUS GLOBAL (Ahora penaliza la falta de datos)
+            # 5. EVALUAR ESTATUS GLOBAL DEL PASO
             # -------------------------------------------------------------
             estatus_global = "VIGENTE"
             fechas_validas = []
             
             for el in elementos_evaluados:
-                # Prioridad de alertas: 1. Vencido, 2. Incompleto (Sin datos)
                 if el["estatus"] == "VENCIDO":
                     estatus_global = "VENCIDO" 
                 elif el["estatus"] == "SIN DATOS" and estatus_global != "VENCIDO":
@@ -583,12 +579,11 @@ def obtener_datos_ruta_producto(ruta_grupos):
             
             proxima_val = min(fechas_validas) if fechas_validas else "N/A"
             
-            # Ensamblar tabla HTML
             tabla_detalle_html = f"""
             <table style="width:100%; border-collapse:collapse; font-size:11px; margin: 2px 0;">
                 <thead>
                     <tr style="border-bottom: 1.5px solid #003366; color: #003366; background-color: #f8fafc;">
-                        <th style="padding: 3px 5px; text-align: left; width: 42%;">Activo / Tipo</th>
+                        <th style="padding: 3px 5px; text-align: left; width: 42%;">Activo (Ubicación)</th>
                         <th style="padding: 3px 5px; text-align: right; width: 23%;">Resistencia</th>
                         <th style="padding: 3px 5px; text-align: right; width: 17%;">Voltaje</th>
                         <th style="padding: 3px 5px; text-align: center; width: 18%;">Estatus</th>
@@ -608,7 +603,7 @@ def obtener_datos_ruta_producto(ruta_grupos):
             })
                 
         except Exception as e:
-            st.error(f"Error al procesar la línea {estacion}: {e}")
+            st.error(f"Error al procesar el paso {paso_idx + 1}: {e}")
             
     return pd.DataFrame(datos_ruta)
 
