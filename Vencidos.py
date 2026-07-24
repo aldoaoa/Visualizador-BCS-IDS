@@ -237,57 +237,172 @@ def gestionar_rutas_producto():
     # 4. Visualización de Productos y Rutas Secuenciales Registradas
     st.markdown("#### 🗺️ Diagrama y Reportes de Rutas por Producto")
     
+    # Cargar coordenadas (Asegúrate de que RUTA_COORDENADAS esté definida)
+    try:
+        df_coordenadas = pd.read_csv(RUTA_COORDENADAS)
+    except:
+        df_coordenadas = pd.DataFrame()
+        
     try:
         resp_prod = supabase.table("catalogo_productos").select("*").order("created_at", desc=True).execute()
         
         if resp_prod.data:
             for prod in resp_prod.data:
                 nombre = prod.get("nombre_producto", "Sin Nombre")
-                ruta = prod.get("lineas_asociadas", [])
+                ruta_actual = prod.get("lineas_asociadas", [])
                 
-                with st.expander(f"📦 **{nombre}** ({len(ruta)} Estaciones)", expanded=False):
-                    if isinstance(ruta, list) and len(ruta) > 0:
-                        # ===== SECCIÓN VISUAL (Diagrama de secuencia) =====
-                        st.markdown("**Secuencia de Producción:**")
-                        cols = st.columns(min(len(ruta), 6))
-                        for idx, estacion in enumerate(ruta):
-                            col_idx = idx % 6
-                            with cols[col_idx]:
-                                st.metric(label=f"Paso {idx + 1}", value=estacion)
-                        
-                        # --- RECUPERACIÓN DEL TEXTO EN COLOR VERDE ---
-                        flujo_texto = " ➔ ".join([f"[{i+1}] {e}" for i, e in enumerate(ruta)])
-                        st.success(f"**Flujo completo:** {flujo_texto}")
-                        
-                        # ===== SECCIÓN DE GENERACIÓN DE REPORTE =====
-                        st.divider()
-                        col_info, col_boton = st.columns([2, 1])
-                        
-                        with col_info:
-                            st.caption(f"Genera un documento con el estado ESD actual (medición y fecha de caducidad) de las {len(ruta)} líneas de este producto.")
-                        
-                        with col_boton:
-                            if st.button(f"📊 Preparar Reporte de '{nombre}'", key=f"btn_prep_{nombre}"):
-                                with st.spinner('Consultando estatus de las líneas...'):
-                                    df_ruta_status = obtener_datos_ruta_producto(ruta)
-                                    html_reporte = generar_html_reporte_ruta(nombre, df_ruta_status)
-                                    
-                                    st.download_button(
-                                        label=f"📥 Descargar Reporte (Formato Web/PDF)",
-                                        data=html_reporte,
-                                        file_name=f"Reporte_Ruta_{nombre.replace(' ', '_')}.html",
-                                        mime="text/html",
-                                        key=f"dl_btn_{nombre}"
-                                    )
-                    else:
-                        st.warning("Sin ruta de líneas definida.")
+                with st.expander(f"📦 **{nombre}** ({len(ruta_actual)} Estaciones)", expanded=False):
+                    
+                    # --- PESTAÑAS INTERNAS DE LA TARJETA ---
+                    tab_visual, tab_editar = st.tabs(["👁️ Visualizar Ruta", "✏️ Editar Secuencia"])
+                    
+                    with tab_visual:
+                        if isinstance(ruta_actual, list) and len(ruta_actual) > 0:
+                            # 1. Indicadores Métricos
+                            st.markdown("**Secuencia de Producción:**")
+                            cols = st.columns(min(len(ruta_actual), 6))
+                            for idx, estacion in enumerate(ruta_actual):
+                                col_idx = idx % 6
+                                with cols[col_idx]:
+                                    st.metric(label=f"Paso {idx + 1}", value=estacion)
+                            
+                            # 2. Mapa Interactivo Plotly
+                            if not df_coordenadas.empty:
+                                fig_mapa = crear_mapa_ruta(ruta_actual, df_coordenadas)
+                                if fig_mapa:
+                                    st.markdown("##### 📍 Layout de la Planta")
+                                    st.plotly_chart(fig_mapa, use_container_width=True, config={'displayModeBar': False})
+                                else:
+                                    st.caption("No se pudieron trazar las coordenadas en el mapa.")
+                            
+                            # 3. Reporte PDF
+                            st.divider()
+                            col_info, col_boton = st.columns([2, 1])
+                            with col_info:
+                                st.caption("Genera un reporte del estado ESD actual de esta ruta.")
+                            with col_boton:
+                                if st.button(f"📊 Preparar Reporte", key=f"btn_prep_{nombre}"):
+                                    with st.spinner('Consultando estatus...'):
+                                        df_ruta_status = obtener_datos_ruta_producto(ruta_actual)
+                                        html_reporte = generar_html_reporte_ruta(nombre, df_ruta_status, auditor=st.session_state.get("usuario_nombre", "Auditor"))
+                                        
+                                        st.download_button(
+                                            label=f"📥 Descargar PDF/HTML",
+                                            data=html_reporte,
+                                            file_name=f"Ruta_{nombre.replace(' ', '_')}.html",
+                                            mime="text/html",
+                                            key=f"dl_btn_{nombre}"
+                                        )
+                        else:
+                            st.warning("Sin ruta definida.")
+                            
+                    with tab_editar:
+                        # Formulario para reordenar o cambiar las líneas
+                        st.info("💡 **Edita la ruta:** Elimina líneas, agrega nuevas, o bórralas todas y vuelve a seleccionarlas en el orden correcto.")
+                        with st.form(f"form_editar_{nombre}"):
+                            # Pre-poblar el multiselect con la ruta actual
+                            # (El orden en el multiselect siempre respeta el orden de la lista 'default')
+                            nueva_ruta = st.multiselect(
+                                "Modificar secuencia (El orden de selección define el flujo):",
+                                options=lineas_disponibles if 'lineas_disponibles' in locals() else ruta_actual,
+                                default=ruta_actual
+                            )
+                            
+                            if st.form_submit_button("💾 Guardar Nueva Secuencia", type="primary"):
+                                if not nueva_ruta:
+                                    st.error("⚠️ La ruta no puede estar vacía.")
+                                else:
+                                    try:
+                                        # Actualizar en Supabase
+                                        supabase.table("catalogo_productos").update(
+                                            {"lineas_asociadas": nueva_ruta}
+                                        ).eq("nombre_producto", nombre).execute()
+                                        
+                                        st.success("✅ Ruta actualizada exitosamente.")
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"Error al actualizar: {e}")
+
         else:
             st.info("Aún no hay productos ni rutas registradas.")
             
     except Exception as e:
         st.error(f"Error al cargar las rutas de productos: {e}")
 
+def crear_mapa_ruta(ruta_lineas, df_coords):
+    """
+    Genera un mapa de Plotly trazando la ruta del producto.
+    """
+    try:
+        # Cargar la imagen de fondo (Asegúrate de que RUTA_MAPA esté definida)
+        img = Image.open(RUTA_MAPA)
+        img_w, img_h = img.size
+    except Exception:
+        return None # Falla silenciosa si no hay mapa
 
+    # Filtrar las coordenadas que pertenecen a la ruta y mantener el orden
+    coords_ruta = []
+    textos_hover = []
+    
+    for i, estacion in enumerate(ruta_lineas):
+        # Buscar la coordenada de esta estación
+        match = df_coords[df_coords['Nombre_Ubicacion'].str.upper() == str(estacion).upper()]
+        if not match.empty:
+            cx = match.iloc[0]['X']
+            cy = match.iloc[0]['Y']
+            coords_ruta.append((cx, cy))
+            textos_hover.append(f"Paso {i+1}: {estacion}")
+
+    if not coords_ruta:
+        return None # No hay coordenadas coincidentes
+
+    x_vals = [c[0] for c in coords_ruta]
+    y_vals = [c[1] for c in coords_ruta]
+
+    # Crear la figura
+    fig = go.Figure()
+
+    # Trazar la línea que conecta los puntos
+    fig.add_trace(go.Scatter(
+        x=x_vals, y=y_vals,
+        mode='lines+markers',
+        marker=dict(size=12, color='#0052cc', symbol='circle'),
+        line=dict(width=4, color='#0052cc', dash='solid'),
+        text=textos_hover,
+        hoverinfo='text',
+        name='Ruta del Producto'
+    ))
+    
+    # Agregar flechas direccionales (anotaciones)
+    for i in range(len(x_vals) - 1):
+        fig.add_annotation(
+            ax=x_vals[i], ay=y_vals[i],
+            x=x_vals[i+1], y=y_vals[i+1],
+            showarrow=True,
+            arrowhead=2, arrowsize=1.5, arrowwidth=2, arrowcolor='#0052cc',
+            standoff=10 # Separa un poco la flecha del punto
+        )
+
+    # Configurar el fondo de la imagen
+    fig.update_layout(
+        images=[dict(
+            source=img,
+            xref="x", yref="y",
+            x=0, y=img_h,
+            sizex=img_w, sizey=img_h,
+            sizing="stretch",
+            opacity=0.8,
+            layer="below"
+        )],
+        xaxis=dict(visible=False, range=[0, img_w]),
+        yaxis=dict(visible=False, range=[0, img_h], scaleanchor="x", scaleratio=1),
+        margin=dict(l=0, r=0, t=0, b=0),
+        height=400,
+        showlegend=False
+    )
+    
+    return fig
+    
 def obtener_datos_ruta_producto(ruta):
     datos_ruta = []
     
