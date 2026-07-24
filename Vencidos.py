@@ -305,28 +305,41 @@ def gestionar_rutas_producto():
                             st.warning("Sin ruta definida.")
                             
                     with tab_editar:
-                        # Formulario para reordenar o cambiar las líneas
-                        st.info("💡 **Edita la ruta:** Elimina líneas, agrega nuevas, o bórralas todas y vuelve a seleccionarlas en el orden correcto.")
+                        st.info("💡 **Edita la ruta:** Agrega los pasos en orden. Si en un paso hay varias máquinas equivalentes (ej. Router 1, 2 y 3), selecciónalas todas dentro de ese mismo paso.")
+                        
+                        # Convertir a lista de listas si viene plana del pasado
+                        ruta_editable = ruta_actual if (ruta_actual and isinstance(ruta_actual[0], list)) else [[e] for e in ruta_actual]
+                        
                         with st.form(f"form_editar_{nombre}"):
-                            # Pre-poblar el multiselect con la ruta actual
-                            # (El orden en el multiselect siempre respeta el orden de la lista 'default')
-                            nueva_ruta = st.multiselect(
-                                "Modificar secuencia (El orden de selección define el flujo):",
-                                options=lineas_disponibles if 'lineas_disponibles' in locals() else ruta_actual,
-                                default=ruta_actual
-                            )
+                            # Selector de cuántos pasos tiene el proceso
+                            num_pasos = st.number_input("Cantidad de Pasos en el Proceso", min_value=1, max_value=20, value=max(1, len(ruta_editable)))
+                            
+                            nueva_ruta_agrupada = []
+                            for i in range(int(num_pasos)):
+                                # Si ya existía este paso, cargamos sus datos por defecto
+                                default_vals = ruta_editable[i] if i < len(ruta_editable) else []
+                                # Filtramos para evitar errores si una línea fue borrada del catálogo general
+                                default_vals = [val for val in default_vals if val in lineas_disponibles]
+                                
+                                paso_seleccion = st.multiselect(
+                                    f"⚙️ PASO {i + 1} (Selecciona una o más estaciones equivalentes):",
+                                    options=lineas_disponibles,
+                                    default=default_vals,
+                                    key=f"paso_{nombre}_{i}"
+                                )
+                                if paso_seleccion:
+                                    nueva_ruta_agrupada.append(paso_seleccion)
                             
                             if st.form_submit_button("💾 Guardar Nueva Secuencia", type="primary"):
-                                if not nueva_ruta:
+                                if not nueva_ruta_agrupada:
                                     st.error("⚠️ La ruta no puede estar vacía.")
                                 else:
                                     try:
-                                        # Actualizar en Supabase
+                                        # Guardamos el JSON (array de arrays) en Supabase
                                         supabase.table("catalogo_productos").update(
-                                            {"lineas_asociadas": nueva_ruta}
+                                            {"lineas_asociadas": nueva_ruta_agrupada}
                                         ).eq("nombre_producto", nombre).execute()
-                                        
-                                        st.success("✅ Ruta actualizada exitosamente.")
+                                        st.success("✅ Ruta actualizada exitosamente con estaciones paralelas.")
                                         st.rerun()
                                     except Exception as e:
                                         st.error(f"Error al actualizar: {e}")
@@ -337,148 +350,142 @@ def gestionar_rutas_producto():
     except Exception as e:
         st.error(f"Error al cargar las rutas de productos: {e}")
 
-def crear_mapa_ruta(ruta_lineas, df_coords):
+def crear_mapa_ruta(ruta_grupos, df_coords):
     """
-    Genera un mapa de Plotly trazando la ruta del producto.
-    - Muestra círculos sólidos numerados por paso (1, 2, 3...).
-    - Dibuja la línea de conexión entre los puntos.
-    - Mantiene la imagen de fondo orientada correctamente.
+    Genera un mapa de Plotly soportando estaciones paralelas (bifurcaciones).
     """
-    # Cargar la imagen de fondo
     try:
         img = Image.open(RUTA_MAPA)
         img_w, img_h = img.size
     except Exception as e:
-        print(f"Error al cargar la imagen del mapa para la ruta: {e}")
+        print(f"Error cargando mapa: {e}")
         return None
 
-    coords_ruta = []
-    textos_hover = []
-    textos_label = []
-    
-    # 🔍 INTENTO DE DETECCIÓN AUTOMÁTICA DE COLUMNAS (Misma lógica robusta)
     columnas_csv = [c.lower() for c in df_coords.columns]
+    col_nombre = next((c for c in ['ubicacion', 'nombre_ubicacion', 'linea', 'name'] if c in columnas_csv), None)
+    if not col_nombre: return None
+
+    col_nombre = df_coords.columns[columnas_csv.index(col_nombre)]
+    col_x = 'X' if 'X' in df_coords.columns else df_coords.columns[1]
+    col_y = 'Y' if 'Y' in df_coords.columns else df_coords.columns[2]
+
+    # Almacenar coordenadas por PASO
+    coords_por_paso = []
     
-    col_nombre = None
-    for posible_nombre in ['ubicacion', 'nombre_ubicacion', 'linea', 'name', 'estacion', 'línea', 'ubicación']:
-        if posible_nombre in columnas_csv:
-            col_nombre = df_coords.columns[columnas_csv.index(posible_nombre)]
-            break
-            
-    if not col_nombre:
-        print(f"Columnas disponibles en CSV: {df_coords.columns.tolist()}")
-        return None
+    # Validar que ruta_grupos sea una lista de listas (si es plana, la convertimos)
+    if ruta_grupos and not isinstance(ruta_grupos[0], list):
+        ruta_grupos = [[estacion] for estacion in ruta_grupos]
 
-    col_x = 'X' if 'X' in df_coords.columns else ('x' if 'x' in df_coords.columns else df_coords.columns[1])
-    col_y = 'Y' if 'Y' in df_coords.columns else ('y' if 'y' in df_coords.columns else df_coords.columns[2])
-
-    for i, estacion in enumerate(ruta_lineas):
-        match = df_coords[df_coords[col_nombre].astype(str).str.strip().str.upper() == str(estacion).strip().upper()]
-        
-        if not match.empty:
-            cx = float(match.iloc[0][col_x])
-            cy = float(match.iloc[0][col_y])
-            coords_ruta.append((cx, cy))
-            
-            textos_hover.append(f"Paso {i+1}: {estacion}")
-            textos_label.append(str(i+1))
-
-    if not coords_ruta:
-        return None
-
-    x_vals = [c[0] for c in coords_ruta]
-    y_vals = [c[1] for c in coords_ruta]
+    for paso_idx, grupo in enumerate(ruta_grupos):
+        coords_grupo = []
+        for estacion in grupo:
+            match = df_coords[df_coords[col_nombre].astype(str).str.strip().str.upper() == str(estacion).strip().upper()]
+            if not match.empty:
+                cx = float(match.iloc[0][col_x])
+                cy = float(match.iloc[0][col_y])
+                coords_grupo.append({"estacion": estacion, "x": cx, "y": cy, "paso": paso_idx + 1})
+        coords_por_paso.append(coords_grupo)
 
     fig = go.Figure()
 
-    # --- TRAZO DE LA RUTA (AHORA CON LÍNEAS) ---
+    # 1. Dibujar las líneas conectando el Paso N con el Paso N+1
+    x_lines, y_lines = [], []
+    for i in range(len(coords_por_paso) - 1):
+        grupo_actual = coords_por_paso[i]
+        grupo_siguiente = coords_por_paso[i+1]
+        
+        # Conectar todos los orígenes con todos los posibles destinos
+        for origen in grupo_actual:
+            for destino in grupo_siguiente:
+                x_lines.extend([origen["x"], destino["x"], None]) # None corta la línea
+                y_lines.extend([origen["y"], destino["y"], None])
+
     fig.add_trace(go.Scatter(
-        x=x_vals,
-        y=y_vals,
-        mode='lines+markers+text', # <--- CORRECCIÓN: Agregamos 'lines' de regreso
-        text=textos_label, 
-        textposition='middle center', 
-        textfont=dict(
-            color='white', 
-            size=15, 
-            weight='bold' 
-        ),
-        marker=dict(
-            size=30, 
-            color='#003366', 
-            symbol='circle' 
-        ),
-        line=dict(
-            width=4,               # <--- Grosor de la línea conectora
-            color='#003366',       # <--- Color azul marino para mantener el estilo
-            dash='solid'
-        ),
-        texttemplate="%{text}",
-        hovertext=textos_hover,
-        hoverinfo='text',
-        name='Ruta del Producto'
+        x=x_lines, y=y_lines,
+        mode='lines',
+        line=dict(width=3, color='#003366', dash='solid'),
+        hoverinfo='skip',
+        showlegend=False
     ))
 
-    # --- CONFIGURACIÓN DEL MAPA ---
+    # 2. Dibujar los puntos (Círculos azules numerados)
+    x_nodes, y_nodes, text_labels, hover_texts = [], [], [], []
+    for grupo in coords_por_paso:
+        for nodo in grupo:
+            x_nodes.append(nodo["x"])
+            y_nodes.append(nodo["y"])
+            text_labels.append(str(nodo["paso"]))
+            hover_texts.append(f"Paso {nodo['paso']}: {nodo['estacion']}")
+
+    fig.add_trace(go.Scatter(
+        x=x_nodes, y=y_nodes,
+        mode='markers+text',
+        text=text_labels,
+        textposition='middle center',
+        textfont=dict(color='white', size=14, weight='bold'),
+        marker=dict(size=30, color='#003366', symbol='circle'),
+        hovertext=hover_texts,
+        hoverinfo='text',
+        name='Estaciones'
+    ))
+
     fig.update_layout(
-        images=[dict(
-            source=img,
-            xref="x",
-            yref="y",
-            x=0,
-            y=0, # <--- CORRECCIÓN: Anclado en 0, porque el eje está invertido (0 es arriba)
-            sizex=img_w,
-            sizey=img_h,
-            sizing="stretch",
-            opacity=0.85,
-            layer="below"
-        )],
+        images=[dict(source=img, xref="x", yref="y", x=0, y=0, sizex=img_w, sizey=img_h, sizing="stretch", opacity=0.85, layer="below")],
         xaxis=dict(visible=False, range=[0, img_w]),
-        yaxis=dict(
-            visible=False, 
-            range=[img_h, 0], # Eje Y invertido (0 en la parte superior)
-            scaleanchor="x", 
-            scaleratio=1
-        ),
+        yaxis=dict(visible=False, range=[img_h, 0], scaleanchor="x", scaleratio=1),
         margin=dict(l=0, r=0, t=0, b=0),
-        height=400,
+        height=500,
         showlegend=False
     )
-    
     return fig
     
-def obtener_datos_ruta_producto(ruta):
+def obtener_datos_ruta_producto(ruta_grupos):
     datos_ruta = []
     
-    for estacion in ruta:
+    # Asegurar que es lista de listas
+    if ruta_grupos and not isinstance(ruta_grupos[0], list):
+        ruta_grupos = [[e] for e in ruta_grupos]
+    
+    for paso_idx, grupo in enumerate(ruta_grupos):
+        # 1. Obtenemos el Catálogo Maestro para TODAS las estaciones de este paso
+        activos_maestros = []
         try:
-            # -------------------------------------------------------------
-            # 1. OBTENER EL "DEBER SER": EL CATÁLOGO MAESTRO DE LA LÍNEA
-            # -------------------------------------------------------------
             resp_master = supabase.table("catalogo_maestro_activos") \
                 .select("*") \
-                .ilike("linea_ubicacion", estacion) \
+                .in_("linea_ubicacion", grupo) \
                 .eq("estatus_operativo", "OPERATIVO") \
                 .order("tipo_categoria", desc=False) \
                 .execute()
-                
             activos_maestros = resp_master.data if resp_master.data else []
-            
-            # Si no hay activos configurados para esta estación en el catálogo
-            if not activos_maestros:
-                datos_ruta.append({
-                    "Operación": estacion,
-                    "Última Medición": "<i style='color:#888; font-size:11px;'>No hay equipos asignados a esta estación en el Catálogo Maestro.</i>",
-                    "Estatus": "SIN DATOS",
-                    "Próxima Validación": "N/A"
-                })
-                continue
+        except Exception as e:
+            print(f"Error consultando maestros: {e}")
 
-            # -------------------------------------------------------------
-            # 2. OBTENER LAS MEDICIONES MÁS RECIENTES (Historial)
-            # -------------------------------------------------------------
-            resp_maq = supabase.table("mediciones_maquinaria").select("*").ilike("linea_ubicacion", estacion).order("fecha_medicion", desc=True).execute()
-            resp_inv = supabase.table("inventario_esd").select("*").ilike("linea_ubicacion", estacion).order("fecha_ultima_verif", desc=True).execute()
+        # Unimos los nombres del grupo para el reporte (Ej: "Router 1, Router 2")
+        nombre_paso = f"Paso {paso_idx + 1}: " + " / ".join(grupo)
+
+        # Si el grupo no tiene activos maestros registrados
+        if not activos_maestros:
+            datos_ruta.append({
+                "Operación": nombre_paso,
+                "Última Medición": "<i style='color:#888; font-size:11px;'>No hay equipos asignados a estas estaciones en el Catálogo Maestro.</i>",
+                "Estatus": "SIN DATOS",
+                "Próxima Validación": "N/A"
+            })
+            continue
+
+        # 2. OBTENER LAS MEDICIONES MÁS RECIENTES (Historial) para TODAS las estaciones del grupo
+        # (El resto del código de la función obtener_datos_ruta_producto queda igual,
+        # solo asegúrate de cambiar los .ilike() por .in_() para que busque en la lista 'grupo'.)
+        
+        try:
+            resp_maq = supabase.table("mediciones_maquinaria").select("*").in_("linea_ubicacion", grupo).order("fecha_medicion", desc=True).execute()
+            resp_inv = supabase.table("inventario_esd").select("*").in_("linea_ubicacion", grupo).order("fecha_ultima_verif", desc=True).execute()
+        except:
+            resp_maq, resp_inv = None, None
+            
+        # ... Continúa con el resto de tu código normal (mediciones_recientes, filas_activos, etc) ...
+        # Solo asegúrate de agregar los datos usando la variable 'nombre_paso':
+        # datos_ruta.append({ "Operación": nombre_paso, ... })
             
             # Crear un diccionario unificado para búsqueda rápida de mediciones
             mediciones_recientes = {}
@@ -594,7 +601,7 @@ def obtener_datos_ruta_producto(ruta):
             """
             
             datos_ruta.append({
-                "Operación": estacion,
+                "Operación": nombre_paso,
                 "Última Medición": tabla_detalle_html,
                 "Estatus": estatus_global,
                 "Próxima Validación": proxima_val
