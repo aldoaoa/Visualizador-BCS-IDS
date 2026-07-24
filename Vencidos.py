@@ -4,6 +4,7 @@ import plotly.express as px
 from PIL import Image
 import os
 import base64
+import ast
 import math
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
@@ -354,38 +355,54 @@ def gestionar_rutas_producto():
 
 def crear_mapa_ruta(ruta_grupos, df_coords):
     """
-    Genera el mapa trazando la ruta del producto, soportando bifurcaciones 
-    (estaciones en paralelo) de forma dinámica.
+    Genera el mapa de la ruta. Incluye autodiagnóstico y reparación 
+    de formatos corruptos de listas provenientes de SQL.
     """
     try:
         img = Image.open(RUTA_MAPA)
         img_w, img_h = img.size
     except Exception as e:
-        print(f"Error cargando mapa: {e}")
+        st.error(f"Error cargando la imagen del mapa: {e}")
         return None
 
-    # Detección inteligente de la columna de nombre (ignorando mayúsculas)
+    # --- 1. REPARACIÓN DE FORMATOS DE BASE DE DATOS ---
+    # Si Supabase devuelve la ruta como texto en lugar de array/json, lo reparamos
+    if isinstance(ruta_grupos, str):
+        try:
+            ruta_grupos = ast.literal_eval(ruta_grupos)
+        except Exception:
+            st.error("El formato de la ruta en la base de datos está corrupto.")
+            return None
+
+    # Si por alguna razón sigue sin ser una lista, abortamos
+    if not isinstance(ruta_grupos, list) or len(ruta_grupos) == 0:
+        return None
+
+    # Si es una ruta vieja (plana) la convertimos al nuevo formato de grupos
+    if not isinstance(ruta_grupos[0], list):
+        ruta_grupos = [[estacion] for estacion in ruta_grupos]
+
+    # --- 2. DETECCIÓN DE COLUMNAS DEL CSV ---
     columnas_csv = [c.lower() for c in df_coords.columns]
     col_nombre = next((c for c in ['ubicacion', 'nombre_ubicacion', 'linea', 'name'] if c in columnas_csv), None)
     
     if not col_nombre:
+        st.warning(f"Tu CSV no tiene la columna 'ubicacion'. Columnas detectadas: {df_coords.columns.tolist()}")
         return None
         
     col_nombre_real = df_coords.columns[columnas_csv.index(col_nombre)]
     col_x = 'X' if 'X' in df_coords.columns else ('x' if 'x' in df_coords.columns else df_coords.columns[1])
     col_y = 'Y' if 'Y' in df_coords.columns else ('y' if 'y' in df_coords.columns else df_coords.columns[2])
 
-    # 1. COMPATIBILIDAD: Si es una ruta vieja (lista plana), la convierte a lista de listas
-    if ruta_grupos and not isinstance(ruta_grupos[0], list):
-        ruta_grupos = [[estacion] for estacion in ruta_grupos]
-
-    # 2. Extraer coordenadas rompiendo los corchetes
+    # --- 3. CRUCE DE COORDENADAS ---
     coords_por_paso = []
+    
     for paso_idx, grupo in enumerate(ruta_grupos):
         coords_grupo = []
         for estacion in grupo:
-            # Aquí 'estacion' ya es texto puro, ej: "SMT 9", libre de corchetes
+            # Búsqueda exacta omitiendo mayúsculas y espacios extra
             match = df_coords[df_coords[col_nombre_real].astype(str).str.strip().str.upper() == str(estacion).strip().upper()]
+            
             if not match.empty:
                 cx = float(match.iloc[0][col_x])
                 cy = float(match.iloc[0][col_y])
@@ -394,22 +411,22 @@ def crear_mapa_ruta(ruta_grupos, df_coords):
         if coords_grupo:
             coords_por_paso.append(coords_grupo)
 
-    # 🚨 Si ninguna coordenada coincidió, cancelamos y mostramos el texto fallback
+    # 🚨 AQUÍ ESTÁ LA MAGIA DEL DIAGNÓSTICO
     if not coords_por_paso:
+        st.warning(f"⚠️ Las estaciones guardadas no hacen 'match' con el archivo `coordenadas.csv`.\n\n**Buscando:** {ruta_grupos}\n**Disponibles en CSV:** {df_coords[col_nombre_real].head(8).tolist()}...")
         return None
 
     fig = go.Figure()
 
-    # 3. Trazar líneas conectivas (Telaraña interconectada)
+    # --- 4. TRAZADO DE LÍNEAS CONECTIVAS ---
     x_lines, y_lines = [], []
     for i in range(len(coords_por_paso) - 1):
         grupo_actual = coords_por_paso[i]
         grupo_siguiente = coords_por_paso[i+1]
         
-        # Conectar todos los puntos del paso A con todos los del paso B
         for origen in grupo_actual:
             for destino in grupo_siguiente:
-                x_lines.extend([origen["x"], destino["x"], None]) # 'None' corta el trazo
+                x_lines.extend([origen["x"], destino["x"], None])
                 y_lines.extend([origen["y"], destino["y"], None])
 
     if x_lines:
@@ -421,7 +438,7 @@ def crear_mapa_ruta(ruta_grupos, df_coords):
             showlegend=False
         ))
 
-    # 4. Trazar Círculos con el Número de Paso Adentro
+    # --- 5. TRAZADO DE PUNTOS (ESTACIONES) ---
     x_nodes, y_nodes, text_labels, hover_texts = [], [], [], []
     for grupo in coords_por_paso:
         for nodo in grupo:
@@ -442,7 +459,7 @@ def crear_mapa_ruta(ruta_grupos, df_coords):
         name='Estaciones'
     ))
 
-    # 5. Configurar Layout (Fondo y Eje Invertido)
+    # --- 6. LAYOUT ---
     fig.update_layout(
         images=[dict(
             source=img, xref="x", yref="y",
