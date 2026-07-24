@@ -332,73 +332,109 @@ def gestionar_rutas_producto():
 def crear_mapa_ruta(ruta_lineas, df_coords):
     """
     Genera un mapa de Plotly trazando la ruta del producto.
+    1. Arregla el flip vertical invirtiendo el rango del eje Y de Plotly.
+    2. Elimina las líneas de conexión y flechas.
+    3. Muestra círculos sólidos numerados por paso (1, 2, 3...) dentro.
     """
+    # Intentar cargar la imagen de fondo (requiere PIL)
+    # Se asume que RUTA_MAPA está definida globalmente
     try:
-        # Cargar la imagen de fondo (Asegúrate de que RUTA_MAPA esté definida)
+        from PIL import Image
         img = Image.open(RUTA_MAPA)
         img_w, img_h = img.size
-    except Exception:
-        return None # Falla silenciosa si no hay mapa
+    except Exception as e:
+        # Falla silenciosa si no se puede cargar la imagen
+        print(f"Error al cargar la imagen del mapa para la ruta: {e}")
+        return None
 
-    # Filtrar las coordenadas que pertenecen a la ruta y mantener el orden
+    # Cruzar datos de la ruta con coordenadas, preservando el orden secuencial
     coords_ruta = []
     textos_hover = []
+    textos_label = [] # <--- NUEVO: Para guardar el número de paso
     
+    # Asegúrate de que las columnas de tu coordenadas.csv coincidan con 'ubicacion', 'X', 'Y' (como vimos antes)
+    # Usamos búsqueda case-insensitive para la ubicación
     for i, estacion in enumerate(ruta_lineas):
-        # 🔴 CAMBIA 'Nombre_Ubicacion' por el nombre real de tu columna en el CSV
-        # Ejemplos comunes: 'Linea', 'Ubicacion', 'nombre'
-        match = df_coords[df_coords['Línea'].astype(str).str.upper() == str(estacion).upper()]
+        # Asegúrate de que la columna se llame 'ubicacion' en tu CSV real, o cámbiala aquí
+        match = df_coords[df_coords['ubicacion'].astype(str).str.strip().str.upper() == str(estacion).strip().upper()]
         
         if not match.empty:
-            # 🔴 Si tus columnas de coordenadas no se llaman 'X' y 'Y' mayúsculas, cámbialas también
-            cx = match.iloc[0]['X'] 
-            cy = match.iloc[0]['Y']
+            # Recuperamos coordenadas
+            cx = float(match.iloc[0]['X'])
+            cy = float(match.iloc[0]['Y'])
             coords_ruta.append((cx, cy))
+            
+            # Texto hover detallado
             textos_hover.append(f"Paso {i+1}: {estacion}")
+            
+            # Label numérico para el círculo (Ej. "1", "2", "3")
+            textos_label.append(str(i+1))
 
+    # Si no hay coordenadas coincidentes, no dibujamos
     if not coords_ruta:
-        return None # No hay coordenadas coincidentes
+        return None
 
+    # Separar X e Y para Plotly
     x_vals = [c[0] for c in coords_ruta]
     y_vals = [c[1] for c in coords_ruta]
 
-    # Crear la figura
+    # Crear la figura interactiva
     fig = go.Figure()
 
-    # Trazar la línea que conecta los puntos
+    # --- NUEVO: Trace de Círculos Numerados ---
     fig.add_trace(go.Scatter(
-        x=x_vals, y=y_vals,
-        mode='lines+markers',
-        marker=dict(size=12, color='#0052cc', symbol='circle'),
-        line=dict(width=4, color='#0052cc', dash='solid'),
-        text=textos_hover,
+        x=x_vals,
+        y=y_vals,
+        mode='markers+text', # <--- AHORA: Marcadores y Texto (sin líneas)
+        
+        # Configuración del Label (Número dentro del círculo)
+        text=textos_label, # <--- Aquí pasamos la lista de números "1", "2"...
+        textposition='middle center', # <--- Centrado dentro del marcador
+        textfont=dict(
+            color='white', # <--- Texto blanco para contraste
+            size=15, # <--- Tamaño de fuente visible
+            weight='bold' # <--- Negrita
+        ),
+        
+        # Configuración del Círculo (Marcador)
+        marker=dict(
+            size=30, # <--- Círculos grandes para contener el número
+            color='#003366', # <--- Azul marino sólido para cumplir con tus estándares
+            symbol='circle' # <--- Aseguramos círculo
+        ),
+        
+        # Configuración de interacción
+        texttemplate="%{text}", # <--- Forzamos que muestre el texto de step
         hoverinfo='text',
+        textsrc=pd.Series(textos_hover), # <--- Texto detallado para hover
         name='Ruta del Producto'
     ))
-    
-    # Agregar flechas direccionales (anotaciones)
-    for i in range(len(x_vals) - 1):
-        fig.add_annotation(
-            ax=x_vals[i], ay=y_vals[i],
-            x=x_vals[i+1], y=y_vals[i+1],
-            showarrow=True,
-            arrowhead=2, arrowsize=1.5, arrowwidth=2, arrowcolor='#0052cc',
-            standoff=10 # Separa un poco la flecha del punto
-        )
 
-    # Configurar el fondo de la imagen
+    # Configurar el layout (Especialmente el flip vertical y fondo de imagen)
     fig.update_layout(
         images=[dict(
             source=img,
-            xref="x", yref="y",
-            x=0, y=img_h,
-            sizex=img_w, sizey=img_h,
+            xref="x",
+            yref="y",
+            x=0,
+            y=img_h,
+            sizex=img_w,
+            sizey=img_h,
             sizing="stretch",
-            opacity=0.8,
+            opacity=0.8, # Un poco de transparencia para que resalten los círculos
             layer="below"
         )],
+        # Ocultamos ejes y configuramos proporciones 1:1
         xaxis=dict(visible=False, range=[0, img_w]),
-        yaxis=dict(visible=False, range=[0, img_h], scaleanchor="x", scaleratio=1),
+        
+        # === ARREGLO DE FLIP VERTICAL ===
+        # Invertimos el rango de Plotly (h -> 0) para que coincida con el de la imagen
+        yaxis=dict(
+            visible=False, 
+            range=[img_h, 0], # <--- ESTO ARREGLA EL FLIP
+            scaleanchor="x", 
+            scaleratio=1
+        ),
         margin=dict(l=0, r=0, t=0, b=0),
         height=400,
         showlegend=False
