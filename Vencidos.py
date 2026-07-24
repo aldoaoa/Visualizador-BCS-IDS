@@ -400,10 +400,10 @@ def crear_mapa_ruta(ruta_lineas, df_coords):
         ),
         texttemplate="%{text}",
         
-        # 👇 --- SOLUCIÓN: Usamos hovertext en lugar de textsrc --- 👇
-        hovertext=textos_hover,  # Pasamos la lista normal de Python
-        hoverinfo='hovertext',   # Le decimos que al pasar el mouse lea 'hovertext'
-        # 👆 ------------------------------------------------------ 👆
+        # 👇 --- CORRECCIÓN FINAL --- 👇
+        hovertext=textos_hover,  # Aquí pasamos la lista de pasos detallados
+        hoverinfo='text',        # Volvemos a usar 'text', que es el comando que Plotly sí acepta
+        # 👆 ------------------------ 👆
         
         name='Ruta del Producto'
     ))
