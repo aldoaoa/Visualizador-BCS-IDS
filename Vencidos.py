@@ -384,7 +384,7 @@ def crear_mapa_ruta(ruta_grupos, df_coords):
 
     # --- 2. DETECCIÓN DE COLUMNAS DEL CSV ---
     columnas_csv = [c.lower() for c in df_coords.columns]
-    col_nombre = next((c for c in ['ubicacion', 'nombre_ubicacion', 'linea', 'name'] if c in columnas_csv), None)
+    col_nombre = next((c for c in ['ubicacion', 'nombre_ubicacion', 'línea', 'name'] if c in columnas_csv), None)
     
     if not col_nombre:
         st.warning(f"Tu CSV no tiene la columna 'ubicacion'. Columnas detectadas: {df_coords.columns.tolist()}")
