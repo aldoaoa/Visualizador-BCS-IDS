@@ -264,7 +264,9 @@ def gestionar_rutas_producto():
                             for idx, estacion in enumerate(ruta_actual):
                                 col_idx = idx % 6
                                 with cols[col_idx]:
-                                    st.metric(label=f"Paso {idx + 1}", value=estacion)
+                                    # Si es una lista, la unimos con diagonales
+                                    valor_mostrar = " / ".join(estacion) if isinstance(estacion, list) else estacion
+                                    st.metric(label=f"Paso {idx + 1}", value=valor_mostrar)
                             
                             # 2. Mapa Interactivo Plotly
                             if not df_coordenadas.empty:
@@ -352,7 +354,8 @@ def gestionar_rutas_producto():
 
 def crear_mapa_ruta(ruta_grupos, df_coords):
     """
-    Genera un mapa de Plotly soportando estaciones paralelas (bifurcaciones).
+    Genera el mapa trazando la ruta del producto, soportando bifurcaciones 
+    (estaciones en paralelo) de forma dinámica.
     """
     try:
         img = Image.open(RUTA_MAPA)
@@ -361,54 +364,64 @@ def crear_mapa_ruta(ruta_grupos, df_coords):
         print(f"Error cargando mapa: {e}")
         return None
 
+    # Detección inteligente de la columna de nombre (ignorando mayúsculas)
     columnas_csv = [c.lower() for c in df_coords.columns]
     col_nombre = next((c for c in ['ubicacion', 'nombre_ubicacion', 'linea', 'name'] if c in columnas_csv), None)
-    if not col_nombre: return None
-
-    col_nombre = df_coords.columns[columnas_csv.index(col_nombre)]
-    col_x = 'X' if 'X' in df_coords.columns else df_coords.columns[1]
-    col_y = 'Y' if 'Y' in df_coords.columns else df_coords.columns[2]
-
-    # Almacenar coordenadas por PASO
-    coords_por_paso = []
     
-    # Validar que ruta_grupos sea una lista de listas (si es plana, la convertimos)
+    if not col_nombre:
+        return None
+        
+    col_nombre_real = df_coords.columns[columnas_csv.index(col_nombre)]
+    col_x = 'X' if 'X' in df_coords.columns else ('x' if 'x' in df_coords.columns else df_coords.columns[1])
+    col_y = 'Y' if 'Y' in df_coords.columns else ('y' if 'y' in df_coords.columns else df_coords.columns[2])
+
+    # 1. COMPATIBILIDAD: Si es una ruta vieja (lista plana), la convierte a lista de listas
     if ruta_grupos and not isinstance(ruta_grupos[0], list):
         ruta_grupos = [[estacion] for estacion in ruta_grupos]
 
+    # 2. Extraer coordenadas rompiendo los corchetes
+    coords_por_paso = []
     for paso_idx, grupo in enumerate(ruta_grupos):
         coords_grupo = []
         for estacion in grupo:
-            match = df_coords[df_coords[col_nombre].astype(str).str.strip().str.upper() == str(estacion).strip().upper()]
+            # Aquí 'estacion' ya es texto puro, ej: "SMT 9", libre de corchetes
+            match = df_coords[df_coords[col_nombre_real].astype(str).str.strip().str.upper() == str(estacion).strip().upper()]
             if not match.empty:
                 cx = float(match.iloc[0][col_x])
                 cy = float(match.iloc[0][col_y])
                 coords_grupo.append({"estacion": estacion, "x": cx, "y": cy, "paso": paso_idx + 1})
-        coords_por_paso.append(coords_grupo)
+        
+        if coords_grupo:
+            coords_por_paso.append(coords_grupo)
+
+    # 🚨 Si ninguna coordenada coincidió, cancelamos y mostramos el texto fallback
+    if not coords_por_paso:
+        return None
 
     fig = go.Figure()
 
-    # 1. Dibujar las líneas conectando el Paso N con el Paso N+1
+    # 3. Trazar líneas conectivas (Telaraña interconectada)
     x_lines, y_lines = [], []
     for i in range(len(coords_por_paso) - 1):
         grupo_actual = coords_por_paso[i]
         grupo_siguiente = coords_por_paso[i+1]
         
-        # Conectar todos los orígenes con todos los posibles destinos
+        # Conectar todos los puntos del paso A con todos los del paso B
         for origen in grupo_actual:
             for destino in grupo_siguiente:
-                x_lines.extend([origen["x"], destino["x"], None]) # None corta la línea
+                x_lines.extend([origen["x"], destino["x"], None]) # 'None' corta el trazo
                 y_lines.extend([origen["y"], destino["y"], None])
 
-    fig.add_trace(go.Scatter(
-        x=x_lines, y=y_lines,
-        mode='lines',
-        line=dict(width=3, color='#003366', dash='solid'),
-        hoverinfo='skip',
-        showlegend=False
-    ))
+    if x_lines:
+        fig.add_trace(go.Scatter(
+            x=x_lines, y=y_lines,
+            mode='lines',
+            line=dict(width=3, color='#003366', dash='solid'),
+            hoverinfo='skip',
+            showlegend=False
+        ))
 
-    # 2. Dibujar los puntos (Círculos azules numerados)
+    # 4. Trazar Círculos con el Número de Paso Adentro
     x_nodes, y_nodes, text_labels, hover_texts = [], [], [], []
     for grupo in coords_por_paso:
         for nodo in grupo:
@@ -429,14 +442,20 @@ def crear_mapa_ruta(ruta_grupos, df_coords):
         name='Estaciones'
     ))
 
+    # 5. Configurar Layout (Fondo y Eje Invertido)
     fig.update_layout(
-        images=[dict(source=img, xref="x", yref="y", x=0, y=0, sizex=img_w, sizey=img_h, sizing="stretch", opacity=0.85, layer="below")],
+        images=[dict(
+            source=img, xref="x", yref="y",
+            x=0, y=0, sizex=img_w, sizey=img_h,
+            sizing="stretch", opacity=0.85, layer="below"
+        )],
         xaxis=dict(visible=False, range=[0, img_w]),
         yaxis=dict(visible=False, range=[img_h, 0], scaleanchor="x", scaleratio=1),
         margin=dict(l=0, r=0, t=0, b=0),
         height=500,
         showlegend=False
     )
+    
     return fig
     
 def obtener_datos_ruta_producto(ruta_grupos):
