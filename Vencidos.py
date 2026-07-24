@@ -298,7 +298,7 @@ def obtener_datos_ruta_producto(ruta):
             # -------------------------------------------------------------
             resp_master = supabase.table("catalogo_maestro_activos") \
                 .select("*") \
-                .eq("linea_ubicacion", estacion) \
+                .ilike("linea_ubicacion", estacion) \
                 .eq("estatus_operativo", "OPERATIVO") \
                 .order("tipo_categoria", desc=False) \
                 .execute()
@@ -318,8 +318,8 @@ def obtener_datos_ruta_producto(ruta):
             # -------------------------------------------------------------
             # 2. OBTENER LAS MEDICIONES MÁS RECIENTES (Historial)
             # -------------------------------------------------------------
-            resp_maq = supabase.table("mediciones_maquinaria").select("*").eq("linea_ubicacion", estacion).order("fecha_medicion", desc=True).execute()
-            resp_inv = supabase.table("inventario_esd").select("*").eq("linea_ubicacion", estacion).order("fecha_ultima_verif", desc=True).execute()
+            resp_maq = supabase.table("mediciones_maquinaria").select("*").ilike("linea_ubicacion", estacion).order("fecha_medicion", desc=True).execute()
+            resp_inv = supabase.table("inventario_esd").select("*").ilike("linea_ubicacion", estacion).order("fecha_ultima_verif", desc=True).execute()
             
             # Crear un diccionario unificado para búsqueda rápida de mediciones
             mediciones_recientes = {}
@@ -1186,7 +1186,8 @@ def gestionar_catalogo_maestro_activos():
     try:
         query = supabase.table("catalogo_maestro_activos").select("*")
         if linea_filtro != "TODAS":
-            query = query.eq("linea_ubicacion", linea_filtro)
+            # ANTES: query = query.eq("linea_ubicacion", linea_filtro)
+            query = query.ilike("linea_ubicacion", linea_filtro) # <-- AHORA
         if estatus_filtro != "TODOS":
             query = query.eq("estatus_operativo", estatus_filtro)
             
@@ -3273,9 +3274,9 @@ elif st.session_state.vista_actual == "Escáner":
                         st.divider()
                         st.markdown(f"#### 📍 Otros equipos en la línea: `{ub_actual_lista}`")
                         
-                        # Filtramos el inventario por la misma línea, quitamos el equipo actual y los que estén dados de baja
+                        # Filtramos el inventario por la misma línea ignorando mayúsculas/minúsculas
                         df_otros = df_inv_full[
-                            (df_inv_full['Línea'].astype(str).str.strip() == ub_actual_lista) & 
+                            (df_inv_full['Línea'].astype(str).str.strip().str.upper() == ub_actual_lista.upper()) & 
                             (df_inv_full['Id de producto'].astype(str).str.strip().str.upper() != id_limpio) &
                             (df_inv_full['Estatus operativo'].astype(str).str.strip().str.upper() != 'NO OPERATIVO')
                         ]
