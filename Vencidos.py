@@ -279,12 +279,20 @@ def gestionar_rutas_producto():
                             st.divider()
                             col_info, col_boton = st.columns([2, 1])
                             with col_info:
-                                st.caption("Genera un reporte del estado ESD actual de esta ruta.")
+                                st.caption("Genera un reporte del estado ESD actual de esta ruta (Incluye mapa).")
                             with col_boton:
                                 if st.button(f"📊 Preparar Reporte", key=f"btn_prep_{nombre}"):
-                                    with st.spinner('Consultando estatus...'):
+                                    with st.spinner('Procesando mapa y consultando estatus...'):
                                         df_ruta_status = obtener_datos_ruta_producto(ruta_actual)
-                                        html_reporte = generar_html_reporte_ruta(nombre, df_ruta_status, auditor=st.session_state.get("usuario_nombre", "Auditor"))
+                                        
+                                        # ----- CAMBIO AQUÍ: PASAR fig_mapa a la función -----
+                                        html_reporte = generar_html_reporte_ruta(
+                                            nombre_producto=nombre, 
+                                            df_ruta=df_ruta_status, 
+                                            fig_mapa=fig_mapa if 'fig_mapa' in locals() else None, 
+                                            auditor=st.session_state.get("usuario_nombre", "Auditor")
+                                        )
+                                        # ----------------------------------------------------
                                         
                                         st.download_button(
                                             label=f"📥 Descargar PDF/HTML",
@@ -597,12 +605,35 @@ def obtener_datos_ruta_producto(ruta):
             
     return pd.DataFrame(datos_ruta)
 
-def generar_html_reporte_ruta(nombre_producto, df_ruta, auditor="Sistema ESD", comentarios="Sin observaciones.", db_id=1):
+def generar_html_reporte_ruta(nombre_producto, df_ruta, fig_mapa=None, auditor="Sistema ESD", comentarios="Sin observaciones.", db_id=1):
     año_actual = datetime.today().strftime("%y")
     fecha_hoy = datetime.today().strftime("%d-%b-%Y")
     fecha_pie = datetime.today().strftime("%Y/%m/%d")
     
-    # Construir las filas de la tabla basadas en las operaciones de la ruta
+    # ---------------------------------------------------------
+    # 1. CONVERTIR EL MAPA DE PLOTLY A IMAGEN ESTÁTICA (BASE64)
+    # ---------------------------------------------------------
+    mapa_html = ""
+    if fig_mapa is not None:
+        try:
+            # Convertimos la gráfica a PNG en memoria (requiere la librería 'kaleido')
+            img_bytes = fig_mapa.to_image(format="png", width=1000, height=500, scale=2)
+            img_base64 = base64.b64encode(img_bytes).decode('utf-8')
+            
+            mapa_html = f"""
+            <div class="mt-4 mb-6 [page-break-inside:avoid]">
+                <div class="bg-[#003366] text-white font-bold px-2 py-1 uppercase text-xs print:bg-black">Diagrama de Flujo Físico en Planta</div>
+                <div class="border border-gray-300 p-2 bg-gray-50 flex justify-center print:border-black print:bg-transparent">
+                    <img src="data:image/png;base64,{img_base64}" alt="Mapa de Ruta" style="max-width: 100%; height: auto;" />
+                </div>
+            </div>
+            """
+        except Exception as e:
+            mapa_html = f"<div class='text-red-500 text-xs mb-4'>⚠️ No se pudo incrustar el mapa visual. Asegúrate de tener instalada la librería 'kaleido' (Error: {e})</div>"
+
+    # ---------------------------------------------------------
+    # 2. CONSTRUIR FILAS DE LA TABLA DE OPERACIONES
+    # ---------------------------------------------------------
     filas_html = ""
     for i, row in enumerate(df_ruta.to_dict('records'), 1):
         operacion = str(row.get('Operación', 'N/D'))
@@ -610,10 +641,8 @@ def generar_html_reporte_ruta(nombre_producto, df_ruta, auditor="Sistema ESD", c
         vencimiento = str(row.get('Próxima Validación', 'N/D'))
         estatus_raw = str(row.get('Estatus', '')).upper()
         
-        # Limpiar el emoji del estatus si viene con él
         estatus_limpio = estatus_raw.replace('🟢', '').replace('🔴', '').replace('🟡', '').strip()
         
-        # Lógica de semáforo
         if "VIGENTE" in estatus_limpio or "PASA" in estatus_limpio or "APROBADO" in estatus_limpio:
             color_txt = "text-green-600"
         elif "VENCIDO" in estatus_limpio or "FALLA" in estatus_limpio or "RECHAZADO" in estatus_limpio:
@@ -623,7 +652,7 @@ def generar_html_reporte_ruta(nombre_producto, df_ruta, auditor="Sistema ESD", c
         
         filas_html += f"""
         <tr class="text-center border-b border-gray-300 print:border-black">
-            <td class="border-r border-gray-300 p-2 print:border-black">{i}</td>
+            <td class="border-r border-gray-300 p-2 print:border-black text-lg font-bold text-gray-400">{i}</td>
             <td class="border-r border-gray-300 p-2 font-bold text-left print:border-black text-[#003366]">{operacion}</td>
             <td class="border-r border-gray-300 p-2 text-left print:border-black">{detalle_activos}</td>
             <td class="border-r border-gray-300 p-2 font-mono print:border-black">{vencimiento}</td>
@@ -631,6 +660,9 @@ def generar_html_reporte_ruta(nombre_producto, df_ruta, auditor="Sistema ESD", c
         </tr>
         """
         
+    # ---------------------------------------------------------
+    # 3. ENSAMBLAR DOCUMENTO FINAL
+    # ---------------------------------------------------------
     html = f"""<!DOCTYPE html>
 <html lang="es">
 <head>
@@ -660,7 +692,7 @@ def generar_html_reporte_ruta(nombre_producto, df_ruta, auditor="Sistema ESD", c
             </div>
         </div>
 
-        <div class="p-6 space-y-6">
+        <div class="p-6">
             <div class="bg-gray-100 p-4 border border-gray-300 rounded print:border-black print:bg-transparent">
                 <div class="grid grid-cols-2 gap-4">
                     <div><span class="font-bold text-[#003366]">Producto Evaluado:</span> <span class="text-lg font-bold">{nombre_producto}</span></div>
@@ -668,7 +700,9 @@ def generar_html_reporte_ruta(nombre_producto, df_ruta, auditor="Sistema ESD", c
                 </div>
             </div>
 
-            <div>
+            {mapa_html}
+
+            <div class="mt-4 [page-break-inside:auto]">
                 <div class="bg-[#003366] text-white font-bold px-2 py-1 uppercase text-xs print:bg-black">Secuencia de Operaciones y Estatus de Estaciones</div>
                 <table class="w-full text-sm border-collapse border border-gray-300 print:border-black">
                     <tr class="bg-gray-200 border-b border-gray-300 print:bg-transparent print:border-black">
@@ -682,7 +716,7 @@ def generar_html_reporte_ruta(nombre_producto, df_ruta, auditor="Sistema ESD", c
                 </table>
             </div>
 
-            <div class="mt-4 border border-gray-300 p-3 bg-gray-50 print:border-black print:bg-transparent">
+            <div class="mt-4 border border-gray-300 p-3 bg-gray-50 print:border-black print:bg-transparent [page-break-inside:avoid]">
                 <div class="font-bold text-[#003366] text-xs uppercase mb-1 print:text-black">Comentarios / Observaciones de la Ruta:</div>
                 <div class="text-sm">{comentarios}</div>
             </div>
