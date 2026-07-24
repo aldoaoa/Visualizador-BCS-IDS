@@ -385,28 +385,26 @@ def crear_mapa_ruta(ruta_lineas, df_coords):
     fig.add_trace(go.Scatter(
         x=x_vals,
         y=y_vals,
-        mode='markers+text', # <--- AHORA: Marcadores y Texto (sin líneas)
-        
-        # Configuración del Label (Número dentro del círculo)
-        text=textos_label, # <--- Aquí pasamos la lista de números "1", "2"...
-        textposition='middle center', # <--- Centrado dentro del marcador
+        mode='markers+text',
+        text=textos_label, 
+        textposition='middle center', 
         textfont=dict(
-            color='white', # <--- Texto blanco para contraste
-            size=15, # <--- Tamaño de fuente visible
-            weight='bold' # <--- Negrita
+            color='white', 
+            size=15, 
+            weight='bold' 
         ),
-        
-        # Configuración del Círculo (Marcador)
         marker=dict(
-            size=30, # <--- Círculos grandes para contener el número
-            color='#003366', # <--- Azul marino sólido para cumplir con tus estándares
-            symbol='circle' # <--- Aseguramos círculo
+            size=30, 
+            color='#003366', 
+            symbol='circle' 
         ),
+        texttemplate="%{text}",
         
-        # Configuración de interacción
-        texttemplate="%{text}", # <--- Forzamos que muestre el texto de step
-        hoverinfo='text',
-        textsrc=pd.Series(textos_hover), # <--- Texto detallado para hover
+        # 👇 --- SOLUCIÓN: Usamos hovertext en lugar de textsrc --- 👇
+        hovertext=textos_hover,  # Pasamos la lista normal de Python
+        hoverinfo='hovertext',   # Le decimos que al pasar el mouse lea 'hovertext'
+        # 👆 ------------------------------------------------------ 👆
+        
         name='Ruta del Producto'
     ))
 
