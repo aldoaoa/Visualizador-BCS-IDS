@@ -356,7 +356,7 @@ def crear_mapa_ruta(ruta_lineas, df_coords):
     # Usamos búsqueda case-insensitive para la ubicación
     for i, estacion in enumerate(ruta_lineas):
         # Asegúrate de que la columna se llame 'ubicacion' en tu CSV real, o cámbiala aquí
-        match = df_coords[df_coords['ubicacion'].astype(str).str.strip().str.upper() == str(estacion).strip().upper()]
+        match = df_coords[df_coords['Línea'].astype(str).str.strip().str.upper() == str(estacion).strip().upper()]
         
         if not match.empty:
             # Recuperamos coordenadas
