@@ -13,3 +13,4 @@ streamlit
 pandas
 numpy
 scipy
+kaleido
