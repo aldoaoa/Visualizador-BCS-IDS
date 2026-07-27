@@ -174,18 +174,6 @@ def limpiar_id(texto):
     # Convierte a texto, quita espacios raros, borra espacios al inicio/fin y lo hace mayúscula
     return str(texto).replace('\xa0', ' ').strip().upper()
 
-¡Sí, totalmente! Podemos conservar el 100% del estilo visual exacto (el contenedor oscuro #1e293b, la barra lateral rosa/roja #f43f5e, las esquinas redondeadas y el texto estructurado con la ubicación en gris) convirtiendo la tarjeta completa en un botón interactivo.
-
-Para lograrlo, inyectamos un fragmento de CSS que le da a los botones de Streamlit la misma apariencia de "tarjeta tipo Kanban/Post-it".
-
-Aquí tienes la función render_calendario_programacion_cronograma actualizada manteniendo ese diseño:
-
-Python
-import pandas as pd
-import streamlit as st
-from datetime import datetime, timedelta
-import calendar
-
 def render_calendario_programacion_cronograma(filtro_linea="TODAS", filtro_cat="TODAS"):
     st.markdown("---")
     st.markdown("### 🗓️ Calendario de Programación de Validaciones")
