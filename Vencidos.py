@@ -393,11 +393,11 @@ def render_pestana_historico_3_validaciones():
             r_str = f"{r_val} Ω" if r_val is not None else "N/D"
             col_r = "#a1a1aa"
 
-        # Voltaje Maquinaria: <= 35V -> Verde (#34d399), > 35V -> Rojo (#f87171)
+        # Voltaje Maquinaria: <= 100V -> Verde (#34d399), > 100V -> Rojo (#f87171)
         try:
             v_num = float(v_val)
             v_str = f"{v_num:.1f} V"
-            col_v = "#34d399" if abs(v_num) <= 35.0 else "#f87171"
+            col_v = "#34d399" if abs(v_num) <= 100.0 else "#f87171"
         except:
             v_str = f"{v_val} V" if v_val is not None else "N/D"
             col_v = "#a1a1aa"
@@ -410,7 +410,7 @@ def render_pestana_historico_3_validaciones():
             try:
                 t_num = float(val_main)
                 t_str = f"{t_num:.1f} s"
-                col_t = "#34d399" if t_num <= 5.0 else "#f87171"
+                col_t = "#34d399" if t_num <= 10.0 else "#f87171"
             except:
                 t_str = f"{val_main} s" if val_main else "N/D"
                 col_t = "#a1a1aa"
