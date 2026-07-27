@@ -353,6 +353,241 @@ def gestionar_rutas_producto():
     except Exception as e:
         st.error(f"Error al cargar las rutas de productos: {e}")
 
+def render_pestana_historico_3_validaciones():
+    st.markdown("### 📜 Histórico de las Últimas 3 Validaciones por Activo")
+    st.info("Esta vista consolida la trazabilidad reciente de todo el parque de activos (Maquinaria, Mobiliario e Ionizadores) mostrando hasta 3 mediciones previas y su frecuencia normativa.")
+
+    # Filtros superiores de consulta
+    c_f1, c_f2, c_f3 = st.columns(3)
+    with c_f1:
+        if 'obtener_catalogo_lineas' in globals():
+            lineas_disp = ["TODAS"] + obtener_catalogo_lineas()
+        else:
+            lineas_disp = ["TODAS"]
+        filtro_linea = st.selectbox("📍 Filtrar por Línea:", options=lineas_disp, key="f_linea_3v")
+        
+    with c_f2:
+        filtro_cat = st.selectbox("🏷️ Categoría:", ["TODAS", "Maquinaria", "Mobiliario / Ionizadores"], key="f_cat_3v")
+        
+    with c_f3:
+        busqueda_id = st.text_input("🔍 Buscar por ID Activo:", placeholder="Ej: SMT9 o CONV", key="f_id_3v").strip().upper()
+
+    with st.spinner("Cargando trazabilidad de activos..."):
+        filas_tabla = []
+
+        # =========================================================
+        # 1. CONSULTA DE MAQUINARIA (Historial en mediciones_maquinaria)
+        # =========================================================
+        if filtro_cat in ["TODAS", "Maquinaria"]:
+            try:
+                # Obtener la lista única de maquinaria activa
+                q_maq = supabase.table("mediciones_maquinaria").select("id_maquinaria, linea_ubicacion, clasificacion, frecuencia_verificacion, status_operativo")
+                if filtro_linea != "TODAS":
+                    q_maq = q_maq.ilike("linea_ubicacion", filtro_linea)
+                resp_maq_list = q_maq.execute()
+                
+                if resp_maq_list.data:
+                    # Deduplicar por id_maquinaria conservando solo activos operativos
+                    maqs_unicas = {}
+                    for item in resp_maq_list.data:
+                        id_m = item.get("id_maquinaria")
+                        st_op = str(item.get("status_operativo", "")).upper()
+                        if id_m and id_m not in maqs_unicas and "NO OPERATIVO" not in st_op and "BAJA" not in st_op:
+                            maqs_unicas[id_m] = item
+                            
+                    for id_m, meta in maqs_unicas.items():
+                        if busqueda_id and busqueda_id not in id_m.upper():
+                            continue
+                            
+                        # Consultar las últimas 3 mediciones reales
+                        resp_meds = supabase.table("mediciones_maquinaria") \
+                            .select("fecha_medicion, resistencia_tierra, campo_estatico_voltaje, resultado_estatus") \
+                            .eq("id_maquinaria", id_m) \
+                            .order("fecha_medicion", desc=True) \
+                            .limit(3) \
+                            .execute()
+                            
+                        meds = resp_meds.data if resp_meds.data else []
+                        
+                        col_meds = []
+                        for i in range(3):
+                            if i < len(meds):
+                                m = meds[i]
+                                f_str = str(m.get("fecha_medicion", ""))[:10]
+                                try:
+                                    f_formateada = datetime.strptime(f_str, "%Y-%m-%d").strftime("%d-%b-%Y")
+                                except:
+                                    f_formateada = f_str
+                                    
+                                r_val = m.get("resistencia_tierra")
+                                try:
+                                    r_str = f"{float(r_val):.2f} Ω" if float(r_val) < 10 else f"{float(r_val):.2e} Ω"
+                                except:
+                                    r_str = f"{r_val} Ω" if r_val is not None else "N/D"
+                                    
+                                v_val = m.get("campo_estatico_voltaje")
+                                v_str = f"{v_val} V" if v_val is not None else "N/D"
+                                
+                                col_meds.append(f"📅 **{f_formateada}**<br>`{r_str}` | `{v_str}`")
+                            else:
+                                col_meds.append("<span style='color:#aaa;'>Sin registro</span>")
+                                
+                        filas_tabla.append({
+                            "ID Activo": f"🏭 {id_m}",
+                            "Categoría": "Maquinaria",
+                            "Clasificación": meta.get("clasificacion", "N/D"),
+                            "Línea": meta.get("linea_ubicacion", "N/D"),
+                            "Frecuencia": meta.get("frecuencia_verificacion", "Anual"),
+                            "Última Validación (1)": col_meds[0],
+                            "Validación Previa (2)": col_meds[1],
+                            "Antepenúltima (3)": col_meds[2]
+                        })
+            except Exception as e:
+                st.error(f"Error consultando Maquinaria: {e}")
+
+        # =========================================================
+        # 2. CONSULTA DE MOBILIARIO / IONIZADORES (inventario_esd + historial_mediciones)
+        # =========================================================
+        if filtro_cat in ["TODAS", "Mobiliario / Ionizadores"]:
+            try:
+                q_inv = supabase.table("inventario_esd").select("*")
+                if filtro_linea != "TODAS":
+                    q_inv = q_inv.ilike("linea_ubicacion", filtro_linea)
+                resp_inv = q_inv.execute()
+                
+                if resp_inv.data:
+                    for item in resp_inv.data:
+                        id_p = item.get("id_producto")
+                        st_op = str(item.get("estatus_operativo", "")).upper()
+                        
+                        if not id_p or "NO OPERATIVO" in st_op or "BAJA" in st_op:
+                            continue
+                            
+                        if busqueda_id and busqueda_id not in id_p.upper():
+                            continue
+                            
+                        categoria_item = str(item.get("categoria", "Mobiliario"))
+                        es_ion = "IONIZADOR" in categoria_item.upper()
+                        
+                        # 1ra medición: La actual en inventario_esd
+                        meds_comb = []
+                        f_actual = str(item.get("fecha_ultima_verif", ""))[:10]
+                        val_actual = item.get("valor_actual")
+                        bal_actual = item.get("balance_ionizador")
+                        
+                        if f_actual and f_actual not in ["None", "N/D", ""]:
+                            try:
+                                f_fmt = datetime.strptime(f_actual, "%Y-%m-%d").strftime("%d-%b-%Y")
+                            except:
+                                f_fmt = f_actual
+                                
+                            if es_ion:
+                                t_desc = f"{val_actual} s" if val_actual else "N/D"
+                                b_vol = f"{bal_actual} V" if bal_actual else "N/D"
+                                meds_comb.append(f"📅 **{f_fmt}**<br>`{t_desc}` | `{b_vol}`")
+                            else:
+                                try:
+                                    r_str = f"{float(val_actual):.2e}".replace("e+0", "e+").replace("e-0", "e-") + " Ω"
+                                except:
+                                    r_str = f"{val_actual} Ω" if val_actual else "N/D"
+                                meds_comb.append(f"📅 **{f_fmt}**<br>`{r_str}`")
+
+                        # Consultar hasta 2 mediciones previas del historial_mediciones
+                        resp_hist = supabase.table("historial_mediciones") \
+                            .select("fecha_validacion, valor_actual, balance_ionizador") \
+                            .eq("id_equipo", id_p) \
+                            .order("fecha_modificacion", desc=True) \
+                            .limit(2) \
+                            .execute()
+                            
+                        if resp_hist.data:
+                            for h in resp_hist.data:
+                                f_h = str(h.get("fecha_validacion", ""))[:10]
+                                try:
+                                    f_h_fmt = datetime.strptime(f_h, "%Y-%m-%d").strftime("%d-%b-%Y")
+                                except:
+                                    f_h_fmt = f_h if f_h else "N/D"
+                                    
+                                v_h = h.get("valor_actual")
+                                b_h = h.get("balance_ionizador")
+                                
+                                if es_ion:
+                                    t_desc = f"{v_h} s" if v_h else "N/D"
+                                    b_vol = f"{b_h} V" if b_h else "N/D"
+                                    meds_comb.append(f"📅 **{f_h_fmt}**<br>`{t_desc}` | `{b_vol}`")
+                                else:
+                                    try:
+                                        r_str = f"{float(v_h):.2e}".replace("e+0", "e+").replace("e-0", "e-") + " Ω"
+                                    except:
+                                        r_str = f"{v_h} Ω" if v_h else "N/D"
+                                    meds_comb.append(f"📅 **{f_h_fmt}**<br>`{r_str}`")
+
+                        col_meds = []
+                        for i in range(3):
+                            if i < len(meds_comb):
+                                col_meds.append(meds_comb[i])
+                            else:
+                                col_meds.append("<span style='color:#aaa;'>Sin registro</span>")
+
+                        filas_tabla.append({
+                            "ID Activo": f"🛋️ {id_p}",
+                            "Categoría": categoria_item,
+                            "Clasificación": item.get("clasificacion", "N/D"),
+                            "Línea": item.get("linea_ubicacion", "N/D"),
+                            "Frecuencia": item.get("frecuencia", "Anual"),
+                            "Última Validación (1)": col_meds[0],
+                            "Validación Previa (2)": col_meds[1],
+                            "Antepenúltima (3)": col_meds[2]
+                        })
+            except Exception as e:
+                st.error(f"Error consultando Mobiliario: {e}")
+
+        # =========================================================
+        # 3. RENDERIZAR TABLA HTML RESPONSIVA EN STREAMLIT
+        # =========================================================
+        if filas_tabla:
+            df_res = pd.DataFrame(filas_tabla)
+            st.caption(f"Mostrando **{len(df_res)}** activos registrados.")
+            
+            # Formatear como tabla HTML para renderizar el código HTML dentro de las celdas
+            filas_html = ""
+            for idx, r in df_res.iterrows():
+                filas_html += f"""
+                <tr style="border-bottom: 1px solid #e2e8f0; font-size: 13px;">
+                    <td style="padding: 8px; font-weight: bold;">{r['ID Activo']}</td>
+                    <td style="padding: 8px; color: #475569;">{r['Categoría']} <br><small style="color:#64748b;">({r['Clasificación']})</small></td>
+                    <td style="padding: 8px; font-weight: bold; color: #003366;">{r['Línea']}</td>
+                    <td style="padding: 8px; text-align: center;"><span style="background-color: #e0f2fe; color: #0369a1; padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: bold;">{r['Frecuencia']}</span></td>
+                    <td style="padding: 8px; background-color: #f8fafc;">{r['Última Validación (1)']}</td>
+                    <td style="padding: 8px;">{r['Validación Previa (2)']}</td>
+                    <td style="padding: 8px; background-color: #f8fafc;">{r['Antepenúltima (3)']}</td>
+                </tr>
+                """
+                
+            tabla_completa_html = f"""
+            <div style="overflow-x: auto; border: 1px solid #cbd5e1; border-radius: 8px; margin-top: 10px;">
+                <table style="width: 100%; border-collapse: collapse; font-family: sans-serif;">
+                    <thead>
+                        <tr style="background-color: #003366; color: white; text-align: left; font-size: 13px;">
+                            <th style="padding: 10px;">ID Activo</th>
+                            <th style="padding: 10px;">Tipo / Clasificación</th>
+                            <th style="padding: 10px;">Línea</th>
+                            <th style="padding: 10px; text-align: center;">Frecuencia</th>
+                            <th style="padding: 10px;">Última Validación (1)</th>
+                            <th style="padding: 10px;">Validación Previa (2)</th>
+                            <th style="padding: 10px;">Antepenúltima (3)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {filas_html}
+                    </tbody>
+                </table>
+            </div>
+            """
+            st.markdown(tabla_completa_html, unsafe_allow_html=True)
+        else:
+            st.warning("No se encontraron activos que coincidan con los filtros seleccionados.")
+
 def crear_mapa_ruta(ruta_grupos, df_coords):
     """
     Genera el mapa de la ruta. Incluye autodiagnóstico y reparación 
@@ -7870,7 +8105,7 @@ Departamento de Calidad / Control ESD"""
 elif st.session_state.vista_actual == "Schedule" and not st.session_state.modo_lectura:
     st.markdown("### 📅 Cronograma de Verificaciones ESD")
     
-    tab_cronograma, tab_urgentes = st.tabs(["📅 Cronograma General", "🚨 Pendientes y Vencidos (Edición Directa)"])
+    tab_cronograma, tab_urgentes, tab_matriz_historica = st.tabs(["📅 Cronograma General", "🚨 Pendientes y Vencidos (Edición Directa)", "📜 Histórico de Últimas 3 Validaciones"])
 
     # --- SUB-PESTAÑA 1: CRONOGRAMA GENERAL (CÓDIGO EXISTENTE OPTIMIZADO) ---
     with tab_cronograma:
@@ -8344,6 +8579,9 @@ elif st.session_state.vista_actual == "Schedule" and not st.session_state.modo_l
                             elif errores > 0:
                                 st.warning("Se guardaron algunos cambios, pero hubo errores. Revisa los mensajes arriba.")
 
+    with tab_matriz_historica:
+    # Llama a la nueva función
+    render_pestana_historico_3_validaciones()
 # ==========================================
 # VISTA 9: SENSIBILIDAD DE COMPONENTES (ESDS)
 # ==========================================
