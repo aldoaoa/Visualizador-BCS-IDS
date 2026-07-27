@@ -415,10 +415,9 @@ def render_pestana_historico_3_validaciones():
                                 v_val = m.get("campo_estatico_voltaje")
                                 v_str = f"{v_val} V" if v_val is not None else "N/D"
                                 
-                                # Usamos HTML nativo <b> y <code> en lugar de Markdown
-                                col_meds.append(f"📅 <b>{f_formateada}</b><br><code style='color:#d63384; background:transparent;'>{r_str}</code> | <code style='color:#059669; background:transparent;'>{v_str}</code>")
+                                col_meds.append(f"📅 <b>{f_formateada}</b><br><code style='color:#f472b6; background:transparent;'>{r_str}</code> | <code style='color:#34d399; background:transparent;'>{v_str}</code>")
                             else:
-                                col_meds.append("<span style='color:#aaa;'>Sin registro</span>")
+                                col_meds.append("<span style='color:#888;'>Sin registro</span>")
                                 
                         filas_tabla.append({
                             "ID Activo": f"🏭 {id_m}", "Categoría": "Maquinaria",
@@ -462,11 +461,11 @@ def render_pestana_historico_3_validaciones():
                             if es_ion:
                                 t_desc = f"{val_actual} s" if val_actual else "N/D"
                                 b_vol = f"{bal_actual} V" if bal_actual else "N/D"
-                                meds_comb.append(f"📅 <b>{f_fmt}</b><br><code style='color:#d63384; background:transparent;'>{t_desc}</code> | <code style='color:#059669; background:transparent;'>{b_vol}</code>")
+                                meds_comb.append(f"📅 <b>{f_fmt}</b><br><code style='color:#f472b6; background:transparent;'>{t_desc}</code> | <code style='color:#34d399; background:transparent;'>{b_vol}</code>")
                             else:
                                 try: r_str = f"{float(val_actual):.2e}".replace("e+0", "e+").replace("e-0", "e-") + " Ω"
                                 except: r_str = f"{val_actual} Ω" if val_actual else "N/D"
-                                meds_comb.append(f"📅 <b>{f_fmt}</b><br><code style='color:#d63384; background:transparent;'>{r_str}</code>")
+                                meds_comb.append(f"📅 <b>{f_fmt}</b><br><code style='color:#f472b6; background:transparent;'>{r_str}</code>")
 
                         resp_hist = supabase.table("historial_mediciones").select("fecha_validacion, valor_actual, balance_ionizador").eq("id_equipo", id_p).order("fecha_modificacion", desc=True).limit(2).execute()
                             
@@ -482,16 +481,16 @@ def render_pestana_historico_3_validaciones():
                                 if es_ion:
                                     t_desc = f"{v_h} s" if v_h else "N/D"
                                     b_vol = f"{b_h} V" if b_h else "N/D"
-                                    meds_comb.append(f"📅 <b>{f_h_fmt}</b><br><code style='color:#d63384; background:transparent;'>{t_desc}</code> | <code style='color:#059669; background:transparent;'>{b_vol}</code>")
+                                    meds_comb.append(f"📅 <b>{f_h_fmt}</b><br><code style='color:#f472b6; background:transparent;'>{t_desc}</code> | <code style='color:#34d399; background:transparent;'>{b_vol}</code>")
                                 else:
                                     try: r_str = f"{float(v_h):.2e}".replace("e+0", "e+").replace("e-0", "e-") + " Ω"
                                     except: r_str = f"{v_h} Ω" if v_h else "N/D"
-                                    meds_comb.append(f"📅 <b>{f_h_fmt}</b><br><code style='color:#d63384; background:transparent;'>{r_str}</code>")
+                                    meds_comb.append(f"📅 <b>{f_h_fmt}</b><br><code style='color:#f472b6; background:transparent;'>{r_str}</code>")
 
                         col_meds = []
                         for i in range(3):
                             if i < len(meds_comb): col_meds.append(meds_comb[i])
-                            else: col_meds.append("<span style='color:#aaa;'>Sin registro</span>")
+                            else: col_meds.append("<span style='color:#888;'>Sin registro</span>")
 
                         filas_tabla.append({
                             "ID Activo": f"🛋️ {id_p}", "Categoría": categoria_item,
@@ -503,20 +502,24 @@ def render_pestana_historico_3_validaciones():
                 st.error(f"Error consultando Mobiliario: {e}")
 
         # =========================================================
-        # 3. RENDERIZAR TABLA HTML RESPONSIVA EN STREAMLIT
+        # 3. RENDERIZAR TABLA HTML RESPONSIVA
         # =========================================================
         if filas_tabla:
             df_res = pd.DataFrame(filas_tabla)
-            st.caption(f"Mostrando **{len(df_res)}** activos registrados.")
             
-            # --- SOLUCIÓN: CÓDIGO HTML APLANADO ---
+            # 🔴 1. ORDENAR POR DEFECTO POR LÍNEA ALFABÉTICAMENTE (A-Z) 🔴
+            df_res['Línea_Sort'] = df_res['Línea'].astype(str).str.strip().str.upper()
+            df_res = df_res.sort_values(by=["Línea_Sort", "ID Activo"], ascending=[True, True]).drop(columns=['Línea_Sort'])
+            
+            st.caption(f"Mostrando **{len(df_res)}** activos registrados ordenados por línea.")
+            
+            # 🔴 2. CÓDIGO HTML APLANADO CON FONDOS #2d2e2e 🔴
             filas_html = ""
             for idx, r in df_res.iterrows():
-                filas_html += f"<tr style='border-bottom: 1px solid #e2e8f0; font-size: 13px;'><td style='padding: 8px; font-weight: bold;'>{r['ID Activo']}</td><td style='padding: 8px; color: #475569;'>{r['Categoría']} <br><small style='color:#64748b;'>({r['Clasificación']})</small></td><td style='padding: 8px; font-weight: bold; color: #003366;'>{r['Línea']}</td><td style='padding: 8px; text-align: center;'><span style='background-color: #e0f2fe; color: #0369a1; padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: bold;'>{r['Frecuencia']}</span></td><td style='padding: 8px; background-color: #2d2e2e;'>{r['Última Validación (1)']}</td><td style='padding: 8px;'>{r['Validación Previa (2)']}</td><td style='padding: 8px; background-color: #2d2e2e;'>{r['Antepenúltima (3)']}</td></tr>"
+                filas_html += f"<tr style='border-bottom: 1px solid #e2e8f0; font-size: 13px;'><td style='padding: 8px; font-weight: bold;'>{r['ID Activo']}</td><td style='padding: 8px; color: #475569;'>{r['Categoría']} <br><small style='color:#64748b;'>({r['Clasificación']})</small></td><td style='padding: 8px; font-weight: bold; color: #003366;'>{r['Línea']}</td><td style='padding: 8px; text-align: center;'><span style='background-color: #e0f2fe; color: #0369a1; padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: bold;'>{r['Frecuencia']}</span></td><td style='padding: 8px; background-color: #2d2e2e; color: #ffffff;'>{r['Última Validación (1)']}</td><td style='padding: 8px;'>{r['Validación Previa (2)']}</td><td style='padding: 8px; background-color: #2d2e2e; color: #ffffff;'>{r['Antepenúltima (3)']}</td></tr>"
                 
             tabla_completa_html = f"<div style='overflow-x: auto; border: 1px solid #cbd5e1; border-radius: 8px; margin-top: 10px;'><table style='width: 100%; border-collapse: collapse; font-family: sans-serif;'><thead><tr style='background-color: #003366; color: white; text-align: left; font-size: 13px;'><th style='padding: 10px;'>ID Activo</th><th style='padding: 10px;'>Tipo / Clasificación</th><th style='padding: 10px;'>Línea</th><th style='padding: 10px; text-align: center;'>Frecuencia</th><th style='padding: 10px;'>Última Validación (1)</th><th style='padding: 10px;'>Validación Previa (2)</th><th style='padding: 10px;'>Antepenúltima (3)</th></tr></thead><tbody>{filas_html}</tbody></table></div>"
             
-            # Usamos st.write() que es un poco más estable con HTML directo
             st.write(tabla_completa_html, unsafe_allow_html=True)
         else:
             st.warning("No se encontraron activos que coincidan con los filtros seleccionados.")
