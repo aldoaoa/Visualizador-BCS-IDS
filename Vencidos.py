@@ -376,11 +376,19 @@ def render_pestana_historico_3_validaciones():
     # 🎨 FUNCIONES AUXILIARES DE COLORIMETRÍA DINÁMICA
     # =========================================================
     def estilar_maq(r_val, v_val):
-        # Resistencia Maquinaria: < 1 Ohm -> Verde (#34d399), >= 1 Ohm -> Rojo (#f87171)
+        # 🎯 NUEVA LÓGICA DE RESISTENCIA EN MAQUINARIA (Incluye Superficies de Trabajo)
+        # 1. < 1 Ohm -> Verde (#34d399) [Tierra/Masa Directa]
+        # 2. 1 Ohm a < 1e3 Ohms -> Rojo (#f87171) [Falla / Tierra indeterminada]
+        # 3. 1e3 Ohms a < 1e9 Ohms -> Verde (#34d399) [Superficie de trabajo disipativa]
+        # 4. >= 1e9 Ohms -> Rojo (#f87171) [Aislante / Excede límite disipativo]
         try:
             r_num = float(r_val)
             r_str = f"{r_num:.2f} Ω" if r_num < 10 else f"{r_num:.2e} Ω"
-            col_r = "#34d399" if r_num < 1.0 else "#f87171"
+            
+            if r_num < 1.0 or (1.0e3 <= r_num < 1.0e9):
+                col_r = "#34d399"  # Verde (Aceptable como masa o como superficie)
+            else:
+                col_r = "#f87171"  # Rojo (Falla de tierra o aislante)
         except:
             r_str = f"{r_val} Ω" if r_val is not None else "N/D"
             col_r = "#a1a1aa"
