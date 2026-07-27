@@ -17,6 +17,7 @@ from supabase import create_client, Client
 import time
 from werkzeug.security import generate_password_hash, check_password_hash
 import plotly.graph_objects as go
+import calendar
 
 if "vista_actual" not in st.session_state:
     st.session_state.vista_actual = "Mapa" # O la vista principal que uses por defecto
