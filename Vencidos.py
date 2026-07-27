@@ -3209,7 +3209,7 @@ elif st.session_state.vista_actual == "Escáner":
 
         # --- NUEVO: Búsqueda en tabla de Maquinaria ---
         try:
-            resp_maq_scan = supabase.table("mediciones_maquinaria").select("*").eq("id_maquinaria", id_limpio).order("fecha_medicion", desc=True).execute()
+            resp_maq_scan = supabase.table("mediciones_maquinaria").select("*").eq("id_maquinaria", id_limpio).order("fecha_medicion", desc=True).limit(3).execute()
             df_maq_scan = pd.DataFrame(resp_maq_scan.data)
             es_maq = not df_maq_scan.empty
         except:
@@ -3327,7 +3327,7 @@ elif st.session_state.vista_actual == "Escáner":
                 
                 with st.expander("🕰️ Consultar Historial de Mediciones Anteriores"):
                     try:
-                        resp_hist = supabase.table("historial_mediciones").select("*").eq("id_equipo", id_limpio).order("fecha_modificacion", desc=True).execute()
+                        resp_hist = supabase.table("historial_mediciones").select("*").eq("id_equipo", id_limpio).order("fecha_modificacion", desc=True).limit(2).execute()
                         df_historial = pd.DataFrame(resp_hist.data)
                         if not df_historial.empty:
                             
@@ -3569,21 +3569,27 @@ elif st.session_state.vista_actual == "Escáner":
                 c_fvenc.metric("Fecha de Vencimiento", f_venc_sql)
                 
                 with st.expander("🕰️ Consultar Historial de Mediciones Anteriores"):
-                    df_maq_hist = df_maq_scan[['fecha_medicion', 'resistencia_tierra', 'campo_estatico_voltaje', 'tomacorriente_estatus', 'resultado_estatus', 'auditor']].copy()
-                    df_maq_hist.columns = ['Fecha', 'Resistencia (Ω)', 'Campo (V)', 'Toma', 'Estatus', 'Auditor']
+                    # Usamos .iloc[1:] para excluir la medición actual y dejar solo hasta 2 previas
+                    df_maq_hist = df_maq_scan.iloc[1:][['fecha_medicion', 'resistencia_tierra', 'campo_estatico_voltaje', 'tomacorriente_estatus', 'resultado_estatus', 'auditor']].copy()
                     
-                    def formatear_res_hist(val):
-                        try:
-                            v = float(val)
-                            return f"{v:.2f}" if v < 10 else f"{v:.2e}" # <--- Forzado a minúscula (.2e)
-                        except:
-                            return "N/D"
-                            
-                    if 'Resistencia (Ω)' in df_maq_hist.columns:
-                        df_maq_hist['Resistencia (Ω)'] = df_maq_hist['Resistencia (Ω)'].apply(formatear_res_hist)
+                    if not df_maq_hist.empty:
+                        df_maq_hist.columns = ['Fecha', 'Resistencia (Ω)', 'Campo (V)', 'Toma', 'Estatus', 'Auditor']
                         
-                    df_maq_hist['Fecha'] = pd.to_datetime(df_maq_hist['Fecha'], format='ISO8601', errors='coerce').dt.strftime('%d-%b-%Y %H:%M')
-                    st.dataframe(df_maq_hist.fillna("N/D"), use_container_width=True, hide_index=True)
+                        def formatear_res_hist(val):
+                            try:
+                                v = float(val)
+                                return f"{v:.2f}" if v < 10 else f"{v:.2e}" 
+                            except:
+                                return "N/D"
+                                
+                        if 'Resistencia (Ω)' in df_maq_hist.columns:
+                            df_maq_hist['Resistencia (Ω)'] = df_maq_hist['Resistencia (Ω)'].apply(formatear_res_hist)
+                            
+                        df_maq_hist['Fecha'] = pd.to_datetime(df_maq_hist['Fecha'], format='ISO8601', errors='coerce').dt.strftime('%d-%b-%Y %H:%M')
+                        st.dataframe(df_maq_hist.fillna("N/D"), use_container_width=True, hide_index=True)
+                    else:
+                        # Mensaje amigable si es un equipo nuevo sin historial
+                        st.info("No hay auditorías previas registradas para este equipo aún.")
 
                 st.divider()
 
