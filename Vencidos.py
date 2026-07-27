@@ -355,7 +355,7 @@ def gestionar_rutas_producto():
 
 def render_pestana_historico_3_validaciones():
     st.markdown("### 📜 Histórico de las Últimas 3 Validaciones por Activo")
-    st.info("Esta vista consolida la trazabilidad reciente de todo el parque de activos (Maquinaria, Mobiliario e Ionizadores) mostrando hasta 3 mediciones previas y su frecuencia normativa.")
+    st.info("Esta vista consolida la trazabilidad reciente de todo el parque de activos (Maquinaria, Mobiliario e Ionizadores) mostrando hasta 3 mediciones previas con código de colores automático según la norma ANSI/ESD S20.20.")
 
     # Filtros superiores de consulta
     c_f1, c_f2, c_f3 = st.columns(3)
@@ -371,6 +371,62 @@ def render_pestana_historico_3_validaciones():
         
     with c_f3:
         busqueda_id = st.text_input("🔍 Buscar por ID Activo:", placeholder="Ej: SMT9 o CONV", key="f_id_3v").strip().upper()
+
+    # =========================================================
+    # 🎨 FUNCIONES AUXILIARES DE COLORIMETRÍA DINÁMICA
+    # =========================================================
+    def estilar_maq(r_val, v_val):
+        # Resistencia Maquinaria: < 1 Ohm -> Verde (#34d399), >= 1 Ohm -> Rojo (#f87171)
+        try:
+            r_num = float(r_val)
+            r_str = f"{r_num:.2f} Ω" if r_num < 10 else f"{r_num:.2e} Ω"
+            col_r = "#34d399" if r_num < 1.0 else "#f87171"
+        except:
+            r_str = f"{r_val} Ω" if r_val is not None else "N/D"
+            col_r = "#a1a1aa"
+
+        # Voltaje Maquinaria: <= 35V -> Verde (#34d399), > 35V -> Rojo (#f87171)
+        try:
+            v_num = float(v_val)
+            v_str = f"{v_num:.1f} V"
+            col_v = "#34d399" if abs(v_num) <= 35.0 else "#f87171"
+        except:
+            v_str = f"{v_val} V" if v_val is not None else "N/D"
+            col_v = "#a1a1aa"
+
+        return f"<code style='color:{col_r}; background:transparent;'>{r_str}</code> | <code style='color:{col_v}; background:transparent;'>{v_str}</code>"
+
+    def estilar_mob_ion(es_ion, val_main, val_bal):
+        if es_ion:
+            # Ionizador: Decaimiento (<= 5s) y Balance (<= 35V)
+            try:
+                t_num = float(val_main)
+                t_str = f"{t_num:.1f} s"
+                col_t = "#34d399" if t_num <= 5.0 else "#f87171"
+            except:
+                t_str = f"{val_main} s" if val_main else "N/D"
+                col_t = "#a1a1aa"
+
+            try:
+                b_num = float(val_bal)
+                b_str = f"{b_num:.1f} V"
+                col_b = "#34d399" if abs(b_num) <= 35.0 else "#f87171"
+            except:
+                b_str = f"{val_bal} V" if val_bal else "N/D"
+                col_b = "#a1a1aa"
+
+            return f"<code style='color:{col_t}; background:transparent;'>{t_str}</code> | <code style='color:{col_b}; background:transparent;'>{b_str}</code>"
+        else:
+            # Mobiliario: Resistencia < 1e9 Ohm -> Verde (#34d399), >= 1e9 Ohm -> Rojo (#f87171)
+            try:
+                r_num = float(val_main)
+                r_str = f"{r_num:.2e}".replace("e+0", "e+").replace("e-0", "e-") + " Ω"
+                col_r = "#34d399" if r_num < 1.0e9 else "#f87171"
+            except:
+                r_str = f"{val_main} Ω" if val_main else "N/D"
+                col_r = "#a1a1aa"
+
+            return f"<code style='color:{col_r}; background:transparent;'>{r_str}</code>"
 
     with st.spinner("Cargando trazabilidad de activos..."):
         filas_tabla = []
@@ -408,16 +464,10 @@ def render_pestana_historico_3_validaciones():
                                 try: f_formateada = datetime.strptime(f_str, "%Y-%m-%d").strftime("%d-%b-%Y")
                                 except: f_formateada = f_str
                                 
-                                r_val = m.get("resistencia_tierra")
-                                try: r_str = f"{float(r_val):.2f} Ω" if float(r_val) < 10 else f"{float(r_val):.2e} Ω"
-                                except: r_str = f"{r_val} Ω" if r_val is not None else "N/D"
-                                
-                                v_val = m.get("campo_estatico_voltaje")
-                                v_str = f"{v_val} V" if v_val is not None else "N/D"
-                                
-                                col_meds.append(f"📅 <b>{f_formateada}</b><br><code style='color:#f472b6; background:transparent;'>{r_str}</code> | <code style='color:#34d399; background:transparent;'>{v_str}</code>")
+                                html_med = estilar_maq(m.get("resistencia_tierra"), m.get("campo_estatico_voltaje"))
+                                col_meds.append(f"📅 <b>{f_formateada}</b><br>{html_med}")
                             else:
-                                col_meds.append("<span style='color:#888;'>Sin registro</span>")
+                                col_meds.append("<span style='color:#a1a1aa;'>Sin registro</span>")
                                 
                         filas_tabla.append({
                             "ID Activo": f"🏭 {id_m}", "Categoría": "Maquinaria",
@@ -457,15 +507,9 @@ def render_pestana_historico_3_validaciones():
                         if f_actual and f_actual not in ["None", "N/D", ""]:
                             try: f_fmt = datetime.strptime(f_actual, "%Y-%m-%d").strftime("%d-%b-%Y")
                             except: f_fmt = f_actual
-                                
-                            if es_ion:
-                                t_desc = f"{val_actual} s" if val_actual else "N/D"
-                                b_vol = f"{bal_actual} V" if bal_actual else "N/D"
-                                meds_comb.append(f"📅 <b>{f_fmt}</b><br><code style='color:#f472b6; background:transparent;'>{t_desc}</code> | <code style='color:#34d399; background:transparent;'>{b_vol}</code>")
-                            else:
-                                try: r_str = f"{float(val_actual):.2e}".replace("e+0", "e+").replace("e-0", "e-") + " Ω"
-                                except: r_str = f"{val_actual} Ω" if val_actual else "N/D"
-                                meds_comb.append(f"📅 <b>{f_fmt}</b><br><code style='color:#f472b6; background:transparent;'>{r_str}</code>")
+                            
+                            html_med = estilar_mob_ion(es_ion, val_actual, bal_actual)
+                            meds_comb.append(f"📅 <b>{f_fmt}</b><br>{html_med}")
 
                         resp_hist = supabase.table("historial_mediciones").select("fecha_validacion, valor_actual, balance_ionizador").eq("id_equipo", id_p).order("fecha_modificacion", desc=True).limit(2).execute()
                             
@@ -475,22 +519,13 @@ def render_pestana_historico_3_validaciones():
                                 try: f_h_fmt = datetime.strptime(f_h, "%Y-%m-%d").strftime("%d-%b-%Y")
                                 except: f_h_fmt = f_h if f_h else "N/D"
                                     
-                                v_h = h.get("valor_actual")
-                                b_h = h.get("balance_ionizador")
-                                
-                                if es_ion:
-                                    t_desc = f"{v_h} s" if v_h else "N/D"
-                                    b_vol = f"{b_h} V" if b_h else "N/D"
-                                    meds_comb.append(f"📅 <b>{f_h_fmt}</b><br><code style='color:#f472b6; background:transparent;'>{t_desc}</code> | <code style='color:#34d399; background:transparent;'>{b_vol}</code>")
-                                else:
-                                    try: r_str = f"{float(v_h):.2e}".replace("e+0", "e+").replace("e-0", "e-") + " Ω"
-                                    except: r_str = f"{v_h} Ω" if v_h else "N/D"
-                                    meds_comb.append(f"📅 <b>{f_h_fmt}</b><br><code style='color:#f472b6; background:transparent;'>{r_str}</code>")
+                                html_h = estilar_mob_ion(es_ion, h.get("valor_actual"), h.get("balance_ionizador"))
+                                meds_comb.append(f"📅 <b>{f_h_fmt}</b><br>{html_h}")
 
                         col_meds = []
                         for i in range(3):
                             if i < len(meds_comb): col_meds.append(meds_comb[i])
-                            else: col_meds.append("<span style='color:#888;'>Sin registro</span>")
+                            else: col_meds.append("<span style='color:#a1a1aa;'>Sin registro</span>")
 
                         filas_tabla.append({
                             "ID Activo": f"🛋️ {id_p}", "Categoría": categoria_item,
@@ -507,13 +542,12 @@ def render_pestana_historico_3_validaciones():
         if filas_tabla:
             df_res = pd.DataFrame(filas_tabla)
             
-            # 🔴 1. ORDENAR POR DEFECTO POR LÍNEA ALFABÉTICAMENTE (A-Z) 🔴
+            # Ordenar alfabéticamente por Línea y luego por ID Activo
             df_res['Línea_Sort'] = df_res['Línea'].astype(str).str.strip().str.upper()
             df_res = df_res.sort_values(by=["Línea_Sort", "ID Activo"], ascending=[True, True]).drop(columns=['Línea_Sort'])
             
             st.caption(f"Mostrando **{len(df_res)}** activos registrados ordenados por línea.")
             
-            # 🔴 2. CÓDIGO HTML APLANADO CON FONDOS #2d2e2e 🔴
             filas_html = ""
             for idx, r in df_res.iterrows():
                 filas_html += f"<tr style='border-bottom: 1px solid #e2e8f0; font-size: 13px;'><td style='padding: 8px; font-weight: bold;'>{r['ID Activo']}</td><td style='padding: 8px; color: #475569;'>{r['Categoría']} <br><small style='color:#64748b;'>({r['Clasificación']})</small></td><td style='padding: 8px; font-weight: bold; color: #003366;'>{r['Línea']}</td><td style='padding: 8px; text-align: center;'><span style='background-color: #e0f2fe; color: #0369a1; padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: bold;'>{r['Frecuencia']}</span></td><td style='padding: 8px; background-color: #2d2e2e; color: #ffffff;'>{r['Última Validación (1)']}</td><td style='padding: 8px;'>{r['Validación Previa (2)']}</td><td style='padding: 8px; background-color: #2d2e2e; color: #ffffff;'>{r['Antepenúltima (3)']}</td></tr>"
