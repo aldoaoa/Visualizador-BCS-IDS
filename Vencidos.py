@@ -173,6 +173,252 @@ def limpiar_id(texto):
     # Convierte a texto, quita espacios raros, borra espacios al inicio/fin y lo hace mayúscula
     return str(texto).replace('\xa0', ' ').strip().upper()
 
+def render_calendario_programacion_cronograma(filtro_linea="TODAS", filtro_cat="TODAS"):
+    """
+    Renderiza un Calendario de Programación debajo de la tabla principal.
+    Permite alternar entre vistas por Semana, Mes y Año, mostrando los activos
+    específicos a validar según los filtros de línea y categoría.
+    """
+    st.markdown("---")
+    st.markdown("### 🗓️ Calendario de Programación de Validaciones")
+    st.caption("Planifica tus auditorías visualizando las fechas de vencimiento en vista semanal, mensual o anual.")
+
+    # ---------------------------------------------------------
+    # 1. CONTROLES Y NIVEL DE VISTA
+    # ---------------------------------------------------------
+    c_v1, c_v2 = st.columns([1, 2])
+    with c_v1:
+        vista_cal = st.selectbox(
+            "📅 Vista del Calendario:",
+            ["Semana", "Mes", "Año"],
+            index=0,
+            key="sb_vista_calendario_progra"
+        )
+
+    hoy = datetime.today()
+    
+    # Configuración de rangos de fecha según la vista elegida
+    if vista_cal == "Semana":
+        num_wk_actual = hoy.isocalendar().week
+        semana_sel = c_v2.slider("Seleccionar Semana del Año (WK):", min_value=1, max_value=52, value=int(num_wk_actual), key="slider_wk_cal")
+        
+        primer_dia_anio = datetime(hoy.year, 1, 1)
+        inicio_rango = primer_dia_anio + timedelta(weeks=semana_sel - 1) - timedelta(days=primer_dia_anio.weekday())
+        fin_rango = inicio_rango + timedelta(days=6)
+        lbl_periodo = f"Semana WK {semana_sel} ({inicio_rango.strftime('%d-%b')} al {fin_rango.strftime('%d-%b-%Y')})"
+
+    elif vista_cal == "Mes":
+        meses_es = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+        mes_sel = c_v2.selectbox("Seleccionar Mes:", meses_es, index=hoy.month - 1, key="sb_mes_cal")
+        idx_mes = meses_es.index(mes_sel) + 1
+        
+        inicio_rango = datetime(hoy.year, idx_mes, 1)
+        dias_mes = calendar.monthrange(hoy.year, idx_mes)[1]
+        fin_rango = datetime(hoy.year, idx_mes, dias_mes)
+        lbl_periodo = f"{mes_sel} {hoy.year}"
+
+    else: # Vista Año
+        anio_sel = c_v2.number_input("Año:", min_value=2024, max_value=2030, value=hoy.year, key="num_anio_cal")
+        inicio_rango = datetime(anio_sel, 1, 1)
+        fin_rango = datetime(anio_sel, 12, 31)
+        lbl_periodo = f"Año Completo {anio_sel}"
+
+    # ---------------------------------------------------------
+    # 2. CONSULTAR DATOS DE SUPABASE CON FILTROS
+    # ---------------------------------------------------------
+    activos_agenda = []
+    str_inicio = inicio_rango.strftime("%Y-%m-%d")
+    str_fin = fin_rango.strftime("%Y-%m-%d")
+
+    with st.spinner("Cargando eventos del calendario..."):
+        # A) MAQUINARIA
+        if filtro_cat in ["TODAS", "Maquinaria"]:
+            try:
+                q_maq = supabase.table("mediciones_maquinaria") \
+                    .select("id_maquinaria, linea_ubicacion, clasificacion, fecha_proxima, status_operativo") \
+                    .gte("fecha_proxima", str_inicio) \
+                    .lte("fecha_proxima", str_fin)
+                
+                if filtro_linea != "TODAS":
+                    q_maq = q_maq.ilike("linea_ubicacion", filtro_linea)
+                    
+                resp_maq = q_maq.execute()
+                if resp_maq.data:
+                    for m in resp_maq.data:
+                        st_op = str(m.get("status_operativo", "")).upper()
+                        if "NO OPERATIVO" in st_op or "BAJA" in st_op: continue
+                        
+                        activos_agenda.append({
+                            "id": f"🏭 {m.get('id_maquinaria')}",
+                            "tipo": "Maquinaria",
+                            "clasificacion": m.get("clasificacion", "N/D"),
+                            "linea": str(m.get("linea_ubicacion", "")).strip(),
+                            "fecha": str(m.get("fecha_proxima"))[:10]
+                        })
+            except Exception as e:
+                st.error(f"Error cargando agenda de maquinaria: {e}")
+
+        # B) MOBILIARIO E IONIZADORES
+        if filtro_cat in ["TODAS", "Mobiliario / Ionizadores"]:
+            try:
+                q_inv = supabase.table("inventario_esd") \
+                    .select("id_producto, linea_ubicacion, categoria, clasificacion, fecha_proxima_verif, estatus_operativo") \
+                    .gte("fecha_proxima_verif", str_inicio) \
+                    .lte("fecha_proxima_verif", str_fin)
+                
+                if filtro_linea != "TODAS":
+                    q_inv = q_inv.ilike("linea_ubicacion", filtro_linea)
+                    
+                resp_inv = q_inv.execute()
+                if resp_inv.data:
+                    for item in resp_inv.data:
+                        st_op = str(item.get("estatus_operativo", "")).upper()
+                        if "NO OPERATIVO" in st_op or "BAJA" in st_op: continue
+                        
+                        activos_agenda.append({
+                            "id": f"🛋️ {item.get('id_producto')}",
+                            "tipo": item.get("categoria", "Mobiliario"),
+                            "clasificacion": item.get("clasificacion", "N/D"),
+                            "linea": str(item.get("linea_ubicacion", "")).strip(),
+                            "fecha": str(item.get("fecha_proxima_verif"))[:10]
+                        })
+            except Exception as e:
+                st.error(f"Error cargando agenda de mobiliario: {e}")
+
+    df_cal = pd.DataFrame(activos_agenda)
+
+    if df_cal.empty:
+        st.success(f"🟢 No hay auditorías de validación agendadas para **{lbl_periodo}** con los filtros seleccionados.")
+        return
+
+    st.info(f"📌 **{len(df_cal)}** activos programados para validación en: **{lbl_periodo}**")
+
+    # ---------------------------------------------------------
+    # 3. RENDERIZAR VISTAS DEL CALENDARIO
+    # ---------------------------------------------------------
+    
+    # === VISTA 1: SEMANAL (DÍA POR DÍA DE LA SEMANA) ===
+    if vista_cal == "Semana":
+        st.markdown(f"#### 📆 Agenda Semanal WK {semana_sel}")
+        
+        # Generar las columnas para los 7 días
+        dias_semana_nombres = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
+        cols_dias = st.columns(7)
+        
+        for i in range(7):
+            fecha_dia = inicio_rango + timedelta(days=i)
+            str_dia = fecha_dia.strftime("%Y-%m-%d")
+            nombre_dia = dias_semana_nombres[i]
+            
+            # Sub-dataframe de activos que vencen este día
+            df_dia = df_cal[df_cal['fecha'] == str_dia]
+            
+            with cols_dias[i]:
+                # Encabezado del día
+                es_hoy = (fecha_dia.date() == hoy.date())
+                bg_head = "#003366" if not es_hoy else "#16a34a"
+                
+                st.markdown(f"""
+                <div style="background-color: {bg_head}; color: white; padding: 6px; border-radius: 6px 6px 0 0; text-align: center; font-size: 12px; font-weight: bold;">
+                    {nombre_dia}<br><span style="font-size: 14px;">{fecha_dia.strftime('%d-%b')}</span>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                if not df_dia.empty:
+                    cards_html = ""
+                    for _, row in df_dia.iterrows():
+                        cards_html += f"""
+                        <div style="background-color: #1e293b; color: white; border-left: 4px solid #f43f5e; margin: 6px 0; padding: 6px; border-radius: 4px; font-size: 11px;">
+                            <b>{row['id']}</b><br>
+                            <span style="color: #94a3b8;">📍 {row['linea']}</span><br>
+                            <span style="color: #cbd5e1;">{row['clasificacion']}</span>
+                        </div>
+                        """
+                    st.markdown(cards_html, unsafe_allow_html=True)
+                else:
+                    st.markdown("""
+                    <div style="background-color: #f8fafc; border: 1px dashed #cbd5e1; margin: 6px 0; padding: 12px; text-align: center; border-radius: 4px; color: #94a3b8; font-size: 11px;">
+                        Sin agendar
+                    </div>
+                    """, unsafe_allow_html=True)
+
+    # === VISTA 2: MENSUAL (REJILLA TIPO CALENDARIO TRADICIONAL) ===
+    elif vista_cal == "Mes":
+        st.markdown(f"#### 📅 Vista Mensual - {lbl_periodo}")
+        
+        # Agrupar por fecha
+        conteo_por_fecha = df_cal.groupby('fecha').apply(lambda g: g.to_dict('records')).to_dict()
+        
+        cal_matrix = calendar.monthcalendar(hoy.year, idx_mes)
+        dias_semana_lbl = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
+        
+        cols_hdr = st.columns(7)
+        for idx, d_lbl in enumerate(dias_semana_lbl):
+            cols_hdr[idx].markdown(f"<div style='text-align:center; font-weight:bold; background:#003366; color:white; padding:4px; border-radius:4px;'>{d_lbl}</div>", unsafe_allow_html=True)
+            
+        for sem in cal_matrix:
+            cols_sem = st.columns(7)
+            for idx_d, d_num in enumerate(sem):
+                with cols_sem[idx_d]:
+                    if d_num != 0:
+                        f_date_str = f"{hoy.year:04d}-{idx_mes:02d}-{d_num:02d}"
+                        items_dia = conteo_por_fecha.get(f_date_str, [])
+                        
+                        cant = len(items_dia)
+                        bg_box = "#fef2f2" if cant > 0 else "#ffffff"
+                        border_box = "#f87171" if cant > 0 else "#e2e8f0"
+                        
+                        txt_items = ""
+                        if cant > 0:
+                            for it in items_dia[:2]: # Mostrar hasta 2 en miniatura
+                                txt_items += f"<div style='font-size:10px; color:#991b1b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;'>• {it['id']} ({it['linea']})</div>"
+                            if cant > 2:
+                                txt_items += f"<div style='font-size:10px; color:#dc2626; font-weight:bold;'>+ {cant - 2} más</div>"
+                        
+                        st.markdown(f"""
+                        <div style="background-color:{bg_box}; border:1px solid {border_box}; min-height: 75px; padding:4px; border-radius:4px; margin-top:4px;">
+                            <div style="font-weight:bold; font-size:12px; color:#334155;">{d_num}</div>
+                            {txt_items}
+                        </div>
+                        """, unsafe_allow_html=True)
+                    else:
+                        st.markdown("<div style='min-height:75px;'></div>", unsafe_allow_html=True)
+
+    # === VISTA 3: ANUAL (RESUMEN POR MES Y SEMANAS) ===
+    else:
+        st.markdown(f"#### 📊 Proyección Anual {lbl_periodo}")
+        
+        df_cal['Fecha_DT'] = pd.to_datetime(df_cal['fecha'])
+        df_cal['Mes_Nombre'] = df_cal['Fecha_DT'].dt.strftime('%B')
+        df_cal['WK'] = "WK " + df_cal['Fecha_DT'].dt.isocalendar().week.astype(str)
+        
+        # Agrupación por Mes y Semana
+        resumen_anual = df_cal.groupby(['WK', 'linea']).size().reset_index(name='Cantidad de Activos')
+        
+        c_a1, c_a2 = st.columns([2, 1])
+        with c_a1:
+            st.markdown("**Distribución de Auditorías por Semana y Línea:**")
+            st.dataframe(
+                resumen_anual.sort_values(by="WK"),
+                use_container_width=True,
+                hide_index=True
+            )
+        with c_a2:
+            st.markdown("**Totales Agrupados por Categoría:**")
+            st.dataframe(
+                df_cal.groupby("tipo").size().reset_index(name="Total Activos"),
+                use_container_width=True,
+                hide_index=True
+            )
+
+    # ---------------------------------------------------------
+    # 4. DESGLOSE TABULAR COMPLETO DE LA AGENDA
+    # ---------------------------------------------------------
+    with st.expander(f"📋 Ver Lista Detallada de Activos a Validar ({len(df_cal)} registros)", expanded=False):
+        df_show = df_cal[['fecha', 'id', 'tipo', 'clasificacion', 'linea']].copy()
+        df_show.columns = ["Fecha Programada", "ID Activo", "Tipo", "Clasificación", "Línea / Ubicación"]
+        df_show = df_show.sort_values(by=["Fecha Programada", "Línea / Ubicación"])
+        st.dataframe(df_show, use_container_width=True, hide_index=True)
 # ==========================================
 # VISTA: GESTIÓN DE RUTAS Y PRODUCTOS
 # ==========================================
@@ -8209,6 +8455,11 @@ elif st.session_state.vista_actual == "Schedule" and not st.session_state.modo_l
                                 st.error(f"Error generando el reporte: {e}")
         else:
             st.warning("No hay registros disponibles para mostrar en el cronograma.")
+
+        render_calendario_programacion_cronograma(
+        filtro_linea=filtro_linea if 'filtro_linea' in locals() else "TODAS",
+        filtro_cat=filtro_cat if 'filtro_cat' in locals() else "TODAS"
+        )
 
     # --- SUB-PESTAÑA 2: ACCIONES URGENTES Y PREVENTIVAS (TABLA INTEGRAL EDITABLE EN VIVO) ---
     with tab_urgentes:
