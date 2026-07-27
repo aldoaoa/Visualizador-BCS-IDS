@@ -8581,7 +8581,7 @@ elif st.session_state.vista_actual == "Schedule" and not st.session_state.modo_l
 
     with tab_matriz_historica:
     # Llama a la nueva función
-    render_pestana_historico_3_validaciones()
+        render_pestana_historico_3_validaciones()
 # ==========================================
 # VISTA 9: SENSIBILIDAD DE COMPONENTES (ESDS)
 # ==========================================
