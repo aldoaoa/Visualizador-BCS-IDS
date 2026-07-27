@@ -376,18 +376,16 @@ def render_pestana_historico_3_validaciones():
         filas_tabla = []
 
         # =========================================================
-        # 1. CONSULTA DE MAQUINARIA (Historial en mediciones_maquinaria)
+        # 1. CONSULTA DE MAQUINARIA
         # =========================================================
         if filtro_cat in ["TODAS", "Maquinaria"]:
             try:
-                # Obtener la lista única de maquinaria activa
                 q_maq = supabase.table("mediciones_maquinaria").select("id_maquinaria, linea_ubicacion, clasificacion, frecuencia_verificacion, status_operativo")
                 if filtro_linea != "TODAS":
                     q_maq = q_maq.ilike("linea_ubicacion", filtro_linea)
                 resp_maq_list = q_maq.execute()
                 
                 if resp_maq_list.data:
-                    # Deduplicar por id_maquinaria conservando solo activos operativos
                     maqs_unicas = {}
                     for item in resp_maq_list.data:
                         id_m = item.get("id_maquinaria")
@@ -399,14 +397,7 @@ def render_pestana_historico_3_validaciones():
                         if busqueda_id and busqueda_id not in id_m.upper():
                             continue
                             
-                        # Consultar las últimas 3 mediciones reales
-                        resp_meds = supabase.table("mediciones_maquinaria") \
-                            .select("fecha_medicion, resistencia_tierra, campo_estatico_voltaje, resultado_estatus") \
-                            .eq("id_maquinaria", id_m) \
-                            .order("fecha_medicion", desc=True) \
-                            .limit(3) \
-                            .execute()
-                            
+                        resp_meds = supabase.table("mediciones_maquinaria").select("fecha_medicion, resistencia_tierra, campo_estatico_voltaje, resultado_estatus").eq("id_maquinaria", id_m).order("fecha_medicion", desc=True).limit(3).execute()
                         meds = resp_meds.data if resp_meds.data else []
                         
                         col_meds = []
@@ -414,39 +405,32 @@ def render_pestana_historico_3_validaciones():
                             if i < len(meds):
                                 m = meds[i]
                                 f_str = str(m.get("fecha_medicion", ""))[:10]
-                                try:
-                                    f_formateada = datetime.strptime(f_str, "%Y-%m-%d").strftime("%d-%b-%Y")
-                                except:
-                                    f_formateada = f_str
-                                    
+                                try: f_formateada = datetime.strptime(f_str, "%Y-%m-%d").strftime("%d-%b-%Y")
+                                except: f_formateada = f_str
+                                
                                 r_val = m.get("resistencia_tierra")
-                                try:
-                                    r_str = f"{float(r_val):.2f} Ω" if float(r_val) < 10 else f"{float(r_val):.2e} Ω"
-                                except:
-                                    r_str = f"{r_val} Ω" if r_val is not None else "N/D"
-                                    
+                                try: r_str = f"{float(r_val):.2f} Ω" if float(r_val) < 10 else f"{float(r_val):.2e} Ω"
+                                except: r_str = f"{r_val} Ω" if r_val is not None else "N/D"
+                                
                                 v_val = m.get("campo_estatico_voltaje")
                                 v_str = f"{v_val} V" if v_val is not None else "N/D"
                                 
-                                col_meds.append(f"📅 **{f_formateada}**<br>`{r_str}` | `{v_str}`")
+                                # Usamos HTML nativo <b> y <code> en lugar de Markdown
+                                col_meds.append(f"📅 <b>{f_formateada}</b><br><code style='color:#d63384; background:transparent;'>{r_str}</code> | <code style='color:#059669; background:transparent;'>{v_str}</code>")
                             else:
                                 col_meds.append("<span style='color:#aaa;'>Sin registro</span>")
                                 
                         filas_tabla.append({
-                            "ID Activo": f"🏭 {id_m}",
-                            "Categoría": "Maquinaria",
-                            "Clasificación": meta.get("clasificacion", "N/D"),
-                            "Línea": meta.get("linea_ubicacion", "N/D"),
+                            "ID Activo": f"🏭 {id_m}", "Categoría": "Maquinaria",
+                            "Clasificación": meta.get("clasificacion", "N/D"), "Línea": meta.get("linea_ubicacion", "N/D"),
                             "Frecuencia": meta.get("frecuencia_verificacion", "Anual"),
-                            "Última Validación (1)": col_meds[0],
-                            "Validación Previa (2)": col_meds[1],
-                            "Antepenúltima (3)": col_meds[2]
+                            "Última Validación (1)": col_meds[0], "Validación Previa (2)": col_meds[1], "Antepenúltima (3)": col_meds[2]
                         })
             except Exception as e:
                 st.error(f"Error consultando Maquinaria: {e}")
 
         # =========================================================
-        # 2. CONSULTA DE MOBILIARIO / IONIZADORES (inventario_esd + historial_mediciones)
+        # 2. CONSULTA DE MOBILIARIO / IONIZADORES
         # =========================================================
         if filtro_cat in ["TODAS", "Mobiliario / Ionizadores"]:
             try:
@@ -460,53 +444,37 @@ def render_pestana_historico_3_validaciones():
                         id_p = item.get("id_producto")
                         st_op = str(item.get("estatus_operativo", "")).upper()
                         
-                        if not id_p or "NO OPERATIVO" in st_op or "BAJA" in st_op:
-                            continue
-                            
-                        if busqueda_id and busqueda_id not in id_p.upper():
-                            continue
+                        if not id_p or "NO OPERATIVO" in st_op or "BAJA" in st_op: continue
+                        if busqueda_id and busqueda_id not in id_p.upper(): continue
                             
                         categoria_item = str(item.get("categoria", "Mobiliario"))
                         es_ion = "IONIZADOR" in categoria_item.upper()
                         
-                        # 1ra medición: La actual en inventario_esd
                         meds_comb = []
                         f_actual = str(item.get("fecha_ultima_verif", ""))[:10]
                         val_actual = item.get("valor_actual")
                         bal_actual = item.get("balance_ionizador")
                         
                         if f_actual and f_actual not in ["None", "N/D", ""]:
-                            try:
-                                f_fmt = datetime.strptime(f_actual, "%Y-%m-%d").strftime("%d-%b-%Y")
-                            except:
-                                f_fmt = f_actual
+                            try: f_fmt = datetime.strptime(f_actual, "%Y-%m-%d").strftime("%d-%b-%Y")
+                            except: f_fmt = f_actual
                                 
                             if es_ion:
                                 t_desc = f"{val_actual} s" if val_actual else "N/D"
                                 b_vol = f"{bal_actual} V" if bal_actual else "N/D"
-                                meds_comb.append(f"📅 **{f_fmt}**<br>`{t_desc}` | `{b_vol}`")
+                                meds_comb.append(f"📅 <b>{f_fmt}</b><br><code style='color:#d63384; background:transparent;'>{t_desc}</code> | <code style='color:#059669; background:transparent;'>{b_vol}</code>")
                             else:
-                                try:
-                                    r_str = f"{float(val_actual):.2e}".replace("e+0", "e+").replace("e-0", "e-") + " Ω"
-                                except:
-                                    r_str = f"{val_actual} Ω" if val_actual else "N/D"
-                                meds_comb.append(f"📅 **{f_fmt}**<br>`{r_str}`")
+                                try: r_str = f"{float(val_actual):.2e}".replace("e+0", "e+").replace("e-0", "e-") + " Ω"
+                                except: r_str = f"{val_actual} Ω" if val_actual else "N/D"
+                                meds_comb.append(f"📅 <b>{f_fmt}</b><br><code style='color:#d63384; background:transparent;'>{r_str}</code>")
 
-                        # Consultar hasta 2 mediciones previas del historial_mediciones
-                        resp_hist = supabase.table("historial_mediciones") \
-                            .select("fecha_validacion, valor_actual, balance_ionizador") \
-                            .eq("id_equipo", id_p) \
-                            .order("fecha_modificacion", desc=True) \
-                            .limit(2) \
-                            .execute()
+                        resp_hist = supabase.table("historial_mediciones").select("fecha_validacion, valor_actual, balance_ionizador").eq("id_equipo", id_p).order("fecha_modificacion", desc=True).limit(2).execute()
                             
                         if resp_hist.data:
                             for h in resp_hist.data:
                                 f_h = str(h.get("fecha_validacion", ""))[:10]
-                                try:
-                                    f_h_fmt = datetime.strptime(f_h, "%Y-%m-%d").strftime("%d-%b-%Y")
-                                except:
-                                    f_h_fmt = f_h if f_h else "N/D"
+                                try: f_h_fmt = datetime.strptime(f_h, "%Y-%m-%d").strftime("%d-%b-%Y")
+                                except: f_h_fmt = f_h if f_h else "N/D"
                                     
                                 v_h = h.get("valor_actual")
                                 b_h = h.get("balance_ionizador")
@@ -514,30 +482,22 @@ def render_pestana_historico_3_validaciones():
                                 if es_ion:
                                     t_desc = f"{v_h} s" if v_h else "N/D"
                                     b_vol = f"{b_h} V" if b_h else "N/D"
-                                    meds_comb.append(f"📅 **{f_h_fmt}**<br>`{t_desc}` | `{b_vol}`")
+                                    meds_comb.append(f"📅 <b>{f_h_fmt}</b><br><code style='color:#d63384; background:transparent;'>{t_desc}</code> | <code style='color:#059669; background:transparent;'>{b_vol}</code>")
                                 else:
-                                    try:
-                                        r_str = f"{float(v_h):.2e}".replace("e+0", "e+").replace("e-0", "e-") + " Ω"
-                                    except:
-                                        r_str = f"{v_h} Ω" if v_h else "N/D"
-                                    meds_comb.append(f"📅 **{f_h_fmt}**<br>`{r_str}`")
+                                    try: r_str = f"{float(v_h):.2e}".replace("e+0", "e+").replace("e-0", "e-") + " Ω"
+                                    except: r_str = f"{v_h} Ω" if v_h else "N/D"
+                                    meds_comb.append(f"📅 <b>{f_h_fmt}</b><br><code style='color:#d63384; background:transparent;'>{r_str}</code>")
 
                         col_meds = []
                         for i in range(3):
-                            if i < len(meds_comb):
-                                col_meds.append(meds_comb[i])
-                            else:
-                                col_meds.append("<span style='color:#aaa;'>Sin registro</span>")
+                            if i < len(meds_comb): col_meds.append(meds_comb[i])
+                            else: col_meds.append("<span style='color:#aaa;'>Sin registro</span>")
 
                         filas_tabla.append({
-                            "ID Activo": f"🛋️ {id_p}",
-                            "Categoría": categoria_item,
-                            "Clasificación": item.get("clasificacion", "N/D"),
-                            "Línea": item.get("linea_ubicacion", "N/D"),
+                            "ID Activo": f"🛋️ {id_p}", "Categoría": categoria_item,
+                            "Clasificación": item.get("clasificacion", "N/D"), "Línea": item.get("linea_ubicacion", "N/D"),
                             "Frecuencia": item.get("frecuencia", "Anual"),
-                            "Última Validación (1)": col_meds[0],
-                            "Validación Previa (2)": col_meds[1],
-                            "Antepenúltima (3)": col_meds[2]
+                            "Última Validación (1)": col_meds[0], "Validación Previa (2)": col_meds[1], "Antepenúltima (3)": col_meds[2]
                         })
             except Exception as e:
                 st.error(f"Error consultando Mobiliario: {e}")
@@ -549,45 +509,18 @@ def render_pestana_historico_3_validaciones():
             df_res = pd.DataFrame(filas_tabla)
             st.caption(f"Mostrando **{len(df_res)}** activos registrados.")
             
-            # Formatear como tabla HTML para renderizar el código HTML dentro de las celdas
+            # --- SOLUCIÓN: CÓDIGO HTML APLANADO ---
             filas_html = ""
             for idx, r in df_res.iterrows():
-                filas_html += f"""
-                <tr style="border-bottom: 1px solid #e2e8f0; font-size: 13px;">
-                    <td style="padding: 8px; font-weight: bold;">{r['ID Activo']}</td>
-                    <td style="padding: 8px; color: #475569;">{r['Categoría']} <br><small style="color:#64748b;">({r['Clasificación']})</small></td>
-                    <td style="padding: 8px; font-weight: bold; color: #003366;">{r['Línea']}</td>
-                    <td style="padding: 8px; text-align: center;"><span style="background-color: #e0f2fe; color: #0369a1; padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: bold;">{r['Frecuencia']}</span></td>
-                    <td style="padding: 8px; background-color: #f8fafc;">{r['Última Validación (1)']}</td>
-                    <td style="padding: 8px;">{r['Validación Previa (2)']}</td>
-                    <td style="padding: 8px; background-color: #f8fafc;">{r['Antepenúltima (3)']}</td>
-                </tr>
-                """
+                filas_html += f"<tr style='border-bottom: 1px solid #e2e8f0; font-size: 13px;'><td style='padding: 8px; font-weight: bold;'>{r['ID Activo']}</td><td style='padding: 8px; color: #475569;'>{r['Categoría']} <br><small style='color:#64748b;'>({r['Clasificación']})</small></td><td style='padding: 8px; font-weight: bold; color: #003366;'>{r['Línea']}</td><td style='padding: 8px; text-align: center;'><span style='background-color: #e0f2fe; color: #0369a1; padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: bold;'>{r['Frecuencia']}</span></td><td style='padding: 8px; background-color: #f8fafc;'>{r['Última Validación (1)']}</td><td style='padding: 8px;'>{r['Validación Previa (2)']}</td><td style='padding: 8px; background-color: #f8fafc;'>{r['Antepenúltima (3)']}</td></tr>"
                 
-            tabla_completa_html = f"""
-            <div style="overflow-x: auto; border: 1px solid #cbd5e1; border-radius: 8px; margin-top: 10px;">
-                <table style="width: 100%; border-collapse: collapse; font-family: sans-serif;">
-                    <thead>
-                        <tr style="background-color: #003366; color: white; text-align: left; font-size: 13px;">
-                            <th style="padding: 10px;">ID Activo</th>
-                            <th style="padding: 10px;">Tipo / Clasificación</th>
-                            <th style="padding: 10px;">Línea</th>
-                            <th style="padding: 10px; text-align: center;">Frecuencia</th>
-                            <th style="padding: 10px;">Última Validación (1)</th>
-                            <th style="padding: 10px;">Validación Previa (2)</th>
-                            <th style="padding: 10px;">Antepenúltima (3)</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {filas_html}
-                    </tbody>
-                </table>
-            </div>
-            """
-            st.markdown(tabla_completa_html, unsafe_allow_html=True)
+            tabla_completa_html = f"<div style='overflow-x: auto; border: 1px solid #cbd5e1; border-radius: 8px; margin-top: 10px;'><table style='width: 100%; border-collapse: collapse; font-family: sans-serif;'><thead><tr style='background-color: #003366; color: white; text-align: left; font-size: 13px;'><th style='padding: 10px;'>ID Activo</th><th style='padding: 10px;'>Tipo / Clasificación</th><th style='padding: 10px;'>Línea</th><th style='padding: 10px; text-align: center;'>Frecuencia</th><th style='padding: 10px;'>Última Validación (1)</th><th style='padding: 10px;'>Validación Previa (2)</th><th style='padding: 10px;'>Antepenúltima (3)</th></tr></thead><tbody>{filas_html}</tbody></table></div>"
+            
+            # Usamos st.write() que es un poco más estable con HTML directo
+            st.write(tabla_completa_html, unsafe_allow_html=True)
         else:
             st.warning("No se encontraron activos que coincidan con los filtros seleccionados.")
-
+            
 def crear_mapa_ruta(ruta_grupos, df_coords):
     """
     Genera el mapa de la ruta. Incluye autodiagnóstico y reparación 
