@@ -3371,11 +3371,16 @@ elif st.session_state.vista_actual == "Mapa" and not st.session_state.modo_lectu
                             key="rango_fechas_4q"
                         )
                     
-                    # Aplicar el filtro si seleccionaron un rango completo (inicio y fin)
+                    # Aplicar el filtro tolerando clics intermedios (1 o 2 fechas)
                     if len(rango_fechas) == 2:
                         f_inicio, f_fin = rango_fechas
-                        mask_fecha = (df_dashboard[col_fecha].dt.date >= f_inicio) & (df_dashboard[col_fecha].dt.date <= f_fin)
-                        df_dashboard = df_dashboard[mask_fecha]
+                    elif len(rango_fechas) == 1:
+                        f_inicio = f_fin = rango_fechas[0] # Asume un solo día hasta el 2do clic
+                    else:
+                        f_inicio, f_fin = min_date, max_date
+                        
+                    mask_fecha = (df_dashboard[col_fecha].dt.date >= f_inicio) & (df_dashboard[col_fecha].dt.date <= f_fin)
+                    df_dashboard = df_dashboard[mask_fecha]
             else:
                 st.caption("💡 No se detectó la columna 'Date Opened' en tu CSV para habilitar el filtro por fecha.")
 
