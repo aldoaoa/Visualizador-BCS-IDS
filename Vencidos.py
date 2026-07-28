@@ -3345,70 +3345,112 @@ elif st.session_state.vista_actual == "Mapa" and not st.session_state.modo_lectu
         if not df_4q_db.empty:
             st.divider()
             
-            # --- CÁLCULO DE MÉTRICAS GLOBALES ---
-            total_hallazgos = len(df_4q_db)
-            estatus_col = 'Status' if 'Status' in df_4q_db.columns else ('Estatus' if 'Estatus' in df_4q_db.columns else None)
+            # --- NUEVO: FILTRO POR RANGOS DE FECHA ---
+            df_dashboard = df_4q_db.copy()
             
-            if estatus_col:
-                # 1. Identificar todos los que YA están cerrados/completados
-                mask_cerrados = df_4q_db[estatus_col].astype(str).str.contains('Completed|Closed|Cerrado', case=False, na=False)
-                cerrados = df_4q_db[mask_cerrados]
-                
-                # 2. Todo lo que NO está cerrado, está abierto (En Proceso)
-                abiertos = df_4q_db[~mask_cerrados]
-                
-                # 3. De los abiertos, separamos los vencidos y los que van a tiempo
-                mask_vencidos = abiertos[estatus_col].astype(str).str.contains('Past Due|Vencido', case=False, na=False)
-                vencidos_activos = abiertos[mask_vencidos]
-                en_proceso_on_time = abiertos[~mask_vencidos]
-                
-                m1, m2, m3, m4 = st.columns(4)
-                m1.metric("Total de Hallazgos", total_hallazgos)
-                m2.metric("🟢 Completados / Cerrados", len(cerrados))
-                m3.metric("🟡 En Proceso / On Time", len(en_proceso_on_time))
-                m4.metric("🔴 Vencidos Activos (Past Due)", len(vencidos_activos), delta="Requieren Acción", delta_color="inverse" if len(vencidos_activos) > 0 else "normal")
-
-            st.divider()
-
-            # --- GRÁFICOS INTERACTIVOS ---
-            col_chart1, col_chart2 = st.columns(2)
-
-            with col_chart1:
-                if estatus_col:
-                    df_status = df_4q_db[estatus_col].value_counts().reset_index()
-                    df_status.columns = ['Estatus', 'Cantidad']
-                    fig_status = px.pie(df_status, values='Cantidad', names='Estatus', title="Distribución por Estatus", hole=0.45)
-                    fig_status.update_layout(margin=dict(t=30, b=10, l=10, r=10))
-                    st.plotly_chart(fig_status, use_container_width=True)
-
-            with col_chart2:
-                # Pareto de problemas
-                cat_col = 'Question Title' if 'Question Title' in df_4q_db.columns else ('Location' if 'Location' in df_4q_db.columns else None)
-                if cat_col:
-                    df_cat = df_4q_db[cat_col].value_counts().head(10).reset_index()
-                    df_cat.columns = ['Tipo de Hallazgo', 'Ocurrencias']
-                    fig_pareto = px.bar(df_cat, x='Ocurrencias', y='Tipo de Hallazgo', orientation='h', title=f"Top 10 Hallazgos ({cat_col})", text_auto=True)
-                    fig_pareto.update_layout(yaxis={'categoryorder':'total ascending'}, margin=dict(t=30, b=10, l=10, r=10))
-                    st.plotly_chart(fig_pareto, use_container_width=True)
-
-            # --- TABLA DE DATOS INTERACTIVA ---
-            st.markdown("##### 📋 Directorio y Seguimiento de Hallazgos")
+            # Buscar columna de fecha (EASE usa comúnmente 'Assessment Date' o 'Date')
+            posibles_cols_fecha = ['Assessment Date', 'Date', 'Finding Date', 'Created Date']
+            col_fecha = next((c for c in posibles_cols_fecha if c in df_dashboard.columns), None)
             
-            # Filtro ágil para la tabla
-            if estatus_col:
-                filtro_estatus = st.selectbox("Filtrar directorio por estatus:", options=["Todos"] + sorted(df_4q_db[estatus_col].dropna().unique()))
-                df_mostrar = df_4q_db.copy()
-                if filtro_estatus != "Todos":
-                    df_mostrar = df_mostrar[df_mostrar[estatus_col] == filtro_estatus]
+            if col_fecha:
+                # Convertir a formato de fecha de pandas
+                df_dashboard[col_fecha] = pd.to_datetime(df_dashboard[col_fecha], errors='coerce')
+                fechas_validas = df_dashboard[col_fecha].dropna()
+                
+                if not fechas_validas.empty:
+                    min_date = fechas_validas.min().date()
+                    max_date = fechas_validas.max().date()
+                    
+                    c_filtro1, c_filtro2 = st.columns([1, 2])
+                    with c_filtro1:
+                        rango_fechas = st.date_input(
+                            "📅 Filtrar por Rango de Fechas:", 
+                            value=[min_date, max_date], 
+                            min_value=min_date, 
+                            max_value=max_date,
+                            key="rango_fechas_4q"
+                        )
+                    
+                    # Aplicar el filtro si seleccionaron un rango completo (inicio y fin)
+                    if len(rango_fechas) == 2:
+                        f_inicio, f_fin = rango_fechas
+                        mask_fecha = (df_dashboard[col_fecha].dt.date >= f_inicio) & (df_dashboard[col_fecha].dt.date <= f_fin)
+                        df_dashboard = df_dashboard[mask_fecha]
             else:
-                df_mostrar = df_4q_db.copy()
+                st.caption("💡 No se detectó la columna 'Assessment Date' en tu CSV para habilitar el filtro por fecha.")
+
+            # Validar que después del filtro sigan existiendo datos
+            if df_dashboard.empty:
+                st.warning("No hay hallazgos registrados en este rango de fechas.")
+            else:
+                # --- CÁLCULO DE MÉTRICAS GLOBALES (Con DataFrame Filtrado) ---
+                total_hallazgos = len(df_dashboard)
+                estatus_col = 'Status' if 'Status' in df_dashboard.columns else ('Estatus' if 'Estatus' in df_dashboard.columns else None)
                 
-            # Mostramos un dataframe estilizado seleccionando columnas clave si existen
-            cols_clave = [c for c in ['ID', 'Status', 'Location', 'Question Title', 'Responsible Party', 'Finding Comment', 'Days Open'] if c in df_mostrar.columns]
-            if cols_clave:
-                df_mostrar = df_mostrar[cols_clave]
+                if estatus_col:
+                    # 1. Identificar todos los que YA están cerrados/completados
+                    mask_cerrados = df_dashboard[estatus_col].astype(str).str.contains('Completed|Closed|Cerrado', case=False, na=False)
+                    cerrados = df_dashboard[mask_cerrados]
+                    
+                    # 2. Todo lo que NO está cerrado, está abierto (En Proceso)
+                    abiertos = df_dashboard[~mask_cerrados]
+                    
+                    # 3. De los abiertos, separamos los vencidos y los que van a tiempo
+                    mask_vencidos = abiertos[estatus_col].astype(str).str.contains('Past Due|Vencido', case=False, na=False)
+                    vencidos_activos = abiertos[mask_vencidos]
+                    en_proceso_on_time = abiertos[~mask_vencidos]
+                    
+                    m1, m2, m3, m4 = st.columns(4)
+                    m1.metric("Total de Hallazgos", total_hallazgos)
+                    m2.metric("🟢 Completados / Cerrados", len(cerrados))
+                    m3.metric("🟡 En Proceso / On Time", len(en_proceso_on_time))
+                    m4.metric("🔴 Vencidos Activos (Past Due)", len(vencidos_activos), delta="Requieren Acción", delta_color="inverse" if len(vencidos_activos) > 0 else "normal")
+
+                st.divider()
+
+                # --- GRÁFICOS INTERACTIVOS (Con DataFrame Filtrado) ---
+                col_chart1, col_chart2 = st.columns(2)
+
+                with col_chart1:
+                    if estatus_col:
+                        df_status = df_dashboard[estatus_col].value_counts().reset_index()
+                        df_status.columns = ['Estatus', 'Cantidad']
+                        fig_status = px.pie(df_status, values='Cantidad', names='Estatus', title="Distribución por Estatus", hole=0.45)
+                        fig_status.update_layout(margin=dict(t=30, b=10, l=10, r=10))
+                        st.plotly_chart(fig_status, use_container_width=True)
+
+                with col_chart2:
+                    # Pareto de problemas
+                    cat_col = 'Question Title' if 'Question Title' in df_dashboard.columns else ('Location' if 'Location' in df_dashboard.columns else None)
+                    if cat_col:
+                        df_cat = df_dashboard[cat_col].value_counts().head(10).reset_index()
+                        df_cat.columns = ['Tipo de Hallazgo', 'Ocurrencias']
+                        fig_pareto = px.bar(df_cat, x='Ocurrencias', y='Tipo de Hallazgo', orientation='h', title=f"Top 10 Hallazgos ({cat_col})", text_auto=True)
+                        fig_pareto.update_layout(yaxis={'categoryorder':'total ascending'}, margin=dict(t=30, b=10, l=10, r=10))
+                        st.plotly_chart(fig_pareto, use_container_width=True)
+
+                # --- TABLA DE DATOS INTERACTIVA (Con DataFrame Filtrado) ---
+                st.markdown("##### 📋 Directorio y Seguimiento de Hallazgos")
                 
-            st.dataframe(df_mostrar, use_container_width=True, hide_index=True)
+                # Filtro ágil para la tabla
+                if estatus_col:
+                    filtro_estatus = st.selectbox("Filtrar directorio por estatus:", options=["Todos"] + sorted(df_dashboard[estatus_col].dropna().unique()))
+                    df_mostrar = df_dashboard.copy()
+                    if filtro_estatus != "Todos":
+                        df_mostrar = df_mostrar[df_mostrar[estatus_col] == filtro_estatus]
+                else:
+                    df_mostrar = df_dashboard.copy()
+                    
+                # Mostramos un dataframe estilizado seleccionando columnas clave si existen
+                cols_clave = [c for c in ['ID', col_fecha, 'Status', 'Location', 'Question Title', 'Responsible Party', 'Finding Comment', 'Days Open'] if c and c in df_mostrar.columns]
+                
+                if cols_clave:
+                    df_mostrar = df_mostrar[cols_clave]
+                    # Limpiamos el formato de fecha para que se vea bonito en la tabla
+                    if col_fecha and col_fecha in df_mostrar.columns:
+                        df_mostrar[col_fecha] = df_mostrar[col_fecha].dt.strftime('%Y-%m-%d')
+                    
+                st.dataframe(df_mostrar, use_container_width=True, hide_index=True)
             
         else:
             st.info("La base de datos 4Q está vacía. Despliega el menú de arriba para subir tu primer archivo CSV.")
