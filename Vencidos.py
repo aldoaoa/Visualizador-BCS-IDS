@@ -3345,11 +3345,11 @@ elif st.session_state.vista_actual == "Mapa" and not st.session_state.modo_lectu
         if not df_4q_db.empty:
             st.divider()
             
-            # --- NUEVO: FILTRO POR RANGOS DE FECHA ---
+            # --- FILTRO POR RANGOS DE FECHA ---
             df_dashboard = df_4q_db.copy()
             
-            # Buscar columna de fecha (EASE usa comúnmente 'Assessment Date' o 'Date')
-            posibles_cols_fecha = ['Assessment Date', 'Date', 'Finding Date', 'Created Date']
+            # Buscar columna de fecha (Agregado 'Date Opened' como prioridad)
+            posibles_cols_fecha = ['Date Opened', 'Assessment Date', 'Date', 'Finding Date', 'Created Date']
             col_fecha = next((c for c in posibles_cols_fecha if c in df_dashboard.columns), None)
             
             if col_fecha:
@@ -3377,7 +3377,7 @@ elif st.session_state.vista_actual == "Mapa" and not st.session_state.modo_lectu
                         mask_fecha = (df_dashboard[col_fecha].dt.date >= f_inicio) & (df_dashboard[col_fecha].dt.date <= f_fin)
                         df_dashboard = df_dashboard[mask_fecha]
             else:
-                st.caption("💡 No se detectó la columna 'Assessment Date' en tu CSV para habilitar el filtro por fecha.")
+                st.caption("💡 No se detectó la columna 'Date Opened' en tu CSV para habilitar el filtro por fecha.")
 
             # Validar que después del filtro sigan existiendo datos
             if df_dashboard.empty:
