@@ -3080,7 +3080,17 @@ elif st.session_state.vista_actual == "Auditoría" and not st.session_state.get(
                 
                 # Desplegar lista interactiva (Expanders)
                 for index, activo in enumerate(activos_totales):
-                    id_act = activo.get("id_elemento") or activo.get("id_maquinaria")
+                    
+                    # 1. Búsqueda amplia del ID para el título del expander
+                    id_act = (
+                        activo.get("id_elemento") 
+                        or activo.get("id_maquinaria") 
+                        or activo.get("id_equipo") 
+                        or activo.get("id_activo") 
+                        or activo.get("id") 
+                        or f"SIN_ID_{index}"
+                    )
+                    
                     tipo_act = activo.get("tipo_equipo") or activo.get("clasificacion") or ("Maquinaria" if activo.get("es_maquinaria") else "Mobiliario")
                     estatus_act = str(activo.get("estatus_operativo", "PENDIENTE")).upper()
                     
@@ -3096,7 +3106,6 @@ elif st.session_state.vista_actual == "Auditoría" and not st.session_state.get(
                         
                         st.markdown("---")
                         
-                        # INYECTAMOS EL ÍNDICE (index) COMO STRING PARA HACERLO 100% ÚNICO
                         generar_formulario_auditoria(
                             equipo=activo, 
                             tipo_equipo=tipo_act, 
