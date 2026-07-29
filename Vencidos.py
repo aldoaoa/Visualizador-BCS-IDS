@@ -228,7 +228,9 @@ def obtener_ultima_medicion(id_activo):
 
 def generar_formulario_auditoria(equipo, tipo_equipo, key_prefix, index_unico="0"):
     """
-    Genera el formulario estandarizado de auditoría con formato dinámico de mediciones.
+    Genera el formulario estandarizado de auditoría.
+    Si la medición está fuera de especificación, se guarda la evidencia,
+    se muestra un aviso de advertencia y el estatus cambia a PENDIENTE.
     """
     id_elemento = (
         equipo.get("id_activo") 
@@ -252,9 +254,7 @@ def generar_formulario_auditoria(equipo, tipo_equipo, key_prefix, index_unico="0
     ultima_med = obtener_ultima_medicion(id_elemento)
     es_maquinaria = ultima_med.get("es_maquinaria", False)
 
-    # --------------------------------------------------------------------------
-    # DESPLIEGUE CON FORMATO PERSONALIZADO
-    # --------------------------------------------------------------------------
+    # Resumen previo de medición
     with st.container():
         st.markdown(f"##### 📌 Última Medición Registrada (`{id_elemento}`)")
         c_p1, c_p2, c_p3 = st.columns(3)
@@ -266,7 +266,6 @@ def generar_formulario_auditoria(equipo, tipo_equipo, key_prefix, index_unico="0
             v_bal = formatear_voltaje(ultima_med['voltaje_balance'])
             c_p3.caption(f"⚡ **Descarga:** {t_desc} | **Balance:** {v_bal}")
         else:
-            # Formatos de Resistencia y Voltaje aplicados
             res_fmt = formatear_resistencia(ultima_med['resistencia'])
             vol_fmt = formatear_voltaje(ultima_med['voltaje_campo'])
             c_p3.caption(f"🔌 **Resistencia:** {res_fmt} | **Campo:** {vol_fmt}")
@@ -282,7 +281,7 @@ def generar_formulario_auditoria(equipo, tipo_equipo, key_prefix, index_unico="0
         st.markdown("##### 📝 Capturar Nueva Medición")
         
         # ----------------------------------------------------------------------
-        # A: IONIZADORES
+        # A: IONIZADORES ( ANSI/ESD S20.20: Descarga < 8s, Balance +/- 35V )
         # ----------------------------------------------------------------------
         if tipo_eq_clean == "ionizador":
             col1, col2 = st.columns(2)
@@ -296,32 +295,52 @@ def generar_formulario_auditoria(equipo, tipo_equipo, key_prefix, index_unico="0
 
             if btn_guardar_ion:
                 fecha_actual = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                cumple_tiempo = tiempo_descarga > 0 and tiempo_descarga <= 8.0
+                
+                # Evaluación normada
+                cumple_tiempo = 0 < tiempo_descarga <= 8.0
                 cumple_balance = abs(voltaje_balance) <= 35
-                estatus_eval = "Pasa" if (cumple_tiempo and cumple_balance) else "Falla"
+                
+                # Si cumple = PASA, si está fuera de especificación = PENDIENTE
+                estatus_eval = "PASA" if (cumple_tiempo and cumple_balance) else "PENDIENTE"
 
                 payload_historial = {
-                    "id_elemento": id_elemento, "tipo_equipo": "Ionizador",
-                    "ubicacion": linea_ubicacion, "tiempo_descarga": tiempo_descarga,
-                    "voltaje_balance": int(round(voltaje_balance)), "comentarios": comentarios,
-                    "estatus": estatus_eval, "fecha_medicion": fecha_actual, "auditor": usuario_auditor
+                    "id_elemento": id_elemento, 
+                    "tipo_equipo": "Ionizador",
+                    "ubicacion": linea_ubicacion, 
+                    "tiempo_descarga": tiempo_descarga,
+                    "voltaje_balance": int(round(voltaje_balance)), 
+                    "comentarios": comentarios,
+                    "estatus": estatus_eval, 
+                    "fecha_medicion": fecha_actual, 
+                    "auditor": usuario_auditor
                 }
 
                 try:
+                    # Guardar siempre la evidencia histórica
                     supabase.table("validacion_esd").insert(payload_historial).execute()
+                    
+                    # Actualizar estado en inventario
                     supabase.table("inventario_esd").update({
                         "fecha_ultima_verif": fecha_actual, 
                         "estatus_verificacion": estatus_eval
                     }).ilike("id_producto", id_elemento).execute()
 
                     st.cache_data.clear()
-                    st.success(f"✅ Ionizador `{id_elemento}` guardado correctamente. Estatus: **{estatus_eval.upper()}**")
+                    
+                    if estatus_eval == "PASA":
+                        st.success(f"✅ Ionizador `{id_elemento}` actualizado correctamente. Estatus: **PASA**")
+                    else:
+                        st.warning(
+                            f"⚠️ **¡MEDICIÓN GUARDADA PERO FUERA DE ESPECIFICACIÓN!**\n\n"
+                            f"El ionizador `{id_elemento}` excede los límites (Tiempo <= 8s, Balance +/- 35V).\n"
+                            f"El estatus del equipo cambió a **PENDIENTE** para su revisión."
+                        )
                     st.rerun()
                 except Exception as e:
                     st.error(f"Error al guardar: {e}")
 
         # ----------------------------------------------------------------------
-        # B: MOBILIARIO Y MAQUINARIA
+        # B: MOBILIARIO Y MAQUINARIA ( Resistencia <= 1e9 Ω, Campo <= 100V )
         # ----------------------------------------------------------------------
         else:
             col1, col2 = st.columns(2)
@@ -352,7 +371,6 @@ def generar_formulario_auditoria(equipo, tipo_equipo, key_prefix, index_unico="0
                 with c2:
                     coment = st.text_input("Punto de medición", key=f"com_{state_key}_{i}")
                 
-                # Formatear visualización de la captura adicional procesada
                 valor_guardar = int(round(val)) if med["tipo"] == "voltaje" else val
                 mediciones_json.append({"tipo": med["tipo"], "valor": valor_guardar, "comentario": coment})
 
@@ -361,23 +379,32 @@ def generar_formulario_auditoria(equipo, tipo_equipo, key_prefix, index_unico="0
 
             if btn_guardar_activo:
                 fecha_actual = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                
+                # Evaluación normada
                 cumple_res = 0 < resistencia <= 1.0e9
                 cumple_vol = abs(voltaje_campo) <= 100
-                estatus_eval = "Pasa" if (cumple_res and cumple_vol) else "Falla"
+                
+                # Si cumple = PASA, si está fuera de especificación = PENDIENTE
+                estatus_eval = "PASA" if (cumple_res and cumple_vol) else "PENDIENTE"
 
                 payload_historial = {
-                    "id_elemento": id_elemento, "tipo_equipo": tipo_equipo,
-                    "ubicacion": linea_ubicacion, "resistencia": resistencia,
-                    "voltaje_campo": int(round(voltaje_campo)), "mediciones_extra": mediciones_json,
-                    "comentarios": comentarios_gen, "estatus": estatus_eval,
-                    "fecha_medicion": fecha_actual, "auditor": usuario_auditor
+                    "id_elemento": id_elemento, 
+                    "tipo_equipo": tipo_equipo,
+                    "ubicacion": linea_ubicacion, 
+                    "resistencia": resistencia,
+                    "voltaje_campo": int(round(voltaje_campo)), 
+                    "mediciones_extra": mediciones_json,
+                    "comentarios": comentarios_gen, 
+                    "estatus": estatus_eval,
+                    "fecha_medicion": fecha_actual, 
+                    "auditor": usuario_auditor
                 }
 
                 try:
-                    # 1. Guardar en historial unificado
+                    # 1. Guardar historial unificado
                     supabase.table("validacion_esd").insert(payload_historial).execute()
                     
-                    # 2. Actualizar tabla correspondiente
+                    # 2. Actualizar estatus en tabla correspondiente
                     if es_maquinaria:
                         supabase.table("mediciones_maquinaria").update({
                             "fecha_medicion": fecha_actual,
@@ -392,7 +419,15 @@ def generar_formulario_auditoria(equipo, tipo_equipo, key_prefix, index_unico="0
 
                     st.session_state[state_key] = []
                     st.cache_data.clear()
-                    st.success(f"✅ Activo `{id_elemento}` guardado correctamente. Estatus: **{estatus_eval.upper()}**")
+                    
+                    if estatus_eval == "PASA":
+                        st.success(f"✅ Activo `{id_elemento}` actualizado correctamente. Estatus: **PASA**")
+                    else:
+                        st.warning(
+                            f"⚠️ **¡MEDICIÓN GUARDADA PERO FUERA DE ESPECIFICACIÓN!**\n\n"
+                            f"El activo `{id_elemento}` excede los límites (Resistencia <= 1.0e9 Ω, Campo <= 100V).\n"
+                            f"El estatus cambió a **PENDIENTE** para su seguimiento y mantenimiento."
+                        )
                     st.rerun()
                 except Exception as e:
                     st.error(f"Error al guardar en Supabase: {e}")
@@ -3196,55 +3231,62 @@ elif st.session_state.vista_actual == "Auditoría" and not st.session_state.get(
             )
 
         if linea_seleccionada and linea_seleccionada != "-- Selecciona una Línea --":
-            st.markdown(f"#### 📋 Lista Maestra de Activos en: **{linea_seleccionada}**")
+    st.markdown(f"#### 📋 Lista Maestra de Activos Vigentes en: **{linea_seleccionada}**")
 
-            activos_master = supabase.table("catalogo_maestro_activos").select("*").ilike("linea_ubicacion", linea_seleccionada).execute().data
-            if not activos_master:
-                activos_master = supabase.table("catalogo_maestro_activos").select("*").ilike("linea", linea_seleccionada).execute().data
+    activos_master = supabase.table("catalogo_maestro_activos").select("*").ilike("linea_ubicacion", linea_seleccionada).execute().data
+    if not activos_master:
+        activos_master = supabase.table("catalogo_maestro_activos").select("*").ilike("linea", linea_seleccionada).execute().data
 
-            if activos_master:
-                st.caption(f"Se encontraron **{len(activos_master)}** activos en esta línea.")
-                
-                for index, activo in enumerate(activos_master):
-                    id_act = (
-                        activo.get("id_activo") 
-                        or activo.get("id_producto") 
-                        or activo.get("id_maquinaria") 
-                        or activo.get("id") 
-                        or f"SIN_ID_{index}"
-                    )
-                    
-                    tipo_act = (
-                        activo.get("clasificacion") 
-                        or activo.get("tipo_categoria") 
-                        or activo.get("tipo") 
-                        or "Mobiliario"
-                    )
-                    
-                    tipo_eq_clean = str(tipo_act).strip().lower()
-                    es_maquinaria = True if ("máquina" in tipo_eq_clean or "maquinaria" in tipo_eq_clean or "equipo" in tipo_eq_clean) else False
-                    activo["es_maquinaria"] = es_maquinaria
-                    
-                    # OBTENER INFORMACIÓN DE LA ÚLTIMA MEDICIÓN
-                    med_info = obtener_ultima_medicion(id_act)
-                    
-                    estatus_act = med_info["estatus"]
-                    fecha_act = med_info["fecha"]
-                    
-                    icon = "🟢" if "PASA" in estatus_act else ("🔴" if "FALLA" in estatus_act else "📦")
-                    
-                    with st.expander(f"{icon} Activo #{index+1}: {id_act} | Tipo: {tipo_act} | Estado: {estatus_act}"):
-                        st.write(f"**Última Medición Registrada:** {fecha_act}")
-                        st.markdown("---")
-                        
-                        generar_formulario_auditoria(
-                            equipo=activo, 
-                            tipo_equipo=tipo_act, 
-                            key_prefix=f"linea_{linea_seleccionada}", 
-                            index_unico=str(index)
-                        )
+    # 🚫 FILTRO DE ACTIVOS VIGENTES (Se descartan Bajas / No Operativos)
+    ESTADOS_DESACTIVADOS = ["BAJA", "NO OPERATIVO", "INACTIVO", "DESACTIVADO"]
+    activos_vigentes = [
+        a for a in activos_master
+        if str(a.get("estatus") or a.get("estatus_operativo") or "").strip().upper() not in ESTADOS_DESACTIVADOS
+    ]
+
+    if activos_vigentes:
+        st.caption(f"Se encontraron **{len(activos_vigentes)}** activos vigentes asignados a esta línea.")
+        
+        for index, activo in enumerate(activos_vigentes):
+            id_act = (
+                activo.get("id_activo") 
+                or activo.get("id_producto") 
+                or activo.get("id_maquinaria") 
+                or activo.get("id") 
+                or f"SIN_ID_{index}"
+            )
+            
+            tipo_act = (
+                activo.get("clasificacion") 
+                or activo.get("tipo_categoria") 
+                or activo.get("tipo") 
+                or "Mobiliario"
+            )
+            
+            med_info = obtener_ultima_medicion(id_act)
+            estatus_act = med_info["estatus"]
+            fecha_act = med_info["fecha"]
+            
+            # Iconografía de estado
+            if "PASA" in estatus_act or "VIGENTE" in estatus_act:
+                icon = "🟢"
+            elif "PENDIENTE" in estatus_act:
+                icon = "🟡"
             else:
-                st.warning(f"No hay activos asignados a la línea `{linea_seleccionada}` en el Catálogo Maestro.")
+                icon = "🔴"
+            
+            with st.expander(f"{icon} Activo #{index+1}: {id_act} | Tipo: {tipo_act} | Estado: {estatus_act}"):
+                st.write(f"**Última Medición Registrada:** {fecha_act}")
+                st.markdown("---")
+                
+                generar_formulario_auditoria(
+                    equipo=activo, 
+                    tipo_equipo=tipo_act, 
+                    key_prefix=f"linea_{linea_seleccionada}", 
+                    index_unico=str(index)
+                )
+    else:
+        st.warning(f"No hay activos vigentes asignados a la línea `{linea_seleccionada}`.")
 # ==========================================
 # VISTA 1: MAPA Y REPORTES ESD
 # ==========================================
