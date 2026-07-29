@@ -3231,62 +3231,62 @@ elif st.session_state.vista_actual == "Auditoría" and not st.session_state.get(
             )
 
         if linea_seleccionada and linea_seleccionada != "-- Selecciona una Línea --":
-    st.markdown(f"#### 📋 Lista Maestra de Activos Vigentes en: **{linea_seleccionada}**")
-
-    activos_master = supabase.table("catalogo_maestro_activos").select("*").ilike("linea_ubicacion", linea_seleccionada).execute().data
-    if not activos_master:
-        activos_master = supabase.table("catalogo_maestro_activos").select("*").ilike("linea", linea_seleccionada).execute().data
-
-    # 🚫 FILTRO DE ACTIVOS VIGENTES (Se descartan Bajas / No Operativos)
-    ESTADOS_DESACTIVADOS = ["BAJA", "NO OPERATIVO", "INACTIVO", "DESACTIVADO"]
-    activos_vigentes = [
-        a for a in activos_master
-        if str(a.get("estatus") or a.get("estatus_operativo") or "").strip().upper() not in ESTADOS_DESACTIVADOS
-    ]
-
-    if activos_vigentes:
-        st.caption(f"Se encontraron **{len(activos_vigentes)}** activos vigentes asignados a esta línea.")
+            st.markdown(f"#### 📋 Lista Maestra de Activos Vigentes en: **{linea_seleccionada}**")
         
-        for index, activo in enumerate(activos_vigentes):
-            id_act = (
-                activo.get("id_activo") 
-                or activo.get("id_producto") 
-                or activo.get("id_maquinaria") 
-                or activo.get("id") 
-                or f"SIN_ID_{index}"
-            )
-            
-            tipo_act = (
-                activo.get("clasificacion") 
-                or activo.get("tipo_categoria") 
-                or activo.get("tipo") 
-                or "Mobiliario"
-            )
-            
-            med_info = obtener_ultima_medicion(id_act)
-            estatus_act = med_info["estatus"]
-            fecha_act = med_info["fecha"]
-            
-            # Iconografía de estado
-            if "PASA" in estatus_act or "VIGENTE" in estatus_act:
-                icon = "🟢"
-            elif "PENDIENTE" in estatus_act:
-                icon = "🟡"
-            else:
-                icon = "🔴"
-            
-            with st.expander(f"{icon} Activo #{index+1}: {id_act} | Tipo: {tipo_act} | Estado: {estatus_act}"):
-                st.write(f"**Última Medición Registrada:** {fecha_act}")
-                st.markdown("---")
+            activos_master = supabase.table("catalogo_maestro_activos").select("*").ilike("linea_ubicacion", linea_seleccionada).execute().data
+            if not activos_master:
+                activos_master = supabase.table("catalogo_maestro_activos").select("*").ilike("linea", linea_seleccionada).execute().data
+        
+            # 🚫 FILTRO DE ACTIVOS VIGENTES (Se descartan Bajas / No Operativos)
+            ESTADOS_DESACTIVADOS = ["BAJA", "NO OPERATIVO", "INACTIVO", "DESACTIVADO"]
+            activos_vigentes = [
+                a for a in activos_master
+                if str(a.get("estatus") or a.get("estatus_operativo") or "").strip().upper() not in ESTADOS_DESACTIVADOS
+            ]
+        
+            if activos_vigentes:
+                st.caption(f"Se encontraron **{len(activos_vigentes)}** activos vigentes asignados a esta línea.")
                 
-                generar_formulario_auditoria(
-                    equipo=activo, 
-                    tipo_equipo=tipo_act, 
-                    key_prefix=f"linea_{linea_seleccionada}", 
-                    index_unico=str(index)
-                )
-    else:
-        st.warning(f"No hay activos vigentes asignados a la línea `{linea_seleccionada}`.")
+                for index, activo in enumerate(activos_vigentes):
+                    id_act = (
+                        activo.get("id_activo") 
+                        or activo.get("id_producto") 
+                        or activo.get("id_maquinaria") 
+                        or activo.get("id") 
+                        or f"SIN_ID_{index}"
+                    )
+                    
+                    tipo_act = (
+                        activo.get("clasificacion") 
+                        or activo.get("tipo_categoria") 
+                        or activo.get("tipo") 
+                        or "Mobiliario"
+                    )
+                    
+                    med_info = obtener_ultima_medicion(id_act)
+                    estatus_act = med_info["estatus"]
+                    fecha_act = med_info["fecha"]
+                    
+                    # Iconografía de estado
+                    if "PASA" in estatus_act or "VIGENTE" in estatus_act:
+                        icon = "🟢"
+                    elif "PENDIENTE" in estatus_act:
+                        icon = "🟡"
+                    else:
+                        icon = "🔴"
+                    
+                    with st.expander(f"{icon} Activo #{index+1}: {id_act} | Tipo: {tipo_act} | Estado: {estatus_act}"):
+                        st.write(f"**Última Medición Registrada:** {fecha_act}")
+                        st.markdown("---")
+                        
+                        generar_formulario_auditoria(
+                            equipo=activo, 
+                            tipo_equipo=tipo_act, 
+                            key_prefix=f"linea_{linea_seleccionada}", 
+                            index_unico=str(index)
+                        )
+            else:
+                st.warning(f"No hay activos vigentes asignados a la línea `{linea_seleccionada}`.")
 # ==========================================
 # VISTA 1: MAPA Y REPORTES ESD
 # ==========================================
