@@ -2995,37 +2995,87 @@ elif st.session_state.vista_actual == "Auditoría" and not st.session_state.get(
     with tab_linea:
         st.markdown("### Selección de Línea de Producción")
         
-        # 1. Obtener lista de líneas únicas DIRECTAMENTE del Catálogo Maestro
+        # 1. Cargar lista de líneas de forma robusta (multiorigen)
+        lineas_set = set()
+        
+        # A) Consultar en catalogo_maestro_activos (columna linea_ubicacion)
         try:
-            lineas_master = supabase.table("catalogo_maestro_activos").select("linea").execute().data
-            lista_lineas = sorted(list(set([x["linea"] for x in lineas_master if x.get("linea")])))
+            res_m = supabase.table("catalogo_maestro_activos").select("linea_ubicacion").execute().data
+            for x in res_m:
+                val = x.get("linea_ubicacion") or x.get("linea") or x.get("ubicacion")
+                if val and str(val).strip().upper() not in ["NONE", "NULL", "N/D", ""]:
+                    lineas_set.add(str(val).strip())
         except Exception:
-            lista_lineas = ["SMT-01", "SMT-02", "ASSEMBLY-01"]
+            pass
 
-        linea_seleccionada = st.selectbox("Elige la línea a auditar:", ["-- Selecciona una Línea --"] + lista_lineas)
+        # B) Respaldar con catalogo_lineas
+        try:
+            res_l = supabase.table("catalogo_lineas").select("nombre_linea").execute().data
+            for x in res_l:
+                val = x.get("nombre_linea")
+                if val and str(val).strip().upper() not in ["NONE", "NULL", "N/D", ""]:
+                    lineas_set.add(str(val).strip())
+        except Exception:
+            pass
 
+        # C) Respaldar con inventario_esd
+        try:
+            res_i = supabase.table("inventario_esd").select("linea_ubicacion").execute().data
+            for x in res_i:
+                val = x.get("linea_ubicacion")
+                if val and str(val).strip().upper() not in ["NONE", "NULL", "N/D", ""]:
+                    lineas_set.add(str(val).strip())
+        except Exception:
+            pass
+
+        lista_lineas = sorted(list(lineas_set))
+
+        if not lista_lineas:
+            st.warning("⚠️ No se encontraron líneas registradas en la base de datos.")
+            linea_seleccionada = None
+        else:
+            linea_seleccionada = st.selectbox(
+                "Elige la línea a auditar:", 
+                ["-- Selecciona una Línea --"] + lista_lineas
+            )
+
+        # 2. Desplegar los activos de la línea elegida
         if linea_seleccionada and linea_seleccionada != "-- Selecciona una Línea --":
             st.markdown(f"#### 📋 Lista Maestra de Activos en: **{linea_seleccionada}**")
 
-            # 2. Descargar todos los activos de esta línea desde el Maestro
-            activos_master = supabase.table("catalogo_maestro_activos").select("*").eq("linea", linea_seleccionada).execute().data
-            
+            # Buscar activos en el Catálogo Maestro por 'linea_ubicacion' o 'linea'
+            activos_master = supabase.table("catalogo_maestro_activos").select("*").eq("linea_ubicacion", linea_seleccionada).execute().data
+            if not activos_master:
+                activos_master = supabase.table("catalogo_maestro_activos").select("*").eq("linea", linea_seleccionada).execute().data
+
             if activos_master:
-                st.caption(f"Se encontraron **{len(activos_master)}** activos (según diseño de planta).")
+                st.caption(f"Se encontraron **{len(activos_master)}** activos en esta línea.")
                 
                 for index, activo in enumerate(activos_master):
-                    id_act = activo.get("id_activo") or activo.get("id") or f"SIN_ID_{index}"
-                    tipo_act = activo.get("tipo") or activo.get("clasificacion") or "Mobiliario"
+                    # Búsqueda flexible del ID del activo
+                    id_act = (
+                        activo.get("id_activo") 
+                        or activo.get("id_producto") 
+                        or activo.get("id_maquinaria") 
+                        or activo.get("id") 
+                        or f"SIN_ID_{index}"
+                    )
                     
-                    # 3. Determinar qué es para saber dónde ir a buscar su estatus en vivo
+                    tipo_act = (
+                        activo.get("clasificacion") 
+                        or activo.get("tipo_categoria") 
+                        or activo.get("tipo") 
+                        or "Mobiliario"
+                    )
+                    
                     tipo_eq_clean = str(tipo_act).strip().lower()
-                    es_maquinaria = True if "máquina" in tipo_eq_clean or "maquinaria" in tipo_eq_clean else False
-                    activo["es_maquinaria"] = es_maquinaria # Lo guardamos en el dict para la función
+                    es_maquinaria = True if ("máquina" in tipo_eq_clean or "maquinaria" in tipo_eq_clean or "equipo" in tipo_eq_clean) else False
+                    activo["es_maquinaria"] = es_maquinaria
                     
                     estatus_act = "SIN REGISTRO"
-                    fecha_act = "N/A"
+                    fecha_act = "Sin auditorías previas"
                     
-                    # Query rápida para pintar el expander (Se puede optimizar bajando todo de una vez arriba, pero esto es seguro)
+                    # Consultar estatus actual en vivo
                     try:
                         if es_maquinaria:
                             maq_data = supabase.table("mediciones_maquinaria").select("status_operativo, fecha_medicion").eq("id_maquinaria", id_act).order("fecha_medicion", desc=True).limit(1).execute().data
@@ -3037,7 +3087,7 @@ elif st.session_state.vista_actual == "Auditoría" and not st.session_state.get(
                             if inv_data:
                                 estatus_act = str(inv_data[0].get("estatus_verificacion", "PENDIENTE")).upper()
                                 fecha_act = inv_data[0].get("fecha_ultima_verif", "N/A")
-                    except:
+                    except Exception:
                         pass
                     
                     icon = "🟢" if "PASA" in estatus_act else ("🔴" if "FALLA" in estatus_act else "📦")
