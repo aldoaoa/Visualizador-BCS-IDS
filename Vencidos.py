@@ -88,15 +88,16 @@ def parsear_resistencia(valor_str):
     except ValueError:
         return "ERROR"
 
-def obtener_ultima_medicion(id_activo, es_maquinaria=False):
+def obtener_ultima_medicion(id_activo):
     """
-    Busca la última medición registrada para cualquier activo.
-    1. Revisa 'validacion_esd' (historial unificado de auditorías).
-    2. Si no encuentra, revisa la tabla base ('mediciones_maquinaria' o 'inventario_esd').
+    Busca la última medición registrada para cualquier activo en orden automático:
+    1. 'validacion_esd' (historial unificado)
+    2. 'mediciones_maquinaria' (buscando por id_maquinaria)
+    3. 'inventario_esd' (buscando por id_producto)
     """
     id_clean = str(id_activo).strip()
     
-    # 1. Buscar en la tabla histórica de auditorías unificadas
+    # 1. Buscar en la tabla histórica unificada
     try:
         resp_val = (
             supabase.table("validacion_esd")
@@ -116,63 +117,68 @@ def obtener_ultima_medicion(id_activo, es_maquinaria=False):
                 "tiempo_descarga": rec.get("tiempo_descarga"),
                 "voltaje_balance": rec.get("voltaje_balance"),
                 "comentarios": rec.get("comentarios") or "Sin comentarios",
-                "origen": "validacion_esd"
+                "es_maquinaria": rec.get("tipo_equipo") != "Ionizador" and rec.get("tipo_equipo") != "Mobiliario"
             }
     except Exception:
         pass
 
-    # 2. Fallback a la tabla base
-    if es_maquinaria:
-        try:
-            resp_maq = (
-                supabase.table("mediciones_maquinaria")
-                .select("*")
-                .ilike("id_maquinaria", id_clean)
-                .order("fecha_medicion", desc=True)
-                .limit(1)
-                .execute()
-            )
-            if resp_maq.data:
-                rec = resp_maq.data[0]
-                fecha_f = rec.get("fecha_medicion") or rec.get("fecha_ultima_validacion") or rec.get("fecha_modificacion") or "Sin fecha"
-                estatus_f = str(rec.get("status_operativo") or rec.get("resultado_estatus") or rec.get("estatus_operativo") or "PENDIENTE").upper()
-                return {
-                    "fecha": fecha_f,
-                    "estatus": estatus_f,
-                    "resistencia": rec.get("resistencia_tierra") or rec.get("valor_actual") or rec.get("medicion_resistencia"),
-                    "voltaje_campo": rec.get("campo_electrostatico") or rec.get("medicion_campo"),
-                    "tiempo_descarga": None,
-                    "voltaje_balance": None,
-                    "comentarios": rec.get("observaciones") or rec.get("comentarios") or "Sin comentarios",
-                    "origen": "mediciones_maquinaria"
-                }
-        except Exception:
-            pass
-    else:
-        try:
-            resp_inv = (
-                supabase.table("inventario_esd")
-                .select("*")
-                .ilike("id_producto", id_clean)
-                .limit(1)
-                .execute()
-            )
-            if resp_inv.data:
-                rec = resp_inv.data[0]
-                fecha_f = rec.get("fecha_ultima_verif") or rec.get("fecha_ultima_validacion") or "Sin fecha"
-                estatus_f = str(rec.get("estatus_verificacion") or rec.get("estatus_operativo") or "PENDIENTE").upper()
-                return {
-                    "fecha": fecha_f,
-                    "estatus": estatus_f,
-                    "resistencia": rec.get("valor_resistencia") or rec.get("resistencia"),
-                    "voltaje_campo": rec.get("voltaje_campo"),
-                    "tiempo_descarga": rec.get("tiempo_descarga"),
-                    "voltaje_balance": rec.get("balance_ionizador"),
-                    "comentarios": rec.get("comentarios") or "Sin comentarios",
-                    "origen": "inventario_esd"
-                }
-        except Exception:
-            pass
+    # 2. Buscar en mediciones_maquinaria (Independiente del texto de clasificación)
+    try:
+        resp_maq = (
+            supabase.table("mediciones_maquinaria")
+            .select("*")
+            .ilike("id_maquinaria", id_clean)
+            .order("fecha_medicion", desc=True)
+            .limit(1)
+            .execute()
+        )
+        if resp_maq.data:
+            rec = resp_maq.data[0]
+            fecha_f = rec.get("fecha_medicion") or rec.get("fecha_ultima_validacion") or "Sin fecha"
+            estatus_f = str(rec.get("resultado_estatus") or rec.get("status_operativo") or rec.get("estatus_operativo") or "PENDIENTE").upper()
+            
+            # Extraer resistencia (ej: 0.28) y campo electrostático (ej: 0)
+            res_val = rec.get("resistencia_tierra") if rec.get("resistencia_tierra") is not None else rec.get("valor_actual")
+            vol_val = rec.get("campo_electrostatico") if rec.get("campo_electrostatico") is not None else rec.get("medicion_campo")
+            
+            return {
+                "fecha": fecha_f,
+                "estatus": estatus_f,
+                "resistencia": res_val,
+                "voltaje_campo": vol_val,
+                "tiempo_descarga": None,
+                "voltaje_balance": None,
+                "comentarios": rec.get("observaciones") or rec.get("comentarios") or "Sin comentarios",
+                "es_maquinaria": True
+            }
+    except Exception:
+        pass
+
+    # 3. Buscar en inventario_esd
+    try:
+        resp_inv = (
+            supabase.table("inventario_esd")
+            .select("*")
+            .ilike("id_producto", id_clean)
+            .limit(1)
+            .execute()
+        )
+        if resp_inv.data:
+            rec = resp_inv.data[0]
+            fecha_f = rec.get("fecha_ultima_verif") or rec.get("fecha_ultima_validacion") or "Sin fecha"
+            estatus_f = str(rec.get("estatus_verificacion") or rec.get("estatus_operativo") or "PENDIENTE").upper()
+            return {
+                "fecha": fecha_f,
+                "estatus": estatus_f,
+                "resistencia": rec.get("valor_resistencia") or rec.get("resistencia"),
+                "voltaje_campo": rec.get("voltaje_campo"),
+                "tiempo_descarga": rec.get("tiempo_descarga"),
+                "voltaje_balance": rec.get("balance_ionizador"),
+                "comentarios": rec.get("comentarios") or "Sin comentarios",
+                "es_maquinaria": False
+            }
+    except Exception:
+        pass
 
     return {
         "fecha": "Sin mediciones previas",
@@ -182,13 +188,14 @@ def obtener_ultima_medicion(id_activo, es_maquinaria=False):
         "tiempo_descarga": None,
         "voltaje_balance": None,
         "comentarios": "Sin registros",
-        "origen": "ninguno"
+        "es_maquinaria": False
     }
+
 
 def generar_formulario_auditoria(equipo, tipo_equipo, key_prefix, index_unico="0"):
     """
     Genera el formulario estandarizado de auditoría.
-    Muestra la última medición realizada y actualiza el historial en Supabase.
+    Muestra automáticamente la última medición registrada previa en Supabase.
     """
     id_elemento = (
         equipo.get("id_activo") 
@@ -206,28 +213,30 @@ def generar_formulario_auditoria(equipo, tipo_equipo, key_prefix, index_unico="0
     )
     
     tipo_eq_clean = str(tipo_equipo).strip().lower()
-    es_maquinaria = True if ("máquina" in tipo_eq_clean or "maquinaria" in tipo_eq_clean or "equipo" in tipo_eq_clean) else False
-    
     usuario_auditor = st.session_state.get("usuario_actual", st.session_state.get("usuario", "Auditor ESD"))
     
-    # 🔍 CONSULTAR LA ÚLTIMA MEDICIÓN REGISTRADA
-    ultima_med = obtener_ultima_medicion(id_elemento, es_maquinaria=es_maquinaria)
+    # 🔍 CONSULTA UNIFICADA DE LA ÚLTIMA MEDICIÓN
+    ultima_med = obtener_ultima_medicion(id_elemento)
+    es_maquinaria = ultima_med.get("es_maquinaria", False)
 
-    # Mostrar tarjeta con datos previos
+    # Desplegar tarjeta con el historial anterior encontrado
     with st.container():
         st.markdown(f"##### 📌 Última Medición Registrada (`{id_elemento}`)")
         c_p1, c_p2, c_p3 = st.columns(3)
         c_p1.caption(f"📅 **Fecha:** {ultima_med['fecha']}")
         c_p2.caption(f"🚦 **Estatus:** {ultima_med['estatus']}")
         
-        # Mostrar detalle numérico previo según tipo de activo
         if tipo_eq_clean == "ionizador":
             t_desc = f"{ultima_med['tiempo_descarga']} s" if ultima_med['tiempo_descarga'] is not None else "N/D"
             v_bal = f"{ultima_med['voltaje_balance']} V" if ultima_med['voltaje_balance'] is not None else "N/D"
             c_p3.caption(f"⚡ **Descarga:** {t_desc} | **Balance:** {v_bal}")
         else:
-            res_val = f"{ultima_med['resistencia']:.2e} Ω" if isinstance(ultima_med['resistencia'], (int, float)) else "N/D"
-            vol_val = f"{ultima_med['voltaje_campo']} V" if isinstance(ultima_med['voltaje_campo'], (int, float)) else "N/D"
+            try:
+                res_val = f"{float(ultima_med['resistencia']):.2e} Ω" if ultima_med['resistencia'] is not None else "N/D"
+            except Exception:
+                res_val = f"{ultima_med['resistencia']} Ω" if ultima_med['resistencia'] is not None else "N/D"
+                
+            vol_val = f"{ultima_med['voltaje_campo']} V" if ultima_med['voltaje_campo'] is not None else "N/D"
             c_p3.caption(f"🔌 **Resistencia:** {res_val} | **Campo:** {vol_val}")
 
     st.markdown("---")
@@ -335,7 +344,8 @@ def generar_formulario_auditoria(equipo, tipo_equipo, key_prefix, index_unico="0
                     if es_maquinaria:
                         supabase.table("mediciones_maquinaria").update({
                             "fecha_medicion": fecha_actual,
-                            "status_operativo": estatus_eval
+                            "status_operativo": estatus_eval,
+                            "resultado_estatus": estatus_eval
                         }).ilike("id_maquinaria", id_elemento).execute()
                     else:
                         supabase.table("inventario_esd").update({
@@ -3178,8 +3188,8 @@ elif st.session_state.vista_actual == "Auditoría" and not st.session_state.get(
                     es_maquinaria = True if ("máquina" in tipo_eq_clean or "maquinaria" in tipo_eq_clean or "equipo" in tipo_eq_clean) else False
                     activo["es_maquinaria"] = es_maquinaria
                     
-                    # CONSULTA UNIFICADA DE ÚLTIMA MEDICIÓN
-                    med_info = obtener_ultima_medicion(id_act, es_maquinaria=es_maquinaria)
+                    # OBTENER INFORMACIÓN DE LA ÚLTIMA MEDICIÓN
+                    med_info = obtener_ultima_medicion(id_act)
                     
                     estatus_act = med_info["estatus"]
                     fecha_act = med_info["fecha"]
