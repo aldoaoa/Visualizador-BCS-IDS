@@ -2100,6 +2100,7 @@ with st.sidebar:
                 ],
                 "🏭 Auditorías": [
                     ("📱 Escáner QR", "Escáner"),
+                    ("📱 Auditoría de activos", "Auditoría"),
                     ("✅ Validación Integral", "Validación"),
                     ("🆕 Alta/Baja de Equipos", "Alta"),
                     ("🏭 Maquinaria", "Maquinaria"),
@@ -2785,6 +2786,127 @@ if st.session_state.vista_actual == "Alta" and not st.session_state.modo_lectura
                     limpiar_url_escaneo()
                     st.rerun()
             # --- FIN DE LÓGICA SELECTIVA ---
+
+# ==============================================================================
+# 2. VISTA UNIFICADA DE AUDITORÍA EN STREAMLIT
+# ==============================================================================
+elif st.session_state.vista_actual == "Auditoría" and not st.session_state.get("modo_lectura", False):
+    st.markdown("## 🔍 Centro Unificado de Auditoría ESD")
+    st.info("Selecciona el método de validación: por escaneo individual de Código QR o por inspección de Línea Completa.")
+
+    tab_qr, tab_linea = st.tabs(["📷 Validar por Escaneo QR", "🏭 Auditoría por Línea Completa"])
+
+    # --------------------------------------------------------------------------
+    # PESTAÑA 1: VALIDACIÓN VÍA QR / ESCANEO INDIVIDUAL
+    # --------------------------------------------------------------------------
+    with tab_qr:
+        st.markdown("### 📷 Escáner / Búsqueda Manual de Activo")
+        
+        col_input1, col_input2 = st.columns([3, 1])
+        with col_input1:
+            id_busqueda = st.text_input("Ingresa o escanea el ID del activo (QR):", key="qr_search_input").strip()
+        with col_input2:
+            st.write("")
+            st.write("")
+            btn_buscar = st.button("🔍 Buscar Activo", type="secondary")
+
+        if id_busqueda:
+            # Consulta en Supabase (Inventario General)
+            res_inv = supabase.table("inventario_esd").select("*").eq("id_elemento", id_busqueda).execute().data
+            # Consulta en Supabase (Maquinaria)
+            res_maq = supabase.table("mediciones_maquinaria").select("*").eq("id_maquinaria", id_busqueda).execute().data
+
+            equipo_encontrado = None
+            tipo_detectado = "Mobiliario"
+
+            if res_inv:
+                equipo_encontrado = res_inv[0]
+                equipo_encontrado["es_maquinaria"] = False
+                tipo_detectado = equipo_encontrado.get("tipo_equipo") or equipo_encontrado.get("clasificacion") or "Mobiliario"
+            elif res_maq:
+                equipo_encontrado = res_maq[0]
+                equipo_encontrado["es_maquinaria"] = True
+                tipo_detectado = equipo_encontrado.get("clasificacion") or "Maquinaria"
+
+            if equipo_encontrado:
+                st.markdown("---")
+                st.markdown("#### 📊 Datos del Activo Escaneado")
+                
+                c_info1, c_info2, c_info3, c_info4 = st.columns(4)
+                c_info1.metric("ID Elemento", id_busqueda)
+                c_info2.metric("Tipo / Clasificación", tipo_detectado)
+                c_info3.metric("Línea / Ubicación", equipo_encontrado.get("linea_ubicacion") or "N/A")
+                
+                estatus_op = str(equipo_encontrado.get("estatus_operativo", "VIGENTE")).upper()
+                c_info4.metric("Estatus Actual", estatus_op)
+
+                st.markdown("---")
+                # Inyectar el formulario de medición
+                generar_formulario_auditoria(equipo_encontrado, tipo_detectado, "qr")
+            else:
+                st.warning(f"⚠️ No se encontró ningún activo registrado con el ID `{id_busqueda}` en Supabase.")
+
+    # --------------------------------------------------------------------------
+    # PESTAÑA 2: AUDITORÍA DE LÍNEA COMPLETA (LISTA DESPLEGABLE)
+    # --------------------------------------------------------------------------
+    with tab_linea:
+        st.markdown("### 🏭 Selección de Línea de Producción")
+        
+        # Obtener lista de líneas de producción disponibles en Supabase
+        try:
+            lineas_inv = supabase.table("inventario_esd").select("linea_ubicacion").execute().data
+            lineas_maq = supabase.table("mediciones_maquinaria").select("linea_ubicacion").execute().data
+            
+            lista_lineas = sorted(list(set(
+                [x["linea_ubicacion"] for x in lineas_inv if x.get("linea_ubicacion")] +
+                [x["linea_ubicacion"] for x in lineas_maq if x.get("linea_ubicacion")]
+            )))
+        except Exception:
+            lista_lineas = ["SMT-01", "SMT-02", "ASSEMBLY-01", "BEVEL-01"]
+
+        linea_seleccionada = st.selectbox("Elige la línea a auditar:", ["-- Selecciona una Línea --"] + lista_lineas)
+
+        if linea_seleccionada and linea_seleccionada != "-- Selecciona una Línea --":
+            st.markdown(f"#### 📋 Activos Asignados a: **{linea_seleccionada}**")
+
+            # Fetch de todos los activos de la línea elegida
+            activos_inv = supabase.table("inventario_esd").select("*").eq("linea_ubicacion", linea_seleccionada).execute().data
+            activos_maq = supabase.table("mediciones_maquinaria").select("*").eq("linea_ubicacion", linea_seleccionada).execute().data
+
+            # Marcar origen de maquinaria y consolidar
+            for m in activos_maq:
+                m["es_maquinaria"] = True
+            for i in activos_inv:
+                i["es_maquinaria"] = False
+
+            activos_totales = activos_inv + activos_maq
+
+            if activos_totales:
+                st.caption(f"Se encontraron **{len(activos_totales)}** activos (mobiliarios, ionizadores y maquinaria) en esta línea. Cada guardado es automático e independiente.")
+                
+                # Desplegar lista interactiva (Expanders)
+                for index, activo in enumerate(activos_totales):
+                    id_act = activo.get("id_elemento") or activo.get("id_maquinaria")
+                    tipo_act = activo.get("tipo_equipo") or activo.get("clasificacion") or ("Maquinaria" if activo.get("es_maquinaria") else "Mobiliario")
+                    estatus_act = str(activo.get("estatus_operativo", "PENDIENTE")).upper()
+                    
+                    # Emoji según estatus
+                    icon = "🟢" if estatus_act == "PASA" else ("🔴" if estatus_act == "FALLA" else "📦")
+                    
+                    with st.expander(f"{icon} Activo #{index+1}: {id_act} | Tipo: {tipo_act} | Estado: {estatus_act}"):
+                        c_det1, c_det2 = st.columns(2)
+                        with c_det1:
+                            st.write(f"**Última Medición:** {activo.get('fecha_ultima_validacion', 'Sin registro')}")
+                        with c_det2:
+                            st.write(f"**Estatus Operativo:** {estatus_act}")
+                        
+                        st.markdown("---")
+                        # Inyectar el mismo formulario modular para autoguardado individual
+                        generar_formulario_auditoria(activo, tipo_act, f"linea_{linea_seleccionada}")
+
+            else:
+                st.warning(f"No hay activos asignados a la línea `{linea_seleccionada}`.")
+
 # ==========================================
 # VISTA 1: MAPA Y REPORTES ESD
 # ==========================================
