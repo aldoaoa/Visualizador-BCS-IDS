@@ -2990,21 +2990,21 @@ elif st.session_state.vista_actual == "Auditoría" and not st.session_state.get(
                 st.warning(f"⚠️ El activo `{id_busqueda}` no está registrado en el Catálogo Maestro.")
 
     # --------------------------------------------------------------------------
-    # PESTAÑA 2: AUDITORÍA DE LÍNEA COMPLETA (BASADA EN CATÁLOGO MAESTRO)
+    # PESTAÑA 2: AUDITORÍA DE LÍNEA COMPLETA (INSENSIBLE A MAYÚSCULAS/MINÚSCULAS)
     # --------------------------------------------------------------------------
     with tab_linea:
         st.markdown("### Selección de Línea de Producción")
         
-        # 1. Cargar lista de líneas de forma robusta (multiorigen)
+        # 1. Normalizar líneas a MAYÚSCULAS para eliminar duplicados
         lineas_set = set()
         
-        # A) Consultar en catalogo_maestro_activos (columna linea_ubicacion)
+        # A) Consultar en catalogo_maestro_activos
         try:
             res_m = supabase.table("catalogo_maestro_activos").select("linea_ubicacion").execute().data
             for x in res_m:
                 val = x.get("linea_ubicacion") or x.get("linea") or x.get("ubicacion")
                 if val and str(val).strip().upper() not in ["NONE", "NULL", "N/D", ""]:
-                    lineas_set.add(str(val).strip())
+                    lineas_set.add(str(val).strip().upper())
         except Exception:
             pass
 
@@ -3014,7 +3014,7 @@ elif st.session_state.vista_actual == "Auditoría" and not st.session_state.get(
             for x in res_l:
                 val = x.get("nombre_linea")
                 if val and str(val).strip().upper() not in ["NONE", "NULL", "N/D", ""]:
-                    lineas_set.add(str(val).strip())
+                    lineas_set.add(str(val).strip().upper())
         except Exception:
             pass
 
@@ -3024,7 +3024,7 @@ elif st.session_state.vista_actual == "Auditoría" and not st.session_state.get(
             for x in res_i:
                 val = x.get("linea_ubicacion")
                 if val and str(val).strip().upper() not in ["NONE", "NULL", "N/D", ""]:
-                    lineas_set.add(str(val).strip())
+                    lineas_set.add(str(val).strip().upper())
         except Exception:
             pass
 
@@ -3039,20 +3039,19 @@ elif st.session_state.vista_actual == "Auditoría" and not st.session_state.get(
                 ["-- Selecciona una Línea --"] + lista_lineas
             )
 
-        # 2. Desplegar los activos de la línea elegida
+        # 2. Desplegar activos usando .ilike() para coincidir sin importar mayúsculas/minúsculas
         if linea_seleccionada and linea_seleccionada != "-- Selecciona una Línea --":
             st.markdown(f"#### 📋 Lista Maestra de Activos en: **{linea_seleccionada}**")
 
-            # Buscar activos en el Catálogo Maestro por 'linea_ubicacion' o 'linea'
-            activos_master = supabase.table("catalogo_maestro_activos").select("*").eq("linea_ubicacion", linea_seleccionada).execute().data
+            # .ilike busca de forma case-insensitive en Supabase/PostgreSQL
+            activos_master = supabase.table("catalogo_maestro_activos").select("*").ilike("linea_ubicacion", linea_seleccionada).execute().data
             if not activos_master:
-                activos_master = supabase.table("catalogo_maestro_activos").select("*").eq("linea", linea_seleccionada).execute().data
+                activos_master = supabase.table("catalogo_maestro_activos").select("*").ilike("linea", linea_seleccionada).execute().data
 
             if activos_master:
                 st.caption(f"Se encontraron **{len(activos_master)}** activos en esta línea.")
                 
                 for index, activo in enumerate(activos_master):
-                    # Búsqueda flexible del ID del activo
                     id_act = (
                         activo.get("id_activo") 
                         or activo.get("id_producto") 
@@ -3075,15 +3074,15 @@ elif st.session_state.vista_actual == "Auditoría" and not st.session_state.get(
                     estatus_act = "SIN REGISTRO"
                     fecha_act = "Sin auditorías previas"
                     
-                    # Consultar estatus actual en vivo
+                    # Consultar estatus actual usando .ilike() para el ID
                     try:
                         if es_maquinaria:
-                            maq_data = supabase.table("mediciones_maquinaria").select("status_operativo, fecha_medicion").eq("id_maquinaria", id_act).order("fecha_medicion", desc=True).limit(1).execute().data
+                            maq_data = supabase.table("mediciones_maquinaria").select("status_operativo, fecha_medicion").ilike("id_maquinaria", id_act).order("fecha_medicion", desc=True).limit(1).execute().data
                             if maq_data:
                                 estatus_act = str(maq_data[0].get("status_operativo", "PENDIENTE")).upper()
                                 fecha_act = maq_data[0].get("fecha_medicion", "N/A")
                         else:
-                            inv_data = supabase.table("inventario_esd").select("estatus_verificacion, fecha_ultima_verif").eq("id_producto", id_act).execute().data
+                            inv_data = supabase.table("inventario_esd").select("estatus_verificacion, fecha_ultima_verif").ilike("id_producto", id_act).execute().data
                             if inv_data:
                                 estatus_act = str(inv_data[0].get("estatus_verificacion", "PENDIENTE")).upper()
                                 fecha_act = inv_data[0].get("fecha_ultima_verif", "N/A")
