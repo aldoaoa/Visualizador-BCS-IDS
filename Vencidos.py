@@ -88,17 +88,19 @@ def parsear_resistencia(valor_str):
     except ValueError:
         return "ERROR"
 
-def generar_formulario_auditoria(equipo, tipo_equipo, key_prefix):
+def generar_formulario_auditoria(equipo, tipo_equipo, key_prefix, index_unico="0"):
     """
     Genera el formulario estandarizado de auditoría para un activo.
-    Soporta Ionizadores, Mobiliario y Maquinaria con autoguardado e historial en Supabase.
+    Soporta Ionizadores, Mobiliario y Maquinaria con autoguardado e historial.
     """
-    # Identificar el ID del activo según la tabla de procedencia
+    # 1. Identificar el ID ampliando los posibles nombres de columnas de Supabase
     id_elemento = (
         equipo.get("id_elemento") 
         or equipo.get("id_maquinaria") 
+        or equipo.get("id_equipo")    # Agregado por si la tabla usa este nombre
+        or equipo.get("id_activo")    # Agregado
         or equipo.get("id") 
-        or "DESCONOCIDO"
+        or f"DESCONOCIDO_{index_unico}"
     )
     linea_ubicacion = (
         equipo.get("linea_ubicacion") 
@@ -108,14 +110,16 @@ def generar_formulario_auditoria(equipo, tipo_equipo, key_prefix):
     )
     usuario_auditor = st.session_state.get("usuario_actual", st.session_state.get("usuario", "Auditor ESD"))
     
-    # Manejo de estado local para mediciones adicionales dinámicas
-    state_key = f"extra_{key_prefix}_{id_elemento}"
+    # Manejo de estado local
+    state_key = f"extra_{key_prefix}_{id_elemento}_{index_unico}"
     if state_key not in st.session_state:
         st.session_state[state_key] = []
 
     st.markdown(f"##### 📝 Nueva Auditoría para: `{id_elemento}`")
     
-    with st.form(key=f"form_audit_{key_prefix}_{id_elemento}"):
+    # APLICACIÓN DE LA LLAVE ÚNICA GARANTIZADA
+    form_key = f"form_audit_{key_prefix}_{id_elemento}_{index_unico}"
+    with st.form(key=form_key):
         
         # ----------------------------------------------------------------------
         # CASO A: IONIZADORES
@@ -2978,7 +2982,7 @@ if st.session_state.vista_actual == "Alta" and not st.session_state.modo_lectura
             # --- FIN DE LÓGICA SELECTIVA ---
 
 # ==============================================================================
-# 2. VISTA UNIFICADA DE AUDITORÍA EN STREAMLIT
+# 2. VISTA UNIFICADA DE AUDITORÍA
 # ==============================================================================
 elif st.session_state.vista_actual == "Auditoría" and not st.session_state.get("modo_lectura", False):
     st.markdown("## 🔍 Centro Unificado de Auditoría ESD")
@@ -3091,9 +3095,14 @@ elif st.session_state.vista_actual == "Auditoría" and not st.session_state.get(
                             st.write(f"**Estatus Operativo:** {estatus_act}")
                         
                         st.markdown("---")
-                        # Inyectar el mismo formulario modular para autoguardado individual
-                        generar_formulario_auditoria(activo, tipo_act, f"linea_{linea_seleccionada}")
-
+                        
+                        # INYECTAMOS EL ÍNDICE (index) COMO STRING PARA HACERLO 100% ÚNICO
+                        generar_formulario_auditoria(
+                            equipo=activo, 
+                            tipo_equipo=tipo_act, 
+                            key_prefix=f"linea_{linea_seleccionada}", 
+                            index_unico=str(index)
+                        )
             else:
                 st.warning(f"No hay activos asignados a la línea `{linea_seleccionada}`.")
 
