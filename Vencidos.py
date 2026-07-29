@@ -91,196 +91,151 @@ def parsear_resistencia(valor_str):
 def generar_formulario_auditoria(equipo, tipo_equipo, key_prefix, index_unico="0"):
     """
     Genera el formulario estandarizado de auditoría para un activo.
-    Soporta Ionizadores, Mobiliario y Maquinaria con autoguardado e historial.
+    Actualiza inventario_esd (usando id_producto) o mediciones_maquinaria (usando id_maquinaria).
     """
-    # 1. Identificar el ID ampliando los posibles nombres de columnas de Supabase
+    # 1. Identificar el ID unificado desde el catálogo maestro
     id_elemento = (
-        equipo.get("id_elemento") 
-        or equipo.get("id_maquinaria") 
-        or equipo.get("id_equipo")    # Agregado por si la tabla usa este nombre
-        or equipo.get("id_activo")    # Agregado
+        equipo.get("id_activo") 
         or equipo.get("id") 
+        or equipo.get("id_producto")
+        or equipo.get("id_maquinaria")
         or f"DESCONOCIDO_{index_unico}"
     )
+    
     linea_ubicacion = (
-        equipo.get("linea_ubicacion") 
-        or equipo.get("linea") 
+        equipo.get("linea") 
+        or equipo.get("linea_ubicacion") 
         or equipo.get("ubicacion") 
         or "N/A"
     )
+    
+    # Determinar si es maquinaria basándonos en la clasificación del catálogo
+    tipo_eq_clean = str(tipo_equipo).strip().lower()
+    es_maquinaria = True if "máquina" in tipo_eq_clean or "maquinaria" in tipo_eq_clean or "equipo" in tipo_eq_clean else False
+    
     usuario_auditor = st.session_state.get("usuario_actual", st.session_state.get("usuario", "Auditor ESD"))
     
-    # Manejo de estado local
     state_key = f"extra_{key_prefix}_{id_elemento}_{index_unico}"
     if state_key not in st.session_state:
         st.session_state[state_key] = []
 
     st.markdown(f"##### 📝 Nueva Auditoría para: `{id_elemento}`")
     
-    # APLICACIÓN DE LA LLAVE ÚNICA GARANTIZADA
     form_key = f"form_audit_{key_prefix}_{id_elemento}_{index_unico}"
     with st.form(key=form_key):
         
         # ----------------------------------------------------------------------
-        # CASO A: IONIZADORES
+        # A: LÓGICA PARA IONIZADORES
         # ----------------------------------------------------------------------
-        if str(tipo_equipo).strip().lower() == "ionizador":
+        if tipo_eq_clean == "ionizador":
             col1, col2 = st.columns(2)
             with col1:
-                tiempo_descarga = st.number_input(
-                    "Tiempo de Descarga (1000V a 100V) [seg]*", 
-                    min_value=0.0, format="%.2f", step=0.1, 
-                    key=f"tdesc_{key_prefix}_{id_elemento}",
-                    help="Obligatorio. Límite norma ANSI/ESD S20.20: < 8.0 s"
-                )
+                tiempo_descarga = st.number_input("Tiempo de Descarga (1000V a 100V) [seg]*", min_value=0.0, format="%.2f", step=0.1)
             with col2:
-                voltaje_balance = st.number_input(
-                    "Voltaje de Balance (Offset) [V]*", 
-                    format="%.2f", step=1.0, 
-                    key=f"vbal_{key_prefix}_{id_elemento}",
-                    help="Obligatorio. Límite norma ANSI/ESD S20.20: entre -35V y +35V"
-                )
+                voltaje_balance = st.number_input("Voltaje de Balance (Offset) [V]*", format="%.2f", step=1.0)
             
-            comentarios = st.text_input("Comentarios / Observaciones", key=f"com_ion_{key_prefix}_{id_elemento}")
-            
+            comentarios = st.text_input("Comentarios")
             btn_guardar_ion = st.form_submit_button("💾 Guardar Ionizador", type="primary")
 
             if btn_guardar_ion:
-                if tiempo_descarga <= 0:
-                    st.error("⚠️ El tiempo de descarga debe ser mayor a 0.")
-                else:
-                    fecha_actual = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    
-                    # Criterio normativo de evaluación
-                    cumple_tiempo = tiempo_descarga <= 8.0
-                    cumple_balance = abs(voltaje_balance) <= 35.0
-                    estatus_eval = "Pasa" if (cumple_tiempo and cumple_balance) else "Falla"
+                fecha_actual = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                cumple_tiempo = tiempo_descarga > 0 and tiempo_descarga <= 8.0
+                cumple_balance = abs(voltaje_balance) <= 35.0
+                estatus_eval = "Pasa" if (cumple_tiempo and cumple_balance) else "Falla"
 
-                    payload_historial = {
-                        "id_elemento": id_elemento,
-                        "tipo_equipo": "Ionizador",
-                        "ubicacion": linea_ubicacion,
-                        "tiempo_descarga": tiempo_descarga,
-                        "voltaje_balance": voltaje_balance,
-                        "comentarios": comentarios,
-                        "estatus": estatus_eval,
-                        "fecha_medicion": fecha_actual,
-                        "auditor": usuario_auditor
-                    }
+                payload_historial = {
+                    "id_elemento": id_elemento, "tipo_equipo": "Ionizador",
+                    "ubicacion": linea_ubicacion, "tiempo_descarga": tiempo_descarga,
+                    "voltaje_balance": voltaje_balance, "comentarios": comentarios,
+                    "estatus": estatus_eval, "fecha_medicion": fecha_actual, "auditor": usuario_auditor
+                }
 
-                    try:
-                        # 1. Guardar historial en validacion_esd
-                        supabase.table("validacion_esd").insert(payload_historial).execute()
-                        
-                        # 2. Actualizar estatus operativo y fecha en inventario_esd
-                        supabase.table("inventario_esd").update({
-                            "fecha_ultima_validacion": fecha_actual,
-                            "estatus_operativo": estatus_eval
-                        }).eq("id_elemento", id_elemento).execute()
+                try:
+                    # 1. Guardar en tabla de historial general
+                    supabase.table("validacion_esd").insert(payload_historial).execute()
+                    # 2. Actualizar inventario_esd (Usando id_producto)
+                    supabase.table("inventario_esd").update({
+                        "fecha_ultima_verif": fecha_actual, 
+                        "estatus_verificacion": estatus_eval
+                    }).eq("id_producto", id_elemento).execute()
 
-                        st.cache_data.clear()
-                        st.success(f"✅ Ionizador `{id_elemento}` guardado individualmente. Estatus: **{estatus_eval.upper()}**")
-                        st.rerun()
-
-                    except Exception as e:
-                        st.error(f"❌ Error al conectar con Supabase: {e}")
+                    st.cache_data.clear()
+                    st.success(f"✅ Ionizador `{id_elemento}` guardado. Estatus: **{estatus_eval.upper()}**")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error: {e}")
 
         # ----------------------------------------------------------------------
-        # CASO B: MOBILIARIO Y MAQUINARIA
+        # B: LÓGICA PARA MOBILIARIO Y MAQUINARIA
         # ----------------------------------------------------------------------
         else:
             col1, col2 = st.columns(2)
             with col1:
-                resistencia = st.number_input(
-                    "Resistencia [Ohms]*", 
-                    format="%.2e", step=1e5, 
-                    key=f"res_{key_prefix}_{id_elemento}",
-                    help="Obligatorio. Formato científico (ej: 1.0e6). Límite < 1.0e9 Ω"
-                )
+                resistencia = st.number_input("Resistencia [Ohms]*", format="%.2e", step=1e5)
             with col2:
-                voltaje_campo = st.number_input(
-                    "Voltaje Campo Electrostático [V]*", 
-                    format="%.2f", step=1.0, 
-                    key=f"vcampo_{key_prefix}_{id_elemento}",
-                    help="Obligatorio. Límite < 100V"
-                )
+                voltaje_campo = st.number_input("Voltaje Campo Electrostático [V]*", format="%.2f", step=1.0)
 
-            # --- Mediciones Adicionales Dinámicas ---
-            st.markdown("---")
+            # Mediciones Dinámicas (JSON)
             st.markdown("###### ➕ Mediciones Adicionales (Opcionales)")
-            col_add1, col_add2 = st.columns(2)
-            with col_add1:
-                btn_add_res = st.form_submit_button("➕ Agregar Resistencia Extra")
-            with col_add2:
-                btn_add_vol = st.form_submit_button("➕ Agregar Voltaje Extra")
-
-            if btn_add_res:
-                st.session_state[state_key].append({"tipo": "resistencia", "valor": 0.0, "comentario": ""})
-                st.rerun()
-            if btn_add_vol:
-                st.session_state[state_key].append({"tipo": "voltaje", "valor": 0.0, "comentario": ""})
-                st.rerun()
+            c_add1, c_add2 = st.columns(2)
+            with c_add1:
+                if st.form_submit_button("➕ Agregar Resistencia Extra"):
+                    st.session_state[state_key].append({"tipo": "resistencia", "valor": 0.0, "comentario": ""})
+                    st.rerun()
+            with c_add2:
+                if st.form_submit_button("➕ Agregar Voltaje Extra"):
+                    st.session_state[state_key].append({"tipo": "voltaje", "valor": 0.0, "comentario": ""})
+                    st.rerun()
 
             mediciones_json = []
             for i, med in enumerate(st.session_state[state_key]):
-                st.caption(f"Captura Extra #{i+1} - {med['tipo'].capitalize()}")
                 c1, c2 = st.columns([1, 2])
                 with c1:
                     fmt = "%.2e" if med["tipo"] == "resistencia" else "%.2f"
-                    val = st.number_input(f"Valor", format=fmt, key=f"val_{state_key}_{i}")
+                    val = st.number_input(f"Captura {i+1} ({med['tipo']})", format=fmt, key=f"val_{state_key}_{i}")
                 with c2:
-                    coment = st.text_input("Ubicación / Punto de medición", key=f"com_{state_key}_{i}")
+                    coment = st.text_input("Punto de medición", key=f"com_{state_key}_{i}")
                 mediciones_json.append({"tipo": med["tipo"], "valor": val, "comentario": coment})
 
-            comentarios_gen = st.text_input("Comentarios generales", key=f"com_gen_{key_prefix}_{id_elemento}")
-
-            st.markdown("---")
-            btn_guardar_activo = st.form_submit_button("💾 Guardar Validación de Activo", type="primary")
+            comentarios_gen = st.text_input("Comentarios generales")
+            btn_guardar_activo = st.form_submit_button("💾 Guardar Validación", type="primary")
 
             if btn_guardar_activo:
-                if resistencia <= 0:
-                    st.error("⚠️ La resistencia obligatoria debe ser mayor a 0.")
-                else:
-                    fecha_actual = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                fecha_actual = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                cumple_res = 0 < resistencia <= 1.0e9
+                cumple_vol = abs(voltaje_campo) <= 100.0
+                estatus_eval = "Pasa" if (cumple_res and cumple_vol) else "Falla"
+
+                payload_historial = {
+                    "id_elemento": id_elemento, "tipo_equipo": tipo_equipo,
+                    "ubicacion": linea_ubicacion, "resistencia": resistencia,
+                    "voltaje_campo": voltaje_campo, "mediciones_extra": mediciones_json,
+                    "comentarios": comentarios_gen, "estatus": estatus_eval,
+                    "fecha_medicion": fecha_actual, "auditor": usuario_auditor
+                }
+
+                try:
+                    # 1. Guardar historial
+                    supabase.table("validacion_esd").insert(payload_historial).execute()
                     
-                    # Evaluación de límites normativos
-                    cumple_res = resistencia <= 1.0e9
-                    cumple_vol = abs(voltaje_campo) <= 100.0
-                    estatus_eval = "Pasa" if (cumple_res and cumple_vol) else "Falla"
+                    # 2. Actualizar tabla correspondiente según sea Máquina o Mobiliario
+                    if es_maquinaria:
+                        supabase.table("mediciones_maquinaria").update({
+                            "fecha_medicion": fecha_actual,
+                            "status_operativo": estatus_eval
+                        }).eq("id_maquinaria", id_elemento).execute()
+                    else:
+                        supabase.table("inventario_esd").update({
+                            "fecha_ultima_verif": fecha_actual,
+                            "estatus_verificacion": estatus_eval
+                        }).eq("id_producto", id_elemento).execute()
 
-                    payload_historial = {
-                        "id_elemento": id_elemento,
-                        "tipo_equipo": tipo_equipo,
-                        "ubicacion": linea_ubicacion,
-                        "resistencia": resistencia,
-                        "voltaje_campo": voltaje_campo,
-                        "mediciones_extra": mediciones_json, # Almacenado como JSONB
-                        "comentarios": comentarios_gen,
-                        "estatus": estatus_eval,
-                        "fecha_medicion": fecha_actual,
-                        "auditor": usuario_auditor
-                    }
-
-                    try:
-                        # 1. Insertar en validacion_esd
-                        supabase.table("validacion_esd").insert(payload_historial).execute()
-                        
-                        # 2. Actualizar en la tabla correspondiente (inventario_esd o mediciones_maquinaria)
-                        tabla_destino = "mediciones_maquinaria" if equipo.get("es_maquinaria") else "inventario_esd"
-                        columna_id = "id_maquinaria" if equipo.get("es_maquinaria") else "id_elemento"
-
-                        supabase.table(tabla_destino).update({
-                            "fecha_ultima_validacion": fecha_actual,
-                            "estatus_operativo": estatus_eval
-                        }).eq(columna_id, id_elemento).execute()
-
-                        st.session_state[state_key] = []
-                        st.cache_data.clear()
-                        st.success(f"✅ Activo `{id_elemento}` guardado individualmente. Estatus: **{estatus_eval.upper()}**")
-                        st.rerun()
-
-                    except Exception as e:
-                        st.error(f"❌ Error al guardar en Supabase: {e}")
+                    st.session_state[state_key] = []
+                    st.cache_data.clear()
+                    st.success(f"✅ Activo `{id_elemento}` guardado. Estatus: **{estatus_eval.upper()}**")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error al guardar: {e}")
 
 def ejecutar_automigracion_lineas():
     """Extrae líneas únicas de todas las tablas y las inserta en catalogo_lineas."""
@@ -2986,124 +2941,109 @@ if st.session_state.vista_actual == "Alta" and not st.session_state.modo_lectura
 # ==============================================================================
 elif st.session_state.vista_actual == "Auditoría" and not st.session_state.get("modo_lectura", False):
     st.markdown("## 🔍 Centro Unificado de Auditoría ESD")
-    st.info("Selecciona el método de validación: por escaneo individual de Código QR o por inspección de Línea Completa.")
-
     tab_qr, tab_linea = st.tabs(["📷 Validar por Escaneo QR", "🏭 Auditoría por Línea Completa"])
 
     # --------------------------------------------------------------------------
-    # PESTAÑA 1: VALIDACIÓN VÍA QR / ESCANEO INDIVIDUAL
+    # PESTAÑA 1: VALIDACIÓN VÍA QR
     # --------------------------------------------------------------------------
     with tab_qr:
-        st.markdown("### 📷 Escáner / Búsqueda Manual de Activo")
-        
+        st.markdown("### Búsqueda de Activo")
         col_input1, col_input2 = st.columns([3, 1])
         with col_input1:
-            id_busqueda = st.text_input("Ingresa o escanea el ID del activo (QR):", key="qr_search_input").strip()
+            id_busqueda = st.text_input("Ingresa o escanea el ID del activo:", key="qr_search_input").strip()
         with col_input2:
-            st.write("")
-            st.write("")
+            st.write(""); st.write("")
             btn_buscar = st.button("🔍 Buscar Activo", type="secondary")
 
         if id_busqueda:
-            # Consulta en Supabase (Inventario General)
-            res_inv = supabase.table("inventario_esd").select("*").eq("id_elemento", id_busqueda).execute().data
-            # Consulta en Supabase (Maquinaria)
-            res_maq = supabase.table("mediciones_maquinaria").select("*").eq("id_maquinaria", id_busqueda).execute().data
-
-            equipo_encontrado = None
-            tipo_detectado = "Mobiliario"
-
-            if res_inv:
-                equipo_encontrado = res_inv[0]
-                equipo_encontrado["es_maquinaria"] = False
-                tipo_detectado = equipo_encontrado.get("tipo_equipo") or equipo_encontrado.get("clasificacion") or "Mobiliario"
-            elif res_maq:
-                equipo_encontrado = res_maq[0]
-                equipo_encontrado["es_maquinaria"] = True
-                tipo_detectado = equipo_encontrado.get("clasificacion") or "Maquinaria"
-
-            if equipo_encontrado:
-                st.markdown("---")
-                st.markdown("#### 📊 Datos del Activo Escaneado")
+            # 1. Buscar SIEMPRE primero en el catálogo maestro
+            # Asumiendo que tu columna de ID se llama 'id_activo' o 'id'
+            res_maestro = supabase.table("catalogo_maestro_activos").select("*").eq("id_activo", id_busqueda).execute().data
+            if not res_maestro:
+                res_maestro = supabase.table("catalogo_maestro_activos").select("*").eq("id", id_busqueda).execute().data
+            
+            if res_maestro:
+                equipo_master = res_maestro[0]
+                tipo_detectado = equipo_master.get("tipo") or equipo_master.get("clasificacion") or "Mobiliario"
+                tipo_eq_clean = str(tipo_detectado).strip().lower()
+                es_maquinaria = True if "máquina" in tipo_eq_clean or "maquinaria" in tipo_eq_clean else False
+                equipo_master["es_maquinaria"] = es_maquinaria
                 
-                c_info1, c_info2, c_info3, c_info4 = st.columns(4)
+                # 2. Ir a buscar su estatus actual a la tabla correspondiente
+                estatus_actual = "PENDIENTE"
+                if es_maquinaria:
+                    data_maq = supabase.table("mediciones_maquinaria").select("status_operativo").eq("id_maquinaria", id_busqueda).execute().data
+                    if data_maq: estatus_actual = data_maq[0].get("status_operativo", "PENDIENTE")
+                else:
+                    data_inv = supabase.table("inventario_esd").select("estatus_verificacion").eq("id_producto", id_busqueda).execute().data
+                    if data_inv: estatus_actual = data_inv[0].get("estatus_verificacion", "PENDIENTE")
+
+                st.markdown("---")
+                c_info1, c_info2, c_info3 = st.columns(3)
                 c_info1.metric("ID Elemento", id_busqueda)
                 c_info2.metric("Tipo / Clasificación", tipo_detectado)
-                c_info3.metric("Línea / Ubicación", equipo_encontrado.get("linea_ubicacion") or "N/A")
-                
-                estatus_op = str(equipo_encontrado.get("estatus_operativo", "VIGENTE")).upper()
-                c_info4.metric("Estatus Actual", estatus_op)
+                c_info3.metric("Estatus Actual", str(estatus_actual).upper())
 
                 st.markdown("---")
-                # Inyectar el formulario de medición
-                generar_formulario_auditoria(equipo_encontrado, tipo_detectado, "qr")
+                generar_formulario_auditoria(equipo_master, tipo_detectado, "qr")
             else:
-                st.warning(f"⚠️ No se encontró ningún activo registrado con el ID `{id_busqueda}` en Supabase.")
+                st.warning(f"⚠️ El activo `{id_busqueda}` no está registrado en el Catálogo Maestro.")
 
     # --------------------------------------------------------------------------
-    # PESTAÑA 2: AUDITORÍA DE LÍNEA COMPLETA (LISTA DESPLEGABLE)
+    # PESTAÑA 2: AUDITORÍA DE LÍNEA COMPLETA (BASADA EN CATÁLOGO MAESTRO)
     # --------------------------------------------------------------------------
     with tab_linea:
-        st.markdown("### 🏭 Selección de Línea de Producción")
+        st.markdown("### Selección de Línea de Producción")
         
-        # Obtener lista de líneas de producción disponibles en Supabase
+        # 1. Obtener lista de líneas únicas DIRECTAMENTE del Catálogo Maestro
         try:
-            lineas_inv = supabase.table("inventario_esd").select("linea_ubicacion").execute().data
-            lineas_maq = supabase.table("mediciones_maquinaria").select("linea_ubicacion").execute().data
-            
-            lista_lineas = sorted(list(set(
-                [x["linea_ubicacion"] for x in lineas_inv if x.get("linea_ubicacion")] +
-                [x["linea_ubicacion"] for x in lineas_maq if x.get("linea_ubicacion")]
-            )))
+            lineas_master = supabase.table("catalogo_maestro_activos").select("linea").execute().data
+            lista_lineas = sorted(list(set([x["linea"] for x in lineas_master if x.get("linea")])))
         except Exception:
-            lista_lineas = ["SMT-01", "SMT-02", "ASSEMBLY-01", "BEVEL-01"]
+            lista_lineas = ["SMT-01", "SMT-02", "ASSEMBLY-01"]
 
         linea_seleccionada = st.selectbox("Elige la línea a auditar:", ["-- Selecciona una Línea --"] + lista_lineas)
 
         if linea_seleccionada and linea_seleccionada != "-- Selecciona una Línea --":
-            st.markdown(f"#### 📋 Activos Asignados a: **{linea_seleccionada}**")
+            st.markdown(f"#### 📋 Lista Maestra de Activos en: **{linea_seleccionada}**")
 
-            # Fetch de todos los activos de la línea elegida
-            activos_inv = supabase.table("inventario_esd").select("*").eq("linea_ubicacion", linea_seleccionada).execute().data
-            activos_maq = supabase.table("mediciones_maquinaria").select("*").eq("linea_ubicacion", linea_seleccionada).execute().data
-
-            # Marcar origen de maquinaria y consolidar
-            for m in activos_maq:
-                m["es_maquinaria"] = True
-            for i in activos_inv:
-                i["es_maquinaria"] = False
-
-            activos_totales = activos_inv + activos_maq
-
-            if activos_totales:
-                st.caption(f"Se encontraron **{len(activos_totales)}** activos (mobiliarios, ionizadores y maquinaria) en esta línea. Cada guardado es automático e independiente.")
+            # 2. Descargar todos los activos de esta línea desde el Maestro
+            activos_master = supabase.table("catalogo_maestro_activos").select("*").eq("linea", linea_seleccionada).execute().data
+            
+            if activos_master:
+                st.caption(f"Se encontraron **{len(activos_master)}** activos (según diseño de planta).")
                 
-                # Desplegar lista interactiva (Expanders)
-                for index, activo in enumerate(activos_totales):
+                for index, activo in enumerate(activos_master):
+                    id_act = activo.get("id_activo") or activo.get("id") or f"SIN_ID_{index}"
+                    tipo_act = activo.get("tipo") or activo.get("clasificacion") or "Mobiliario"
                     
-                    # 1. Búsqueda amplia del ID para el título del expander
-                    id_act = (
-                        activo.get("id_elemento") 
-                        or activo.get("id_maquinaria") 
-                        or activo.get("id_equipo") 
-                        or activo.get("id_activo") 
-                        or activo.get("id") 
-                        or f"SIN_ID_{index}"
-                    )
+                    # 3. Determinar qué es para saber dónde ir a buscar su estatus en vivo
+                    tipo_eq_clean = str(tipo_act).strip().lower()
+                    es_maquinaria = True if "máquina" in tipo_eq_clean or "maquinaria" in tipo_eq_clean else False
+                    activo["es_maquinaria"] = es_maquinaria # Lo guardamos en el dict para la función
                     
-                    tipo_act = activo.get("tipo_equipo") or activo.get("clasificacion") or ("Maquinaria" if activo.get("es_maquinaria") else "Mobiliario")
-                    estatus_act = str(activo.get("estatus_operativo", "PENDIENTE")).upper()
+                    estatus_act = "SIN REGISTRO"
+                    fecha_act = "N/A"
                     
-                    # Emoji según estatus
-                    icon = "🟢" if estatus_act == "PASA" else ("🔴" if estatus_act == "FALLA" else "📦")
+                    # Query rápida para pintar el expander (Se puede optimizar bajando todo de una vez arriba, pero esto es seguro)
+                    try:
+                        if es_maquinaria:
+                            maq_data = supabase.table("mediciones_maquinaria").select("status_operativo, fecha_medicion").eq("id_maquinaria", id_act).order("fecha_medicion", desc=True).limit(1).execute().data
+                            if maq_data:
+                                estatus_act = str(maq_data[0].get("status_operativo", "PENDIENTE")).upper()
+                                fecha_act = maq_data[0].get("fecha_medicion", "N/A")
+                        else:
+                            inv_data = supabase.table("inventario_esd").select("estatus_verificacion, fecha_ultima_verif").eq("id_producto", id_act).execute().data
+                            if inv_data:
+                                estatus_act = str(inv_data[0].get("estatus_verificacion", "PENDIENTE")).upper()
+                                fecha_act = inv_data[0].get("fecha_ultima_verif", "N/A")
+                    except:
+                        pass
+                    
+                    icon = "🟢" if "PASA" in estatus_act else ("🔴" if "FALLA" in estatus_act else "📦")
                     
                     with st.expander(f"{icon} Activo #{index+1}: {id_act} | Tipo: {tipo_act} | Estado: {estatus_act}"):
-                        c_det1, c_det2 = st.columns(2)
-                        with c_det1:
-                            st.write(f"**Última Medición:** {activo.get('fecha_ultima_validacion', 'Sin registro')}")
-                        with c_det2:
-                            st.write(f"**Estatus Operativo:** {estatus_act}")
-                        
+                        st.write(f"**Última Medición Registrada:** {fecha_act}")
                         st.markdown("---")
                         
                         generar_formulario_auditoria(
@@ -3113,8 +3053,7 @@ elif st.session_state.vista_actual == "Auditoría" and not st.session_state.get(
                             index_unico=str(index)
                         )
             else:
-                st.warning(f"No hay activos asignados a la línea `{linea_seleccionada}`.")
-
+                st.warning(f"No hay activos asignados a la línea `{linea_seleccionada}` en el Catálogo Maestro.")
 # ==========================================
 # VISTA 1: MAPA Y REPORTES ESD
 # ==========================================
