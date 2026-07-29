@@ -77,6 +77,40 @@ MAPA_UNIDADES = {
     "Otro": "N/A"
 }
 
+def formatear_resistencia(val):
+    """
+    Aplica las reglas de formato para Resistencia (Ohms):
+    - < 1.0 Ω: Dos decimales (ej. 0.28 Ω)
+    - 1.0 a 100.0 Ω: Un decimal (ej. 15.5 Ω)
+    - > 100.0 Ω: Notación científica (ej. 1.00e+06 Ω)
+    """
+    if val is None or str(val).strip().upper() in ["NONE", "NULL", "N/A", "N/D", ""]:
+        return "N/D"
+    try:
+        v = float(val)
+        if v < 1.0:
+            return f"{v:.2f} Ω"
+        elif 1.0 <= v <= 100.0:
+            return f"{v:.1f} Ω"
+        else:
+            return f"{v:.2e} Ω"
+    except (ValueError, TypeError):
+        return f"{val} Ω"
+
+
+def formatear_voltaje(val):
+    """
+    Aplica la regla de formato para Voltaje (Volts):
+    - Representación siempre en número entero (ej. 0 V, 15 V, 35 V)
+    """
+    if val is None or str(val).strip().upper() in ["NONE", "NULL", "N/A", "N/D", ""]:
+        return "N/D"
+    try:
+        v = float(val)
+        return f"{int(round(v))} V"
+    except (ValueError, TypeError):
+        return f"{val} V"
+
 def parsear_resistencia(valor_str):
     """Convierte texto libre a float soportando notación científica y comas."""
     if not valor_str or str(valor_str).strip() == "":
@@ -194,8 +228,7 @@ def obtener_ultima_medicion(id_activo):
 
 def generar_formulario_auditoria(equipo, tipo_equipo, key_prefix, index_unico="0"):
     """
-    Genera el formulario estandarizado de auditoría.
-    Muestra automáticamente la última medición registrada previa en Supabase.
+    Genera el formulario estandarizado de auditoría con formato dinámico de mediciones.
     """
     id_elemento = (
         equipo.get("id_activo") 
@@ -219,7 +252,9 @@ def generar_formulario_auditoria(equipo, tipo_equipo, key_prefix, index_unico="0
     ultima_med = obtener_ultima_medicion(id_elemento)
     es_maquinaria = ultima_med.get("es_maquinaria", False)
 
-    # Desplegar tarjeta con el historial anterior encontrado
+    # --------------------------------------------------------------------------
+    # DESPLIEGUE CON FORMATO PERSONALIZADO
+    # --------------------------------------------------------------------------
     with st.container():
         st.markdown(f"##### 📌 Última Medición Registrada (`{id_elemento}`)")
         c_p1, c_p2, c_p3 = st.columns(3)
@@ -227,17 +262,14 @@ def generar_formulario_auditoria(equipo, tipo_equipo, key_prefix, index_unico="0
         c_p2.caption(f"🚦 **Estatus:** {ultima_med['estatus']}")
         
         if tipo_eq_clean == "ionizador":
-            t_desc = f"{ultima_med['tiempo_descarga']} s" if ultima_med['tiempo_descarga'] is not None else "N/D"
-            v_bal = f"{ultima_med['voltaje_balance']} V" if ultima_med['voltaje_balance'] is not None else "N/D"
+            t_desc = f"{ultima_med['tiempo_descarga']:.2f} s" if ultima_med['tiempo_descarga'] is not None else "N/D"
+            v_bal = formatear_voltaje(ultima_med['voltaje_balance'])
             c_p3.caption(f"⚡ **Descarga:** {t_desc} | **Balance:** {v_bal}")
         else:
-            try:
-                res_val = f"{float(ultima_med['resistencia']):.2e} Ω" if ultima_med['resistencia'] is not None else "N/D"
-            except Exception:
-                res_val = f"{ultima_med['resistencia']} Ω" if ultima_med['resistencia'] is not None else "N/D"
-                
-            vol_val = f"{ultima_med['voltaje_campo']} V" if ultima_med['voltaje_campo'] is not None else "N/D"
-            c_p3.caption(f"🔌 **Resistencia:** {res_val} | **Campo:** {vol_val}")
+            # Formatos de Resistencia y Voltaje aplicados
+            res_fmt = formatear_resistencia(ultima_med['resistencia'])
+            vol_fmt = formatear_voltaje(ultima_med['voltaje_campo'])
+            c_p3.caption(f"🔌 **Resistencia:** {res_fmt} | **Campo:** {vol_fmt}")
 
     st.markdown("---")
     
@@ -257,7 +289,7 @@ def generar_formulario_auditoria(equipo, tipo_equipo, key_prefix, index_unico="0
             with col1:
                 tiempo_descarga = st.number_input("Tiempo de Descarga (1000V a 100V) [seg]*", min_value=0.0, format="%.2f", step=0.1)
             with col2:
-                voltaje_balance = st.number_input("Voltaje de Balance (Offset) [V]*", format="%.2f", step=1.0)
+                voltaje_balance = st.number_input("Voltaje de Balance (Offset) [V]*", format="%d", step=1)
             
             comentarios = st.text_input("Comentarios")
             btn_guardar_ion = st.form_submit_button("💾 Guardar Ionizador", type="primary")
@@ -265,13 +297,13 @@ def generar_formulario_auditoria(equipo, tipo_equipo, key_prefix, index_unico="0
             if btn_guardar_ion:
                 fecha_actual = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 cumple_tiempo = tiempo_descarga > 0 and tiempo_descarga <= 8.0
-                cumple_balance = abs(voltaje_balance) <= 35.0
+                cumple_balance = abs(voltaje_balance) <= 35
                 estatus_eval = "Pasa" if (cumple_tiempo and cumple_balance) else "Falla"
 
                 payload_historial = {
                     "id_elemento": id_elemento, "tipo_equipo": "Ionizador",
                     "ubicacion": linea_ubicacion, "tiempo_descarga": tiempo_descarga,
-                    "voltaje_balance": voltaje_balance, "comentarios": comentarios,
+                    "voltaje_balance": int(round(voltaje_balance)), "comentarios": comentarios,
                     "estatus": estatus_eval, "fecha_medicion": fecha_actual, "auditor": usuario_auditor
                 }
 
@@ -296,7 +328,7 @@ def generar_formulario_auditoria(equipo, tipo_equipo, key_prefix, index_unico="0
             with col1:
                 resistencia = st.number_input("Resistencia [Ohms]*", format="%.2e", step=1e5)
             with col2:
-                voltaje_campo = st.number_input("Voltaje Campo Electrostático [V]*", format="%.2f", step=1.0)
+                voltaje_campo = st.number_input("Voltaje Campo Electrostático [V]*", format="%d", step=1)
 
             st.markdown("###### ➕ Mediciones Adicionales (Opcionales)")
             c_add1, c_add2 = st.columns(2)
@@ -306,18 +338,23 @@ def generar_formulario_auditoria(equipo, tipo_equipo, key_prefix, index_unico="0
                     st.rerun()
             with c_add2:
                 if st.form_submit_button("➕ Agregar Voltaje Extra"):
-                    st.session_state[state_key].append({"tipo": "voltaje", "valor": 0.0, "comentario": ""})
+                    st.session_state[state_key].append({"tipo": "voltaje", "valor": 0, "comentario": ""})
                     st.rerun()
 
             mediciones_json = []
             for i, med in enumerate(st.session_state[state_key]):
                 c1, c2 = st.columns([1, 2])
                 with c1:
-                    fmt = "%.2e" if med["tipo"] == "resistencia" else "%.2f"
-                    val = st.number_input(f"Captura {i+1} ({med['tipo']})", format=fmt, key=f"val_{state_key}_{i}")
+                    if med["tipo"] == "resistencia":
+                        val = st.number_input(f"Captura {i+1} (Resistencia Ω)", format="%.2e", key=f"val_{state_key}_{i}")
+                    else:
+                        val = st.number_input(f"Captura {i+1} (Voltaje V)", format="%d", step=1, key=f"val_{state_key}_{i}")
                 with c2:
                     coment = st.text_input("Punto de medición", key=f"com_{state_key}_{i}")
-                mediciones_json.append({"tipo": med["tipo"], "valor": val, "comentario": coment})
+                
+                # Formatear visualización de la captura adicional procesada
+                valor_guardar = int(round(val)) if med["tipo"] == "voltaje" else val
+                mediciones_json.append({"tipo": med["tipo"], "valor": valor_guardar, "comentario": coment})
 
             comentarios_gen = st.text_input("Comentarios generales")
             btn_guardar_activo = st.form_submit_button("💾 Guardar Validación", type="primary")
@@ -325,19 +362,19 @@ def generar_formulario_auditoria(equipo, tipo_equipo, key_prefix, index_unico="0
             if btn_guardar_activo:
                 fecha_actual = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 cumple_res = 0 < resistencia <= 1.0e9
-                cumple_vol = abs(voltaje_campo) <= 100.0
+                cumple_vol = abs(voltaje_campo) <= 100
                 estatus_eval = "Pasa" if (cumple_res and cumple_vol) else "Falla"
 
                 payload_historial = {
                     "id_elemento": id_elemento, "tipo_equipo": tipo_equipo,
                     "ubicacion": linea_ubicacion, "resistencia": resistencia,
-                    "voltaje_campo": voltaje_campo, "mediciones_extra": mediciones_json,
+                    "voltaje_campo": int(round(voltaje_campo)), "mediciones_extra": mediciones_json,
                     "comentarios": comentarios_gen, "estatus": estatus_eval,
                     "fecha_medicion": fecha_actual, "auditor": usuario_auditor
                 }
 
                 try:
-                    # 1. Guardar historial unificado
+                    # 1. Guardar en historial unificado
                     supabase.table("validacion_esd").insert(payload_historial).execute()
                     
                     # 2. Actualizar tabla correspondiente
