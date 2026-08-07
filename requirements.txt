@@ -15,3 +15,5 @@ numpy
 scipy
 kaleido
 mcp
+uvicorn
+starlette
