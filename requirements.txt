@@ -14,6 +14,6 @@ pandas
 numpy
 scipy
 kaleido
-mcp
+fastmcp
 uvicorn
 starlette
