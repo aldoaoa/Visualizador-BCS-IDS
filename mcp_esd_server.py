@@ -11,7 +11,7 @@ from mcp.server.sse import SseServerTransport
 # Importaciones del motor Web (Starlette) para el control de CORS
 from starlette.applications import Starlette
 from starlette.routing import Route
-from starlette.responses import PlainTextResponse
+from starlette.responses import HTMLResponse
 from starlette.middleware import Middleware
 from starlette.middleware.cors import CORSMiddleware
 
@@ -95,8 +95,22 @@ async def endpoint_messages(request):
     await sse.handle_post_message(request.scope, request.receive, request._send)
 
 async def endpoint_health(request):
-    """(CRÍTICO) Le demuestra a Gemini que el servidor está vivo y sano."""
-    return PlainTextResponse("Servidor MCP de BCS-AIS funcionando perfectamente.")
+    """(CRÍTICO) Le demuestra a Gemini que es una PÁGINA WEB válida y le da la ruta MCP."""
+    html_content = """
+    <!DOCTYPE html>
+    <html lang="es">
+    <head>
+        <meta charset="UTF-8">
+        <title>Servidor MCP ESD</title>
+        <link rel="mcp" href="/sse" />
+    </head>
+    <body>
+        <h1>Servidor MCP de BCS-AIS funcionando perfectamente.</h1>
+        <p>Esperando conexión de la IA...</p>
+    </body>
+    </html>
+    """
+    return HTMLResponse(content=html_content, status_code=200)
 
 # Construimos la App integrando todo y abriendo los permisos CORS al 100%
 app = Starlette(
