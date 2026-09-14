@@ -228,8 +228,9 @@ def obtener_ultima_medicion(id_activo):
 
 def generar_formulario_auditoria(equipo, tipo_equipo, key_prefix="qr", index_unico="0"):
     import datetime
+    from datetime import timedelta
 
-    # Identificar ID, Línea y Tipo de Activo
+    # Identificar ID, Línea y Categoría
     id_activo = (
         equipo.get("id_activo")
         or equipo.get("id_producto")
@@ -249,7 +250,7 @@ def generar_formulario_auditoria(equipo, tipo_equipo, key_prefix="qr", index_uni
         
         fecha_auditoria = st.date_input("Fecha de Auditoría:", datetime.date.today(), key=f"fecha_{form_key}")
         
-        # --- CAMPOS DE MEDICIÓN SEGÚN TIPO DE ACTIVO ---
+        # --- 1. MEDICIONES PRINCIPALES ---
         resistencia = None
         voltaje_campo = None
         tiempo_descarga = None
@@ -264,25 +265,53 @@ def generar_formulario_auditoria(equipo, tipo_equipo, key_prefix="qr", index_uni
         else:
             col_m1, col_m2 = st.columns(2)
             with col_m1:
-                resistencia = st.number_input("Resistencia (Ω / Ohms):", value=0.0, format="%.2e", key=f"res_{form_key}")
+                resistencia = st.number_input("Resistencia Principal (Ω / Ohms):", value=0.0, format="%.2e", key=f"res_{form_key}")
             with col_m2:
-                voltaje_campo = st.number_input("Campo Electrostático (V):", value=0.0, step=1.0, key=f"vc_{form_key}")
+                voltaje_campo = st.number_input("Campo Electrostático Principal (V):", value=0.0, step=1.0, key=f"vc_{form_key}")
 
-        comentarios_input = st.text_area("Observaciones / Comentarios:", key=f"obs_{form_key}")
+        # --- 2. RESTAURACIÓN: MEDICIONES ADICIONALES (EXPANDER OPCIONAL) ---
+        with st.expander("➕ Añadir Mediciones Adicionales con Comentario (Opcional)", expanded=False):
+            st.info("Ingresa capturas secundarias registrando su tipo, valor y la nota/ubicación correspondiente.")[cite: 3, 5]
+            
+            col_opt1, col_opt2 = st.columns(2)
+            
+            # Medicion adicional de Resistencia
+            res_adicional = col_opt1.number_input("Resistencia Adicional (Ω):", value=None, format="%.2e", key=f"res_add_{form_key}")[cite: 3, 5]
+            coment_res_adicional = col_opt1.text_input("Nota / Ubicación (Resistencia):", placeholder="Ej. Borde chasis / Punto 2", key=f"com_res_{form_key}")[cite: 3, 5]
+            
+            # Medicion adicional de Voltaje
+            volt_adicional = col_opt2.number_input("Voltaje Adicional (V):", value=None, step=1.0, key=f"volt_add_{form_key}")[cite: 3, 5]
+            coment_volt_adicional = col_opt2.text_input("Nota / Ubicación (Voltaje):", placeholder="Ej. Fricción en acrílico", key=f"com_volt_{form_key}")[cite: 3, 5]
+
+        comentarios_input = st.text_area("Observaciones / Comentarios Generales:", key=f"obs_{form_key}")[cite: 1]
         
         btn_guardar = st.form_submit_button("💾 Guardar Auditoría", type="primary")
 
-        from datetime import timedelta
-
-        # --- DENTRO DE GENERAR_FORMULARIO_AUDITORIA ---
         if btn_guardar:
             estatus_resultado = "PASA"
             nuevo_estatus = "VIGENTE" if estatus_resultado == "PASA" else "REPROBADO"
             fecha_proxima = fecha_auditoria + timedelta(days=365)
-        
+
+            # --- CONSTRUCCIÓN DEL ARREGLO JSONB DE MEDICIONES EXTRA ---
+            lista_mediciones_extra = []
+            
+            if res_adicional is not None and res_adicional > 0:
+                lista_mediciones_extra.append({
+                    "tipo": "resistencia",[cite: 3]
+                    "valor": float(res_adicional),[cite: 1, 3]
+                    "comentario": coment_res_adicional[cite: 1, 3]
+                })
+                
+            if volt_adicional is not None and volt_adicional > 0:
+                lista_mediciones_extra.append({
+                    "tipo": "voltaje",[cite: 3]
+                    "valor": float(volt_adicional),[cite: 1, 3]
+                    "comentario": coment_volt_adicional[cite: 1, 3]
+                })
+
             try:
                 if es_maquinaria:
-                    # 1. Guardar en mediciones_maquinaria
+                    # Guardar en mediciones_maquinaria
                     datos_maquinaria = {
                         "id_maquinaria": id_activo,
                         "linea_ubicacion": linea_actual,
@@ -290,18 +319,17 @@ def generar_formulario_auditoria(equipo, tipo_equipo, key_prefix="qr", index_uni
                         "resistencia_tierra": str(resistencia) if resistencia is not None else None,
                         "campo_electrostatico": str(voltaje_campo) if voltaje_campo is not None else None,
                         "resultado_estatus": nuevo_estatus,
-                        "status_operativo": nuevo_estatus,  # 👈 Asegurar compatibilidad de columna
+                        "status_operativo": nuevo_estatus,
                         "frecuencia_verificacion": "Anual",
                         "observaciones": comentarios_input
                     }
+                    if lista_mediciones_extra:
+                        datos_maquinaria["mediciones_extra"] = lista_mediciones_extra[cite: 1, 3, 5]
+
                     supabase.table("mediciones_maquinaria").insert(datos_maquinaria).execute()
-        
+
                 else:
-                    # 2. Guardar en inventario_esd
-                    extra_data = {}
-                    if voltaje_campo is not None:
-                        extra_data["voltaje_campo"] = voltaje_campo
-        
+                    # Guardar en inventario_esd
                     datos_inventario = {
                         "fecha_ultima_verif": str(fecha_auditoria),
                         "fecha_proxima_verif": str(fecha_proxima),
@@ -311,30 +339,30 @@ def generar_formulario_auditoria(equipo, tipo_equipo, key_prefix="qr", index_uni
                         "medicion_resistencia": resistencia,
                         "comentarios": comentarios_input
                     }
-                    if extra_data:
-                        datos_inventario["mediciones_extra"] = extra_data
-        
+                    
+                    if lista_mediciones_extra:
+                        datos_inventario["mediciones_extra"] = lista_mediciones_extra[cite: 1, 3, 5]
+
+                    if es_ionizador:
+                        datos_inventario["balance_ionizador"] = voltaje_balance
+
                     supabase.table("inventario_esd").update(datos_inventario).ilike("id_producto", id_activo).execute()
-        
-                # -------------------------------------------------------------
-                # 3. 🔄 SINCRONIZAR CATÁLOGO MAESTRO (Evita que siga en PENDIENTE)
-                # -------------------------------------------------------------
-                payload_maestro = {
-                    "estatus": nuevo_estatus,
-                    "estatus_operativo": nuevo_estatus,
-                    "fecha_ultima_medicion": str(fecha_auditoria)
-                }
+
+                # Sincronización secundaria con el catálogo maestro
                 try:
+                    payload_maestro = {
+                        "estatus": nuevo_estatus,
+                        "estatus_operativo": nuevo_estatus,
+                        "fecha_ultima_medicion": str(fecha_auditoria)
+                    }
                     supabase.table("catalogo_maestro_activos").update(payload_maestro).ilike("id_activo", id_activo).execute()
                 except Exception:
-                    pass # Previene interrupción si la columna difiere ligeramente
-        
-                # 4. Limpiar Caché y Notificar
-                st.cache_data.clear()
-                st.success(f"✅ Auditoría guardada correctamente. Estatus actualizado a {nuevo_estatus}.")
-                time.sleep(1)
-                st.rerun()
-        
+                    pass
+
+                st.cache_data.clear()[cite: 1]
+                st.success(f"✅ Auditoría de `{id_activo}` guardada con sus mediciones adicionales correctamente.")
+                st.rerun()[cite: 1]
+
             except Exception as e:
                 st.error(f"❌ Error al guardar en Supabase: {e}")
 def ejecutar_automigracion_lineas():
