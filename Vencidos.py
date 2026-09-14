@@ -298,25 +298,27 @@ def generar_formulario_auditoria(equipo, tipo_equipo, key_prefix="qr", index_uni
                     # -------------------------------------------------------------
                     # 2. Guardar/Actualizar en 'inventario_esd'
                     # -------------------------------------------------------------
-                    # -------------------------------------------------------------
-                    # Actualización/Guardado en 'inventario_esd'
-                    # -------------------------------------------------------------
+                    extra_data = {}
+                    if voltaje_campo is not None:
+                        extra_data["voltaje_campo"] = voltaje_campo
+                    
                     datos_inventario = {
                         "fecha_ultima_verif": str(fecha_auditoria),
                         "estatus_verificacion": estatus_resultado,
-                        
-                        # ⚠️ REEMPLAZAR 'valor_resistencia' POR LAS COLUMNAS REALES DE TU TABLA:
-                        "valor_actual": resistencia,              # o float(resistencia)
-                        "medicion_resistencia": resistencia,      # campo numeric
-                        
-                        "voltaje_campo": voltaje_campo,           # asegurate de que exista o se guarde en mediciones_extra
+                        "valor_actual": resistencia,          # Columna real numeric(20,2)
+                        "medicion_resistencia": resistencia,  # Columna de respaldo real
                         "comentarios": comentarios_input
                     }
                     
-                    if es_ionizador:
-                        datos_inventario["balance_ionizador"] = balance_ionizador
+                    # Guardar mediciones adicionales en la columna JSONB nativa
+                    if extra_data:
+                        datos_inventario["mediciones_extra"] = extra_data
                     
-                    # Ejecutar actualización en Supabase
+                    # Si es ionizador, se asigna el balance a su columna correspondiente
+                    if es_ionizador:
+                        datos_inventario["balance_ionizador"] = voltaje_balance  # Columna real balance_ionizador
+                    
+                    # Ejecutar la actualización en inventario_esd
                     (
                         supabase.table("inventario_esd")
                         .update(datos_inventario)
