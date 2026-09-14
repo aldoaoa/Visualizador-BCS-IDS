@@ -272,63 +272,69 @@ def generar_formulario_auditoria(equipo, tipo_equipo, key_prefix="qr", index_uni
         
         btn_guardar = st.form_submit_button("💾 Guardar Auditoría", type="primary")
 
-        if btn_guardar:
-            # Evaluación simple de estatus (PASA / FALLA)
-            estatus_resultado = "PASA"  # Puedes añadir tus reglas de tolerancias aquí
+        from datetime import timedelta
 
+        if btn_guardar:
+            # 1. Definir el estatus de la medición (PASA / FALLA)
+            # Reemplaza esta regla con tus tolerancias reales si aplica
+            estatus_resultado = "PASA"  
+        
+            # 2. Calcular la fecha de próximo vencimiento (Ejemplo: 1 año después)
+            # Puedes ajustar 'days=365' o leer la frecuencia del registro
+            fecha_proxima = fecha_auditoria + timedelta(days=365)
+            
+            # Evaluar si el estatus operativo debe quedar VIGENTE
+            nuevo_estatus = "VIGENTE" if estatus_resultado == "PASA" else "REPROBADO"
+        
             try:
                 if es_maquinaria:
-                    # -------------------------------------------------------------
-                    # 1. Guardar en 'mediciones_maquinaria'
-                    # -------------------------------------------------------------
+                    # --- GUARDADO EN MAQUINARIA ---
                     datos_maquinaria = {
                         "id_maquinaria": id_activo,
                         "linea_ubicacion": linea_actual,
                         "fecha_medicion": str(fecha_auditoria),
                         "resistencia_tierra": str(resistencia) if resistencia is not None else None,
                         "campo_electrostatico": str(voltaje_campo) if voltaje_campo is not None else None,
-                        "resultado_estatus": estatus_resultado,
+                        "resultado_estatus": nuevo_estatus,
                         "frecuencia_verificacion": "Anual",
                         "observaciones": comentarios_input
                     }
-                    
                     supabase.table("mediciones_maquinaria").insert(datos_maquinaria).execute()
-
+        
                 else:
-                    # -------------------------------------------------------------
-                    # 2. Guardar/Actualizar en 'inventario_esd'
-                    # -------------------------------------------------------------
+                    # --- GUARDADO EN INVENTARIO ESD ---
                     extra_data = {}
                     if voltaje_campo is not None:
                         extra_data["voltaje_campo"] = voltaje_campo
-                    
+        
                     datos_inventario = {
                         "fecha_ultima_verif": str(fecha_auditoria),
-                        "estatus_verificacion": estatus_resultado,
-                        "valor_actual": resistencia,          # Columna real numeric(20,2)
-                        "medicion_resistencia": resistencia,  # Columna de respaldo real
+                        "fecha_proxima_verif": str(fecha_proxima),     # 👈 ¡CLAVE: Actualiza el vencimiento!
+                        "estatus_verificacion": nuevo_estatus,         # 👈 ¡CLAVE: Cambia VENCIDO por VIGENTE!
+                        "valor_actual": resistencia,
+                        "medicion_resistencia": resistencia,
                         "comentarios": comentarios_input
                     }
-                    
-                    # Guardar mediciones adicionales en la columna JSONB nativa
+        
                     if extra_data:
                         datos_inventario["mediciones_extra"] = extra_data
-                    
-                    # Si es ionizador, se asigna el balance a su columna correspondiente
+        
                     if es_ionizador:
-                        datos_inventario["balance_ionizador"] = voltaje_balance  # Columna real balance_ionizador
-                    
-                    # Ejecutar la actualización en inventario_esd
+                        datos_inventario["balance_ionizador"] = voltaje_balance
+        
+                    # Ejecutar actualización
                     (
                         supabase.table("inventario_esd")
                         .update(datos_inventario)
                         .eq("id_producto", id_activo)
                         .execute()
                     )
-
-                st.success(f"✅ Auditoría de `{id_activo}` guardada correctamente en la tabla correspondiente.")
+        
+                # 3. Limpiar la caché de datos de Streamlit y recargar la pantalla
+                st.cache_data.clear()  # 👈 Asegura que los datos se lean refrescados de Supabase
+                st.success(f"✅ Auditoría de `{id_activo}` guardada correctamente.")
                 st.rerun()
-
+        
             except Exception as e:
                 st.error(f"❌ Error al guardar en Supabase: {e}")
 
