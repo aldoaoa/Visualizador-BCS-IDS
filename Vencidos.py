@@ -298,18 +298,25 @@ def generar_formulario_auditoria(equipo, tipo_equipo, key_prefix="qr", index_uni
                     # -------------------------------------------------------------
                     # 2. Guardar/Actualizar en 'inventario_esd'
                     # -------------------------------------------------------------
+                    # -------------------------------------------------------------
+                    # Actualización/Guardado en 'inventario_esd'
+                    # -------------------------------------------------------------
                     datos_inventario = {
                         "fecha_ultima_verif": str(fecha_auditoria),
                         "estatus_verificacion": estatus_resultado,
-                        "valor_resistencia": str(resistencia) if resistencia is not None else None,
-                        "voltaje_campo": str(voltaje_campo) if voltaje_campo is not None else None,
+                        
+                        # ⚠️ REEMPLAZAR 'valor_resistencia' POR LAS COLUMNAS REALES DE TU TABLA:
+                        "valor_actual": resistencia,              # o float(resistencia)
+                        "medicion_resistencia": resistencia,      # campo numeric
+                        
+                        "voltaje_campo": voltaje_campo,           # asegurate de que exista o se guarde en mediciones_extra
                         "comentarios": comentarios_input
                     }
                     
                     if es_ionizador:
-                        datos_inventario["tiempo_descarga"] = str(tiempo_descarga)
-                        datos_inventario["voltaje_balance"] = str(voltaje_balance)
-
+                        datos_inventario["balance_ionizador"] = balance_ionizador
+                    
+                    # Ejecutar actualización en Supabase
                     (
                         supabase.table("inventario_esd")
                         .update(datos_inventario)
