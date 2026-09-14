@@ -229,6 +229,7 @@ def generar_formulario_auditoria(equipo, tipo_equipo, key_prefix="qr", index_uni
     import datetime
     from datetime import timedelta
 
+    # Identificar ID, Línea y Categoría
     id_activo = (
         equipo.get("id_activo")
         or equipo.get("id_producto")
@@ -242,43 +243,87 @@ def generar_formulario_auditoria(equipo, tipo_equipo, key_prefix="qr", index_uni
     es_ionizador = True if "ionizador" in tipo_clean else False
 
     form_key = f"form_auditoria_{key_prefix}_{id_activo}_{index_unico}"
+    state_key = f"extra_meds_{key_prefix}_{id_activo}_{index_unico}"
 
+    # Inicializar la lista de mediciones adicionales en memoria
+    if state_key not in st.session_state:
+        st.session_state[state_key] = []
+
+    st.markdown(f"#### Registro de Auditoría: `{id_activo}`")
+    
+    fecha_auditoria = st.date_input("Fecha de Auditoría:", datetime.date.today(), key=f"fecha_{form_key}")
+    
+    # --- 1. MEDICIONES PRINCIPALES (OBLIGATORIAS) ---
+    resistencia = None
+    voltaje_campo = None
+    tiempo_descarga = None
+    voltaje_balance = None
+
+    if es_ionizador:
+        col_i1, col_i2 = st.columns(2)
+        with col_i1:
+            tiempo_descarga = st.number_input("Tiempo Descarga (1000V a 100V) [s]:", value=0.0, step=0.1, key=f"td_{form_key}")
+        with col_i2:
+            voltaje_balance = st.number_input("Voltaje de Balance [V]:", value=0.0, step=1.0, key=f"vb_{form_key}")
+    else:
+        col_m1, col_m2 = st.columns(2)
+        with col_m1:
+            resistencia = st.number_input("Resistencia Principal (Ω / Ohms):", value=0.0, format="%.2e", key=f"res_{form_key}")
+        with col_m2:
+            voltaje_campo = st.number_input("Campo Electrostático Principal (V):", value=0.0, step=1.0, key=f"vc_{form_key}")
+
+    # --- 2. CONTROLES PARA AÑADIR MEDICIONES ADICIONALES ---
+    with st.expander("➕ Mediciones Adicionales / Puntos Secundarios", expanded=len(st.session_state[state_key]) > 0):
+        st.caption("Agrega todas las capturas secundarias que necesites especificar para este activo.")
+        
+        col_add1, col_add2 = st.columns(2)
+        with col_add1:
+            if st.button("➕ Añadir Resistencia", key=f"btn_add_res_{form_key}"):
+                st.session_state[state_key].append({"tipo": "resistencia", "valor": 0.0, "comentario": ""})
+                st.rerun()
+        with col_add2:
+            if st.button("➕ Añadir Voltaje", key=f"btn_add_volt_{form_key}"):
+                st.session_state[state_key].append({"tipo": "voltaje", "valor": 0.0, "comentario": ""})
+                st.rerun()
+
+        # Renderizar cada medición adicional agregada
+        indices_a_eliminar = []
+        for i, med in enumerate(st.session_state[state_key]):
+            st.markdown(f"**Medición Adicional #{i+1} ({med['tipo'].capitalize()})**")
+            c1, c2, c3 = st.columns([2, 3, 0.5])
+            
+            with c1:
+                fmt = "%.2e" if med["tipo"] == "resistencia" else "%.1f"
+                st.session_state[state_key][i]["valor"] = st.number_input(
+                    f"Valor ({'Ω' if med['tipo'] == 'resistencia' else 'V'}):",
+                    value=float(med["valor"]),
+                    format=fmt,
+                    key=f"val_{state_key}_{i}"
+                )
+            
+            with c2:
+                st.session_state[state_key][i]["comentario"] = st.text_input(
+                    "Ubicación / Comentario:",
+                    value=med["comentario"],
+                    placeholder="Ej. Punto de tierra 2 / Borde chasis",
+                    key=f"com_{state_key}_{i}"
+                )
+                
+            with c3:
+                st.write("")
+                st.write("")
+                if st.button("🗑️", key=f"del_{state_key}_{i}"):
+                    indices_a_eliminar.append(i)
+
+        # Eliminar mediciones marcadas con el basurero
+        if indices_a_eliminar:
+            for idx in sorted(indices_a_eliminar, reverse=True):
+                st.session_state[state_key].pop(idx)
+            st.rerun()
+
+    # --- 3. FORMULARIO FINAL Y GUARDADO ---
     with st.form(key=form_key):
-        st.markdown(f"#### Registro de Auditoría: `{id_activo}`")
-        
-        fecha_auditoria = st.date_input("Fecha de Auditoría:", datetime.date.today(), key=f"fecha_{form_key}")
-        
-        resistencia = None
-        voltaje_campo = None
-        tiempo_descarga = None
-        voltaje_balance = None
-
-        if es_ionizador:
-            col_i1, col_i2 = st.columns(2)
-            with col_i1:
-                tiempo_descarga = st.number_input("Tiempo Descarga (1000V a 100V) [s]:", value=0.0, step=0.1, key=f"td_{form_key}")
-            with col_i2:
-                voltaje_balance = st.number_input("Voltaje de Balance [V]:", value=0.0, step=1.0, key=f"vb_{form_key}")
-        else:
-            col_m1, col_m2 = st.columns(2)
-            with col_m1:
-                resistencia = st.number_input("Resistencia Principal (Ω / Ohms):", value=0.0, format="%.2e", key=f"res_{form_key}")
-            with col_m2:
-                voltaje_campo = st.number_input("Campo Electrostático Principal (V):", value=0.0, step=1.0, key=f"vc_{form_key}")
-
-        with st.expander("➕ Añadir Mediciones Adicionales con Comentario (Opcional)", expanded=False):
-            st.info("Ingresa capturas secundarias registrando su tipo, valor y la nota/ubicación correspondiente.")
-            
-            col_opt1, col_opt2 = st.columns(2)
-            
-            res_adicional = col_opt1.number_input("Resistencia Adicional (Ω):", value=None, format="%.2e", key=f"res_add_{form_key}")
-            coment_res_adicional = col_opt1.text_input("Nota / Ubicación (Resistencia):", placeholder="Ej. Borde chasis / Punto 2", key=f"com_res_{form_key}")
-            
-            volt_adicional = col_opt2.number_input("Voltaje Adicional (V):", value=None, step=1.0, key=f"volt_add_{form_key}")
-            coment_volt_adicional = col_opt2.text_input("Nota / Ubicación (Voltaje):", placeholder="Ej. Fricción en acrílico", key=f"com_volt_{form_key}")
-
         comentarios_input = st.text_area("Observaciones / Comentarios Generales:", key=f"obs_{form_key}")
-        
         btn_guardar = st.form_submit_button("💾 Guardar Auditoría", type="primary")
 
         if btn_guardar:
@@ -286,21 +331,8 @@ def generar_formulario_auditoria(equipo, tipo_equipo, key_prefix="qr", index_uni
             nuevo_estatus = "VIGENTE" if estatus_resultado == "PASA" else "REPROBADO"
             fecha_proxima = fecha_auditoria + timedelta(days=365)
 
-            lista_mediciones_extra = []
-            
-            if res_adicional is not None and res_adicional > 0:
-                lista_mediciones_extra.append({
-                    "tipo": "resistencia",
-                    "valor": float(res_adicional),
-                    "comentario": coment_res_adicional
-                })
-                
-            if volt_adicional is not None and volt_adicional > 0:
-                lista_mediciones_extra.append({
-                    "tipo": "voltaje",
-                    "valor": float(volt_adicional),
-                    "comentario": coment_volt_adicional
-                })
+            # Extraer las mediciones adicionales acumuladas
+            lista_mediciones_extra = st.session_state[state_key]
 
             try:
                 if es_maquinaria:
@@ -330,7 +362,6 @@ def generar_formulario_auditoria(equipo, tipo_equipo, key_prefix="qr", index_uni
                         "medicion_resistencia": resistencia,
                         "comentarios": comentarios_input
                     }
-                    
                     if lista_mediciones_extra:
                         datos_inventario["mediciones_extra"] = lista_mediciones_extra
 
@@ -339,6 +370,7 @@ def generar_formulario_auditoria(equipo, tipo_equipo, key_prefix="qr", index_uni
 
                     supabase.table("inventario_esd").update(datos_inventario).ilike("id_producto", id_activo).execute()
 
+                # Sincronizar catálogo maestro
                 try:
                     payload_maestro = {
                         "estatus": nuevo_estatus,
@@ -349,8 +381,10 @@ def generar_formulario_auditoria(equipo, tipo_equipo, key_prefix="qr", index_uni
                 except Exception:
                     pass
 
+                # Limpiar la lista de sesión para este formulario
+                st.session_state[state_key] = []
                 st.cache_data.clear()
-                st.success(f"✅ Auditoría de `{id_activo}` guardada correctamente.")
+                st.success(f"✅ Auditoría de `{id_activo}` guardada correctamente con {len(lista_mediciones_extra)} medición(es) adicional(es).")
                 st.rerun()
 
             except Exception as e:
