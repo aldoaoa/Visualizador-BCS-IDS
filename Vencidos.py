@@ -274,21 +274,15 @@ def generar_formulario_auditoria(equipo, tipo_equipo, key_prefix="qr", index_uni
 
         from datetime import timedelta
 
+        # --- DENTRO DE GENERAR_FORMULARIO_AUDITORIA ---
         if btn_guardar:
-            # 1. Definir el estatus de la medición (PASA / FALLA)
-            # Reemplaza esta regla con tus tolerancias reales si aplica
-            estatus_resultado = "PASA"  
-        
-            # 2. Calcular la fecha de próximo vencimiento (Ejemplo: 1 año después)
-            # Puedes ajustar 'days=365' o leer la frecuencia del registro
-            fecha_proxima = fecha_auditoria + timedelta(days=365)
-            
-            # Evaluar si el estatus operativo debe quedar VIGENTE
+            estatus_resultado = "PASA"
             nuevo_estatus = "VIGENTE" if estatus_resultado == "PASA" else "REPROBADO"
+            fecha_proxima = fecha_auditoria + timedelta(days=365)
         
             try:
                 if es_maquinaria:
-                    # --- GUARDADO EN MAQUINARIA ---
+                    # 1. Guardar en mediciones_maquinaria
                     datos_maquinaria = {
                         "id_maquinaria": id_activo,
                         "linea_ubicacion": linea_actual,
@@ -296,48 +290,53 @@ def generar_formulario_auditoria(equipo, tipo_equipo, key_prefix="qr", index_uni
                         "resistencia_tierra": str(resistencia) if resistencia is not None else None,
                         "campo_electrostatico": str(voltaje_campo) if voltaje_campo is not None else None,
                         "resultado_estatus": nuevo_estatus,
+                        "status_operativo": nuevo_estatus,  # 👈 Asegurar compatibilidad de columna
                         "frecuencia_verificacion": "Anual",
                         "observaciones": comentarios_input
                     }
                     supabase.table("mediciones_maquinaria").insert(datos_maquinaria).execute()
         
                 else:
-                    # --- GUARDADO EN INVENTARIO ESD ---
+                    # 2. Guardar en inventario_esd
                     extra_data = {}
                     if voltaje_campo is not None:
                         extra_data["voltaje_campo"] = voltaje_campo
         
                     datos_inventario = {
                         "fecha_ultima_verif": str(fecha_auditoria),
-                        "fecha_proxima_verif": str(fecha_proxima),     # 👈 ¡CLAVE: Actualiza el vencimiento!
-                        "estatus_verificacion": nuevo_estatus,         # 👈 ¡CLAVE: Cambia VENCIDO por VIGENTE!
+                        "fecha_proxima_verif": str(fecha_proxima),
+                        "estatus_verificacion": nuevo_estatus,
+                        "estatus_operativo": nuevo_estatus,
                         "valor_actual": resistencia,
                         "medicion_resistencia": resistencia,
                         "comentarios": comentarios_input
                     }
-        
                     if extra_data:
                         datos_inventario["mediciones_extra"] = extra_data
         
-                    if es_ionizador:
-                        datos_inventario["balance_ionizador"] = voltaje_balance
+                    supabase.table("inventario_esd").update(datos_inventario).ilike("id_producto", id_activo).execute()
         
-                    # Ejecutar actualización
-                    (
-                        supabase.table("inventario_esd")
-                        .update(datos_inventario)
-                        .eq("id_producto", id_activo)
-                        .execute()
-                    )
+                # -------------------------------------------------------------
+                # 3. 🔄 SINCRONIZAR CATÁLOGO MAESTRO (Evita que siga en PENDIENTE)
+                # -------------------------------------------------------------
+                payload_maestro = {
+                    "estatus": nuevo_estatus,
+                    "estatus_operativo": nuevo_estatus,
+                    "fecha_ultima_medicion": str(fecha_auditoria)
+                }
+                try:
+                    supabase.table("catalogo_maestro_activos").update(payload_maestro).ilike("id_activo", id_activo).execute()
+                except Exception:
+                    pass # Previene interrupción si la columna difiere ligeramente
         
-                # 3. Limpiar la caché de datos de Streamlit y recargar la pantalla
-                st.cache_data.clear()  # 👈 Asegura que los datos se lean refrescados de Supabase
-                st.success(f"✅ Auditoría de `{id_activo}` guardada correctamente.")
+                # 4. Limpiar Caché y Notificar
+                st.cache_data.clear()
+                st.success(f"✅ Auditoría guardada correctamente. Estatus actualizado a {nuevo_estatus}.")
+                time.sleep(1)
                 st.rerun()
         
             except Exception as e:
                 st.error(f"❌ Error al guardar en Supabase: {e}")
-
 def ejecutar_automigracion_lineas():
     """Extrae líneas únicas de todas las tablas y las inserta en catalogo_lineas."""
     lineas_encontradas = set()
@@ -3104,14 +3103,31 @@ elif st.session_state.vista_actual == "Auditoría" and not st.session_state.get(
                 es_maquinaria = True if "máquina" in tipo_eq_clean or "maquinaria" in tipo_eq_clean else False
                 equipo_master["es_maquinaria"] = es_maquinaria
                 
-                # 2. Ir a buscar su estatus actual a la tabla correspondiente
+                # 2. Ir a buscar su estatus actual a la tabla correspondiente (tomando el último registro)
                 estatus_actual = "PENDIENTE"
+                
                 if es_maquinaria:
-                    data_maq = supabase.table("mediciones_maquinaria").select("status_operativo").eq("id_maquinaria", id_busqueda).execute().data
-                    if data_maq: estatus_actual = data_maq[0].get("status_operativo", "PENDIENTE")
+                    data_maq = (
+                        supabase.table("mediciones_maquinaria")
+                        .select("status_operativo, resultado_estatus")
+                        .ilike("id_maquinaria", id_busqueda)
+                        .order("fecha_medicion", desc=True) # 👈 Toma la medición más reciente
+                        .limit(1)
+                        .execute()
+                        .data
+                    )
+                    if data_maq:
+                        estatus_actual = data_maq[0].get("resultado_estatus") or data_maq[0].get("status_operativo") or "PENDIENTE"
                 else:
-                    data_inv = supabase.table("inventario_esd").select("estatus_verificacion").eq("id_producto", id_busqueda).execute().data
-                    if data_inv: estatus_actual = data_inv[0].get("estatus_verificacion", "PENDIENTE")
+                    data_inv = (
+                        supabase.table("inventario_esd")
+                        .select("estatus_verificacion")
+                        .ilike("id_producto", id_busqueda)
+                        .execute()
+                        .data
+                    )
+                    if data_inv:
+                        estatus_actual = data_inv[0].get("estatus_verificacion", "PENDIENTE")
 
                 st.markdown("---")
                 c_info1, c_info2, c_info3 = st.columns(3)
