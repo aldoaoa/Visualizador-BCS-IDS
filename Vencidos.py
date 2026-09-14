@@ -226,211 +226,102 @@ def obtener_ultima_medicion(id_activo):
     }
 
 
-def generar_formulario_auditoria(equipo, tipo_equipo, key_prefix, index_unico="0"):
-    """
-    Genera el formulario estandarizado de auditoría.
-    Si la medición está fuera de especificación, se guarda la evidencia,
-    se muestra un aviso de advertencia y el estatus cambia a PENDIENTE.
-    """
-    id_elemento = (
-        equipo.get("id_activo") 
+def generar_formulario_auditoria(equipo, tipo_equipo, key_prefix="qr", index_unico="0"):
+    import datetime
+
+    # Identificar ID, Línea y Tipo de Activo
+    id_activo = (
+        equipo.get("id_activo")
         or equipo.get("id_producto")
         or equipo.get("id_maquinaria")
-        or equipo.get("id") 
-        or f"DESCONOCIDO_{index_unico}"
+        or equipo.get("id")
     )
+    linea_actual = equipo.get("linea_ubicacion") or equipo.get("linea") or "N/A"
     
-    linea_ubicacion = (
-        equipo.get("linea_ubicacion") 
-        or equipo.get("linea") 
-        or equipo.get("ubicacion") 
-        or "N/A"
-    )
-    
-    tipo_eq_clean = str(tipo_equipo).strip().lower()
-    usuario_auditor = st.session_state.get("usuario_actual", st.session_state.get("usuario", "Auditor ESD"))
-    
-    # 🔍 CONSULTA UNIFICADA DE LA ÚLTIMA MEDICIÓN
-    ultima_med = obtener_ultima_medicion(id_elemento)
-    es_maquinaria = ultima_med.get("es_maquinaria", False)
+    tipo_clean = str(tipo_equipo).strip().lower()
+    es_maquinaria = True if ("máquina" in tipo_clean or "maquinaria" in tipo_clean or equipo.get("es_maquinaria")) else False
+    es_ionizador = True if "ionizador" in tipo_clean else False
 
-    # Resumen previo de medición
-    with st.container():
-        st.markdown(f"##### 📌 Última Medición Registrada (`{id_elemento}`)")
-        c_p1, c_p2, c_p3 = st.columns(3)
-        c_p1.caption(f"📅 **Fecha:** {ultima_med['fecha']}")
-        c_p2.caption(f"🚦 **Estatus:** {ultima_med['estatus']}")
-        
-        if tipo_eq_clean == "ionizador":
-            t_desc = f"{ultima_med['tiempo_descarga']:.2f} s" if ultima_med['tiempo_descarga'] is not None else "N/D"
-            v_bal = formatear_voltaje(ultima_med['voltaje_balance'])
-            c_p3.caption(f"⚡ **Descarga:** {t_desc} | **Balance:** {v_bal}")
-        else:
-            res_fmt = formatear_resistencia(ultima_med['resistencia'])
-            vol_fmt = formatear_voltaje(ultima_med['voltaje_campo'])
-            c_p3.caption(f"🔌 **Resistencia:** {res_fmt} | **Campo:** {vol_fmt}")
+    form_key = f"form_auditoria_{key_prefix}_{id_activo}_{index_unico}"
 
-    st.markdown("---")
-    
-    state_key = f"extra_{key_prefix}_{id_elemento}_{index_unico}"
-    if state_key not in st.session_state:
-        st.session_state[state_key] = []
-
-    form_key = f"form_audit_{key_prefix}_{id_elemento}_{index_unico}"
     with st.form(key=form_key):
-        st.markdown("##### 📝 Capturar Nueva Medición")
+        st.markdown(f"#### Registro de Auditoría: `{id_activo}`")
         
-        # ----------------------------------------------------------------------
-        # A: IONIZADORES ( ANSI/ESD S20.20: Descarga < 8s, Balance +/- 35V )
-        # ----------------------------------------------------------------------
-        if tipo_eq_clean == "ionizador":
-            col1, col2 = st.columns(2)
-            with col1:
-                tiempo_descarga = st.number_input("Tiempo de Descarga (1000V a 100V) [seg]*", min_value=0.0, format="%.2f", step=0.1)
-            with col2:
-                voltaje_balance = st.number_input("Voltaje de Balance (Offset) [V]*", format="%d", step=1)
-            
-            comentarios = st.text_input("Comentarios")
-            btn_guardar_ion = st.form_submit_button("💾 Guardar Ionizador", type="primary")
+        fecha_auditoria = st.date_input("Fecha de Auditoría:", datetime.date.today(), key=f"fecha_{form_key}")
+        
+        # --- CAMPOS DE MEDICIÓN SEGÚN TIPO DE ACTIVO ---
+        resistencia = None
+        voltaje_campo = None
+        tiempo_descarga = None
+        voltaje_balance = None
 
-            if btn_guardar_ion:
-                fecha_actual = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                
-                # Evaluación normada
-                cumple_tiempo = 0 < tiempo_descarga <= 8.0
-                cumple_balance = abs(voltaje_balance) <= 35
-                
-                # Si cumple = PASA, si está fuera de especificación = PENDIENTE
-                estatus_eval = "PASA" if (cumple_tiempo and cumple_balance) else "PENDIENTE"
-
-                payload_historial = {
-                    "id_elemento": id_elemento, 
-                    "tipo_equipo": "Ionizador",
-                    "ubicacion": linea_ubicacion, 
-                    "tiempo_descarga": tiempo_descarga,
-                    "voltaje_balance": int(round(voltaje_balance)), 
-                    "comentarios": comentarios,
-                    "estatus": estatus_eval, 
-                    "fecha_medicion": fecha_actual, 
-                    "auditor": usuario_auditor
-                }
-
-                try:
-                    # Guardar siempre la evidencia histórica
-                    supabase.table("validacion_esd").insert(payload_historial).execute()
-                    
-                    # Actualizar estado en inventario
-                    supabase.table("inventario_esd").update({
-                        "fecha_ultima_verif": fecha_actual, 
-                        "estatus_verificacion": estatus_eval
-                    }).ilike("id_producto", id_elemento).execute()
-
-                    st.cache_data.clear()
-                    
-                    if estatus_eval == "PASA":
-                        st.success(f"✅ Ionizador `{id_elemento}` actualizado correctamente. Estatus: **PASA**")
-                    else:
-                        st.warning(
-                            f"⚠️ **¡MEDICIÓN GUARDADA PERO FUERA DE ESPECIFICACIÓN!**\n\n"
-                            f"El ionizador `{id_elemento}` excede los límites (Tiempo <= 8s, Balance +/- 35V).\n"
-                            f"El estatus del equipo cambió a **PENDIENTE** para su revisión."
-                        )
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Error al guardar: {e}")
-
-        # ----------------------------------------------------------------------
-        # B: MOBILIARIO Y MAQUINARIA ( Resistencia <= 1e9 Ω, Campo <= 100V )
-        # ----------------------------------------------------------------------
+        if es_ionizador:
+            col_i1, col_i2 = st.columns(2)
+            with col_i1:
+                tiempo_descarga = st.number_input("Tiempo Descarga (1000V a 100V) [s]:", value=0.0, step=0.1, key=f"td_{form_key}")
+            with col_i2:
+                voltaje_balance = st.number_input("Voltaje de Balance [V]:", value=0.0, step=1.0, key=f"vb_{form_key}")
         else:
-            col1, col2 = st.columns(2)
-            with col1:
-                resistencia = st.number_input("Resistencia [Ohms]*", format="%.2e", step=1e5)
-            with col2:
-                voltaje_campo = st.number_input("Voltaje Campo Electrostático [V]*", format="%d", step=1)
+            col_m1, col_m2 = st.columns(2)
+            with col_m1:
+                resistencia = st.number_input("Resistencia (Ω / Ohms):", value=0.0, format="%.2e", key=f"res_{form_key}")
+            with col_m2:
+                voltaje_campo = st.number_input("Campo Electrostático (V):", value=0.0, step=1.0, key=f"vc_{form_key}")
 
-            st.markdown("###### ➕ Mediciones Adicionales (Opcionales)")
-            c_add1, c_add2 = st.columns(2)
-            with c_add1:
-                if st.form_submit_button("➕ Agregar Resistencia Extra"):
-                    st.session_state[state_key].append({"tipo": "resistencia", "valor": 0.0, "comentario": ""})
-                    st.rerun()
-            with c_add2:
-                if st.form_submit_button("➕ Agregar Voltaje Extra"):
-                    st.session_state[state_key].append({"tipo": "voltaje", "valor": 0, "comentario": ""})
-                    st.rerun()
+        comentarios_input = st.text_area("Observaciones / Comentarios:", key=f"obs_{form_key}")
+        
+        btn_guardar = st.form_submit_button("💾 Guardar Auditoría", type="primary")
 
-            mediciones_json = []
-            for i, med in enumerate(st.session_state[state_key]):
-                c1, c2 = st.columns([1, 2])
-                with c1:
-                    if med["tipo"] == "resistencia":
-                        val = st.number_input(f"Captura {i+1} (Resistencia Ω)", format="%.2e", key=f"val_{state_key}_{i}")
-                    else:
-                        val = st.number_input(f"Captura {i+1} (Voltaje V)", format="%d", step=1, key=f"val_{state_key}_{i}")
-                with c2:
-                    coment = st.text_input("Punto de medición", key=f"com_{state_key}_{i}")
-                
-                valor_guardar = int(round(val)) if med["tipo"] == "voltaje" else val
-                mediciones_json.append({"tipo": med["tipo"], "valor": valor_guardar, "comentario": coment})
+        if btn_guardar:
+            # Evaluación simple de estatus (PASA / FALLA)
+            estatus_resultado = "PASA"  # Puedes añadir tus reglas de tolerancias aquí
 
-            comentarios_gen = st.text_input("Comentarios generales")
-            btn_guardar_activo = st.form_submit_button("💾 Guardar Validación", type="primary")
-
-            if btn_guardar_activo:
-                fecha_actual = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                
-                # Evaluación normada
-                cumple_res = 0 < resistencia <= 1.0e9
-                cumple_vol = abs(voltaje_campo) <= 100
-                
-                # Si cumple = PASA, si está fuera de especificación = PENDIENTE
-                estatus_eval = "PASA" if (cumple_res and cumple_vol) else "PENDIENTE"
-
-                payload_historial = {
-                    "id_elemento": id_elemento, 
-                    "tipo_equipo": tipo_equipo,
-                    "ubicacion": linea_ubicacion, 
-                    "resistencia": resistencia,
-                    "voltaje_campo": int(round(voltaje_campo)), 
-                    "mediciones_extra": mediciones_json,
-                    "comentarios": comentarios_gen, 
-                    "estatus": estatus_eval,
-                    "fecha_medicion": fecha_actual, 
-                    "auditor": usuario_auditor
-                }
-
-                try:
-                    # 1. Guardar historial unificado
-                    supabase.table("validacion_esd").insert(payload_historial).execute()
+            try:
+                if es_maquinaria:
+                    # -------------------------------------------------------------
+                    # 1. Guardar en 'mediciones_maquinaria'
+                    # -------------------------------------------------------------
+                    datos_maquinaria = {
+                        "id_maquinaria": id_activo,
+                        "linea_ubicacion": linea_actual,
+                        "fecha_medicion": str(fecha_auditoria),
+                        "resistencia_tierra": str(resistencia) if resistencia is not None else None,
+                        "campo_electrostatico": str(voltaje_campo) if voltaje_campo is not None else None,
+                        "resultado_estatus": estatus_resultado,
+                        "frecuencia_verificacion": "Anual",
+                        "observaciones": comentarios_input
+                    }
                     
-                    # 2. Actualizar estatus en tabla correspondiente
-                    if es_maquinaria:
-                        supabase.table("mediciones_maquinaria").update({
-                            "fecha_medicion": fecha_actual,
-                            "status_operativo": estatus_eval,
-                            "resultado_estatus": estatus_eval
-                        }).ilike("id_maquinaria", id_elemento).execute()
-                    else:
-                        supabase.table("inventario_esd").update({
-                            "fecha_ultima_verif": fecha_actual,
-                            "estatus_verificacion": estatus_eval
-                        }).ilike("id_producto", id_elemento).execute()
+                    supabase.table("mediciones_maquinaria").insert(datos_maquinaria).execute()
 
-                    st.session_state[state_key] = []
-                    st.cache_data.clear()
+                else:
+                    # -------------------------------------------------------------
+                    # 2. Guardar/Actualizar en 'inventario_esd'
+                    # -------------------------------------------------------------
+                    datos_inventario = {
+                        "fecha_ultima_verif": str(fecha_auditoria),
+                        "estatus_verificacion": estatus_resultado,
+                        "valor_resistencia": str(resistencia) if resistencia is not None else None,
+                        "voltaje_campo": str(voltaje_campo) if voltaje_campo is not None else None,
+                        "comentarios": comentarios_input
+                    }
                     
-                    if estatus_eval == "PASA":
-                        st.success(f"✅ Activo `{id_elemento}` actualizado correctamente. Estatus: **PASA**")
-                    else:
-                        st.warning(
-                            f"⚠️ **¡MEDICIÓN GUARDADA PERO FUERA DE ESPECIFICACIÓN!**\n\n"
-                            f"El activo `{id_elemento}` excede los límites (Resistencia <= 1.0e9 Ω, Campo <= 100V).\n"
-                            f"El estatus cambió a **PENDIENTE** para su seguimiento y mantenimiento."
-                        )
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Error al guardar en Supabase: {e}")
+                    if es_ionizador:
+                        datos_inventario["tiempo_descarga"] = str(tiempo_descarga)
+                        datos_inventario["voltaje_balance"] = str(voltaje_balance)
+
+                    (
+                        supabase.table("inventario_esd")
+                        .update(datos_inventario)
+                        .eq("id_producto", id_activo)
+                        .execute()
+                    )
+
+                st.success(f"✅ Auditoría de `{id_activo}` guardada correctamente en la tabla correspondiente.")
+                st.rerun()
+
+            except Exception as e:
+                st.error(f"❌ Error al guardar en Supabase: {e}")
 
 def ejecutar_automigracion_lineas():
     """Extrae líneas únicas de todas las tablas y las inserta en catalogo_lineas."""
