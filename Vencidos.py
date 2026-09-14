@@ -297,16 +297,16 @@ def generar_formulario_auditoria(equipo, tipo_equipo, key_prefix="qr", index_uni
             
             if res_adicional is not None and res_adicional > 0:
                 lista_mediciones_extra.append({
-                    "tipo": "resistencia",[cite: 3]
-                    "valor": float(res_adicional),[cite: 1, 3]
-                    "comentario": coment_res_adicional[cite: 1, 3]
+                    "tipo": "resistencia",
+                    "valor": float(res_adicional),
+                    "comentario": coment_res_adicional
                 })
-                
+            
             if volt_adicional is not None and volt_adicional > 0:
                 lista_mediciones_extra.append({
-                    "tipo": "voltaje",[cite: 3]
-                    "valor": float(volt_adicional),[cite: 1, 3]
-                    "comentario": coment_volt_adicional[cite: 1, 3]
+                    "tipo": "voltaje",
+                    "valor": float(volt_adicional),
+                    "comentario": coment_volt_adicional
                 })
 
             try:
