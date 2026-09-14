@@ -3051,10 +3051,31 @@ elif st.session_state.vista_actual == "Auditoría" and not st.session_state.get(
         if id_busqueda:
             # 1. Buscar SIEMPRE primero en el catálogo maestro
             # Asumiendo que tu columna de ID se llama 'id_activo' o 'id'
+            # CÓDIGO CORREGIDO:
+            # Se consulta por 'id_activo' (campo real en el Catálogo Maestro)
             res_maestro = supabase.table("catalogo_maestro_activos").select("*").eq("id_activo", id_busqueda).execute().data
-            if not res_maestro:
-                res_maestro = supabase.table("catalogo_maestro_activos").select("*").eq("id", id_busqueda).execute().data
             
+            # Si no está en el catálogo maestro, se intenta buscar directamente en inventario_esd o mediciones_maquinaria
+            if not res_maestro:
+                # Buscar en inventario por id_producto
+                res_inv = supabase.table("inventario_esd").select("*").eq("id_producto", id_busqueda).execute().data
+                if res_inv:
+                    res_maestro = [{
+                        "id_activo": res_inv[0].get("id_producto"),
+                        "tipo": res_inv[0].get("clasificacion") or res_inv[0].get("categoria"),
+                        "linea_ubicacion": res_inv[0].get("linea_ubicacion"),
+                        "es_maquinaria": False
+                    }]
+                else:
+                    # Buscar en mediciones de maquinaria por id_maquinaria
+                    res_maq = supabase.table("mediciones_maquinaria").select("*").eq("id_maquinaria", id_busqueda).execute().data
+                    if res_maq:
+                        res_maestro = [{
+                            "id_activo": res_maq[0].get("id_maquinaria"),
+                            "tipo": "Maquinaria",
+                            "linea_ubicacion": res_maq[0].get("linea_ubicacion"),
+                            "es_maquinaria": True
+                        }]
             if res_maestro:
                 equipo_master = res_maestro[0]
                 tipo_detectado = equipo_master.get("tipo") or equipo_master.get("clasificacion") or "Mobiliario"
