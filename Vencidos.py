@@ -3529,15 +3529,16 @@ elif st.session_state.vista_actual == "Mapa" and not st.session_state.modo_lectu
                 try:
                     # 🛠️ CORRECCIÓN: Definimos la función calculadora ANTES de usarla
                     def contar_estatus(df, col_estatus, val_vigente, val_vencido):
-                        if df.empty or col_estatus not in df.columns: return 0, 0, 0
-                        estatus_series = df[col_estatus].astype(str).str.upper()
+                        if df.empty or col_estatus not in df.columns: 
+                            return 0, 0, 0
                         
-                        vig = estatus_series.str.contains(val_vigente, regex=True).sum()
-                        ven = estatus_series.str.contains(val_vencido, regex=True).sum()
+                        estatus_series = df[col_estatus].astype(str).str.strip().str.upper()
                         
+                        vig = estatus_series.str.contains(val_vigente, regex=True, na=False).sum()
+                        ven = estatus_series.str.contains(val_vencido, regex=True, na=False).sum()
                         pen = len(df) - (vig + ven)
-                        return vig, ven, pen
-
+                        
+                        return int(vig), int(ven), int(pen)
                     # A. Maquinaria (último estado para cumplimiento) y Todas las fechas (para actividad)
                     resp_maq_ov = supabase.table("mediciones_maquinaria").select("id_maquinaria, status_operativo, resultado_estatus, fecha_medicion").execute()
                     df_maq_ov = pd.DataFrame(resp_maq_ov.data)
@@ -3663,13 +3664,24 @@ elif st.session_state.vista_actual == "Mapa" and not st.session_state.modo_lectu
                     altas_inv_30d = 0; bajas_inv_total = 0; altas_maq_30d = 0; bajas_maq_total = 0
 
                 # Inventario General (Mobiliario, Ionizadores, Monitores, Pisos)
-                df_inv_ov = pd.DataFrame()
+                # Unificar inventario general activo
                 if 'df_inv_full' in locals() and df_inv_full is not None and not df_inv_full.empty:
                     df_inv_ov = df_inv_full[df_inv_full['Estatus operativo'].astype(str).str.upper() != 'NO OPERATIVO'].copy()
                     
+                    # Recalcular estatus dinámico por fecha
+                    if 'Fecha próxima de verificación' in df_inv_ov.columns:
+                        hoy_dt = pd.Timestamp.now().normalize()
+                        fechas_dt = pd.to_datetime(df_inv_ov['Fecha próxima de verificación'], errors='coerce')
+                        df_inv_ov.loc[fechas_dt < hoy_dt, 'Estatus de verificación'] = 'VENCIDO'
+                                    
                 # Maquinaria (Filtramos las operativas)
                 if not df_maq_ov.empty:
                     df_maq_ov = df_maq_ov[df_maq_ov['status_operativo'].astype(str).str.upper() != 'NO OPERATIVO'].copy()
+                    
+                    # Recalcular estatus de maquinaria por fecha próxima si existe la columna
+                    if 'fecha_proxima' in df_maq_ov.columns:
+                        fechas_maq_dt = pd.to_datetime(df_maq_ov['fecha_proxima'], errors='coerce')
+                        df_maq_ov.loc[fechas_maq_dt < pd.Timestamp.now().normalize(), 'resultado_estatus'] = 'VENCIDO'
 
                 # --- 2. CÁLCULO DE MÉTRICAS GLOBALES Y ACTIVIDAD ---
                 fechas_limpias = pd.to_datetime(fechas_actividad, format='ISO8601', errors='coerce', utc=True).tz_localize(None)
