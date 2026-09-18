@@ -477,12 +477,65 @@ def limpiar_id(texto):
     # Convierte a texto, quita espacios raros, borra espacios al inicio/fin y lo hace mayúscula
     return str(texto).replace('\xa0', ' ').strip().upper()
 
+@st.cache_data(ttl=60, show_spinner=False)
+def obtener_datos_calendario_cached(str_inicio, str_fin, filtro_linea, filtro_cat):
+    activos = []
+    
+    # Consulta a Maquinaria
+    if filtro_cat in ["TODAS", "Maquinaria"]:
+        try:
+            q_maq = supabase.table("mediciones_maquinaria")\
+                .select("id_maquinaria, linea_ubicacion, clasificacion, fecha_proxima, status_operativo")\
+                .gte("fecha_proxima", str_inicio)\
+                .lte("fecha_proxima", str_fin)
+            if filtro_linea != "TODAS": 
+                q_maq = q_maq.ilike("linea_ubicacion", filtro_linea)
+            resp_maq = q_maq.execute()
+            if resp_maq.data:
+                for m in resp_maq.data:
+                    st_op = str(m.get("status_operativo", "")).upper()
+                    if "NO OPERATIVO" in st_op or "BAJA" in st_op: continue
+                    activos.append({
+                        "id_puro": m.get('id_maquinaria'),
+                        "icono": "🏭",
+                        "clasificacion": m.get("clasificacion", "N/D"),
+                        "linea": str(m.get("linea_ubicacion", "")).strip(),
+                        "fecha": str(m.get("fecha_proxima"))[:10]
+                    })
+        except: pass
+
+    # Consulta a Mobiliario / Ionizadores
+    if filtro_cat in ["TODAS", "Mobiliario / Ionizadores"]:
+        try:
+            q_inv = supabase.table("inventario_esd")\
+                .select("id_producto, linea_ubicacion, categoria, clasificacion, fecha_proxima_verif, estatus_operativo")\
+                .gte("fecha_proxima_verif", str_inicio)\
+                .lte("fecha_proxima_verif", str_fin)
+            if filtro_linea != "TODAS": 
+                q_inv = q_inv.ilike("linea_ubicacion", filtro_linea)
+            resp_inv = q_inv.execute()
+            if resp_inv.data:
+                for item in resp_inv.data:
+                    st_op = str(item.get("estatus_operativo", "")).upper()
+                    if "NO OPERATIVO" in st_op or "BAJA" in st_op: continue
+                    activos.append({
+                        "id_puro": item.get('id_producto'),
+                        "icono": "🛋️",
+                        "clasificacion": item.get("clasificacion", "N/D"),
+                        "linea": str(item.get("linea_ubicacion", "")).strip(),
+                        "fecha": str(item.get("fecha_proxima_verif"))[:10]
+                    })
+        except: pass
+
+    return activos
+
+
 def render_calendario_programacion_cronograma(filtro_linea="TODAS", filtro_cat="TODAS"):
     st.markdown("---")
     st.markdown("### 🗓️ Calendario de Programación de Validaciones")
     st.caption("Planifica tus auditorías. ¡Haz clic en cualquier tarjeta para ir a auditar el equipo!")
 
-    # 🎨 INYECCIÓN DE CSS
+    # CSS Personalizado
     st.markdown("""
     <style>
     div[data-testid="stColumn"] .stButton > button[key^="card_"] {
@@ -536,123 +589,89 @@ def render_calendario_programacion_cronograma(filtro_linea="TODAS", filtro_cat="
         fin_rango = datetime(anio_sel, 12, 31)
         lbl_periodo = f"Año Completo {anio_sel}"
 
-    activos_agenda = []
     str_inicio = inicio_rango.strftime("%Y-%m-%d")
     str_fin = fin_rango.strftime("%Y-%m-%d")
 
-    with st.spinner("Cargando eventos del calendario..."):
-        if filtro_cat in ["TODAS", "Maquinaria"]:
-            try:
-                q_maq = supabase.table("mediciones_maquinaria").select("id_maquinaria, linea_ubicacion, clasificacion, fecha_proxima, status_operativo").gte("fecha_proxima", str_inicio).lte("fecha_proxima", str_fin)
-                if filtro_linea != "TODAS": q_maq = q_maq.ilike("linea_ubicacion", filtro_linea)
-                resp_maq = q_maq.execute()
-                if resp_maq.data:
-                    for m in resp_maq.data:
-                        st_op = str(m.get("status_operativo", "")).upper()
-                        if "NO OPERATIVO" in st_op or "BAJA" in st_op: continue
-                        activos_agenda.append({
-                            "id_puro": m.get('id_maquinaria'),
-                            "icono": "🏭",
-                            "clasificacion": m.get("clasificacion", "N/D"),
-                            "linea": str(m.get("linea_ubicacion", "")).strip(),
-                            "fecha": str(m.get("fecha_proxima"))[:10]
-                        })
-            except: pass
+    # 🔒 2. PLACEHOLDER UNIFICADO DE RENDERING:
+    # Este espacio vacía la pantalla anterior inmediatamente antes de descargar datos
+    slot_calendario = st.empty()
 
-        if filtro_cat in ["TODAS", "Mobiliario / Ionizadores"]:
-            try:
-                q_inv = supabase.table("inventario_esd").select("id_producto, linea_ubicacion, categoria, clasificacion, fecha_proxima_verif, estatus_operativo").gte("fecha_proxima_verif", str_inicio).lte("fecha_proxima_verif", str_fin)
-                if filtro_linea != "TODAS": q_inv = q_inv.ilike("linea_ubicacion", filtro_linea)
-                resp_inv = q_inv.execute()
-                if resp_inv.data:
-                    for item in resp_inv.data:
-                        st_op = str(item.get("estatus_operativo", "")).upper()
-                        if "NO OPERATIVO" in st_op or "BAJA" in st_op: continue
-                        activos_agenda.append({
-                            "id_puro": item.get('id_producto'),
-                            "icono": "🛋️",
-                            "clasificacion": item.get("clasificacion", "N/D"),
-                            "linea": str(item.get("linea_ubicacion", "")).strip(),
-                            "fecha": str(item.get("fecha_proxima_verif"))[:10]
-                        })
-            except: pass
+    with slot_calendario.container():
+        with st.spinner("⏳ Sincronizando agenda con la base de datos..."):
+            # Llamada rápida con Caché
+            activos_agenda = obtener_datos_calendario_cached(str_inicio, str_fin, filtro_linea, filtro_cat)
+            df_cal = pd.DataFrame(activos_agenda)
+            equipo_a_auditar = None
 
-    df_cal = pd.DataFrame(activos_agenda)
-    equipo_a_auditar = None 
+            if df_cal.empty:
+                st.success(f"🟢 No hay auditorías de validación agendadas para **{lbl_periodo}**.")
+                return equipo_a_auditar
 
-    # 🔒 CONTENEDOR PRINCIPAL: Asegura limpiar todo el renderizado anterior al cambiar filtros o vistas
-    contenedor_cal = st.container()
-
-    with contenedor_cal:
-        if df_cal.empty:
-            st.success(f"🟢 No hay auditorías de validación agendadas para **{lbl_periodo}**.")
-            return equipo_a_auditar
-
-        # === VISTA 1: SEMANAL ===
-        if vista_cal == "Semana":
-            st.markdown(f"#### 📆 Agenda Semanal WK {semana_sel}")
-            dias_semana_nombres = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
-            cols_dias = st.columns(7)
-            
-            for i in range(7):
-                fecha_dia = inicio_rango + timedelta(days=i)
-                str_dia = fecha_dia.strftime("%Y-%m-%d")
-                df_dia = df_cal[df_cal['fecha'] == str_dia]
+            # === VISTA 1: SEMANAL ===
+            if vista_cal == "Semana":
+                st.markdown(f"#### 📆 Agenda Semanal WK {semana_sel}")
+                dias_semana_nombres = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
+                cols_dias = st.columns(7)
                 
-                with cols_dias[i]:
-                    es_hoy = (fecha_dia.date() == hoy.date())
-                    bg_head = "#003366" if not es_hoy else "#16a34a"
-                    st.markdown(f"""
-                    <div style="background-color: {bg_head}; color: white; padding: 6px; border-radius: 6px 6px 0 0; text-align: center; font-size: 12px; font-weight: bold; margin-bottom: 6px;">
-                        {dias_semana_nombres[i]}<br><span style="font-size: 14px;">{fecha_dia.strftime('%d-%b')}</span>
-                    </div>
-                    """, unsafe_allow_html=True)
+                for i in range(7):
+                    fecha_dia = inicio_rango + timedelta(days=i)
+                    str_dia = fecha_dia.strftime("%Y-%m-%d")
+                    df_dia = df_cal[df_cal['fecha'] == str_dia] if not df_cal.empty else pd.DataFrame()
                     
-                    if not df_dia.empty:
-                        for idx_r, row in df_dia.iterrows():
-                            label_tarjeta = f"{row['icono']} {row['id_puro']}\n📍 {row['linea']}\n{row['clasificacion']}"
-                            # Clave única incorporando la vista y el índice para evitar colisiones
-                            key_btn = f"card_sem_{vista_cal}_{row['id_puro']}_{str_dia}_{idx_r}"
-                            if st.button(label_tarjeta, key=key_btn, use_container_width=True):
-                                equipo_a_auditar = row['id_puro']
-                    else:
-                        st.markdown("<div style='background-color: #f8fafc; border: 1px dashed #cbd5e1; padding: 12px; text-align: center; border-radius: 4px; color: #94a3b8; font-size: 11px;'>Sin agendar</div>", unsafe_allow_html=True)
-
-        # === VISTA 2: MENSUAL ===
-        elif vista_cal == "Mes":
-            st.markdown(f"#### 📅 Vista Mensual - {lbl_periodo}")
-            conteo_por_fecha = df_cal.groupby('fecha').apply(lambda g: g.to_dict('records')).to_dict()
-            cal_matrix = calendar.monthcalendar(hoy.year, idx_mes)
-            dias_semana_lbl = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
-            
-            cols_hdr = st.columns(7)
-            for idx, d_lbl in enumerate(dias_semana_lbl):
-                cols_hdr[idx].markdown(f"<div style='text-align:center; font-weight:bold; background:#003366; color:white; padding:4px; border-radius:4px;'>{d_lbl}</div>", unsafe_allow_html=True)
-                
-            for idx_sem, sem in enumerate(cal_matrix):
-                cols_sem = st.columns(7)
-                for idx_d, d_num in enumerate(sem):
-                    with cols_sem[idx_d]:
-                        if d_num != 0:
-                            f_date_str = f"{hoy.year:04d}-{idx_mes:02d}-{d_num:02d}"
-                            items_dia = conteo_por_fecha.get(f_date_str, [])
-                            cant = len(items_dia)
-                            
-                            st.markdown(f"<div style='font-weight:bold; font-size:12px; margin-top:4px;'>{d_num}</div>", unsafe_allow_html=True)
-                            if cant > 0:
-                                for idx_it, it in enumerate(items_dia[:2]):
-                                    key_btn = f"card_mes_{vista_cal}_{it['id_puro']}_{f_date_str}_{idx_sem}_{idx_d}_{idx_it}"
-                                    if st.button(f"{it['icono']} {it['id_puro'][:8]}", key=key_btn, use_container_width=True):
-                                        equipo_a_auditar = it['id_puro']
-                                if cant > 2:
-                                    st.markdown(f"<div style='font-size:10px; color:#dc2626; font-weight:bold;'>+ {cant - 2} más</div>", unsafe_allow_html=True)
-                            else:
-                                st.markdown("<div style='height:40px;'></div>", unsafe_allow_html=True)
+                    with cols_dias[i]:
+                        es_hoy = (fecha_dia.date() == hoy.date())
+                        bg_head = "#003366" if not es_hoy else "#16a34a"
+                        
+                        st.markdown(f"""
+                        <div style="background-color: {bg_head}; color: white; padding: 6px; border-radius: 6px 6px 0 0; text-align: center; font-size: 12px; font-weight: bold; margin-bottom: 6px;">
+                            {dias_semana_nombres[i]}<br><span style="font-size: 14px;">{fecha_dia.strftime('%d-%b')}</span>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                        if not df_dia.empty:
+                            for idx_r, row in df_dia.iterrows():
+                                label_tarjeta = f"{row['icono']} {row['id_puro']}\n📍 {row['linea']}\n{row['clasificacion']}"
+                                key_btn = f"card_wk{semana_sel}_{str_dia}_{row['id_puro']}_{idx_r}"
+                                if st.button(label_tarjeta, key=key_btn, use_container_width=True):
+                                    equipo_a_auditar = row['id_puro']
                         else:
-                            st.markdown("<div style='min-height:60px;'></div>", unsafe_allow_html=True)
+                            st.markdown("<div style='background-color: #f8fafc; border: 1px dashed #cbd5e1; padding: 12px; text-align: center; border-radius: 4px; color: #94a3b8; font-size: 11px;'>Sin agendar</div>", unsafe_allow_html=True)
 
-        else: 
-            st.info("Vista Anual: Revisa la tabla de desglose inferior.")
+            # === VISTA 2: MENSUAL ===
+            elif vista_cal == "Mes":
+                st.markdown(f"#### 📅 Vista Mensual - {lbl_periodo}")
+                conteo_por_fecha = df_cal.groupby('fecha').apply(lambda g: g.to_dict('records')).to_dict()
+                cal_matrix = calendar.monthcalendar(hoy.year, idx_mes)
+                dias_semana_lbl = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
+                
+                cols_hdr = st.columns(7)
+                for idx, d_lbl in enumerate(dias_semana_lbl):
+                    cols_hdr[idx].markdown(f"<div style='text-align:center; font-weight:bold; background:#003366; color:white; padding:4px; border-radius:4px;'>{d_lbl}</div>", unsafe_allow_html=True)
+                    
+                for idx_sem, sem in enumerate(cal_matrix):
+                    cols_sem = st.columns(7)
+                    for idx_d, d_num in enumerate(sem):
+                        with cols_sem[idx_d]:
+                            if d_num != 0:
+                                f_date_str = f"{hoy.year:04d}-{idx_mes:02d}-{d_num:02d}"
+                                items_dia = conteo_por_fecha.get(f_date_str, [])
+                                cant = len(items_dia)
+                                
+                                st.markdown(f"<div style='font-weight:bold; font-size:12px; margin-top:4px;'>{d_num}</div>", unsafe_allow_html=True)
+                                if cant > 0:
+                                    for idx_it, it in enumerate(items_dia[:2]):
+                                        key_btn = f"card_mes_{mes_sel}_{f_date_str}_{it['id_puro']}_{idx_it}"
+                                        if st.button(f"{it['icono']} {it['id_puro'][:8]}", key=key_btn, use_container_width=True):
+                                            equipo_a_auditar = it['id_puro']
+                                    if cant > 2:
+                                        st.markdown(f"<div style='font-size:10px; color:#dc2626; font-weight:bold;'>+ {cant - 2} más</div>", unsafe_allow_html=True)
+                                else:
+                                    st.markdown("<div style='height:40px;'></div>", unsafe_allow_html=True)
+                            else:
+                                st.markdown("<div style='min-height:60px;'></div>", unsafe_allow_html=True)
+
+            else: 
+                st.info("Vista Anual: Revisa la tabla de desglose inferior.")
 
     return equipo_a_auditar
     
