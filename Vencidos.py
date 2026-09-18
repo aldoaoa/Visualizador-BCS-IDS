@@ -482,7 +482,7 @@ def render_calendario_programacion_cronograma(filtro_linea="TODAS", filtro_cat="
     st.markdown("### 🗓️ Calendario de Programación de Validaciones")
     st.caption("Planifica tus auditorías. ¡Haz clic en cualquier tarjeta para ir a auditar el equipo!")
 
-    # 🎨 INYECCIÓN DE CSS: Preserva el estilo exacto de las tarjetas oscuras con borde rosa
+    # 🎨 INYECCIÓN DE CSS
     st.markdown("""
     <style>
     div[data-testid="stColumn"] .stButton > button[key^="card_"] {
@@ -580,74 +580,79 @@ def render_calendario_programacion_cronograma(filtro_linea="TODAS", filtro_cat="
     df_cal = pd.DataFrame(activos_agenda)
     equipo_a_auditar = None 
 
-    if df_cal.empty:
-        st.success(f"🟢 No hay auditorías de validación agendadas para **{lbl_periodo}**.")
-        return equipo_a_auditar
+    # 🔒 CONTENEDOR PRINCIPAL: Asegura limpiar todo el renderizado anterior al cambiar filtros o vistas
+    contenedor_cal = st.container()
 
-    # === VISTA 1: SEMANAL ===
-    if vista_cal == "Semana":
-        st.markdown(f"#### 📆 Agenda Semanal WK {semana_sel}")
-        dias_semana_nombres = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
-        cols_dias = st.columns(7)
-        
-        for i in range(7):
-            fecha_dia = inicio_rango + timedelta(days=i)
-            str_dia = fecha_dia.strftime("%Y-%m-%d")
-            df_dia = df_cal[df_cal['fecha'] == str_dia]
+    with contenedor_cal:
+        if df_cal.empty:
+            st.success(f"🟢 No hay auditorías de validación agendadas para **{lbl_periodo}**.")
+            return equipo_a_auditar
+
+        # === VISTA 1: SEMANAL ===
+        if vista_cal == "Semana":
+            st.markdown(f"#### 📆 Agenda Semanal WK {semana_sel}")
+            dias_semana_nombres = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
+            cols_dias = st.columns(7)
             
-            with cols_dias[i]:
-                es_hoy = (fecha_dia.date() == hoy.date())
-                bg_head = "#003366" if not es_hoy else "#16a34a"
-                st.markdown(f"""
-                <div style="background-color: {bg_head}; color: white; padding: 6px; border-radius: 6px 6px 0 0; text-align: center; font-size: 12px; font-weight: bold; margin-bottom: 6px;">
-                    {dias_semana_nombres[i]}<br><span style="font-size: 14px;">{fecha_dia.strftime('%d-%b')}</span>
-                </div>
-                """, unsafe_allow_html=True)
+            for i in range(7):
+                fecha_dia = inicio_rango + timedelta(days=i)
+                str_dia = fecha_dia.strftime("%Y-%m-%d")
+                df_dia = df_cal[df_cal['fecha'] == str_dia]
                 
-                if not df_dia.empty:
-                    for _, row in df_dia.iterrows():
-                        # Texto con saltos de línea para replicar el diseño de la tarjeta
-                        label_tarjeta = f"{row['icono']} {row['id_puro']}\n📍 {row['linea']}\n{row['clasificacion']}"
-                        
-                        if st.button(label_tarjeta, key=f"card_sem_{row['id_puro']}_{str_dia}", use_container_width=True):
-                            equipo_a_auditar = row['id_puro']
-                else:
-                    st.markdown("<div style='background-color: #f8fafc; border: 1px dashed #cbd5e1; padding: 12px; text-align: center; border-radius: 4px; color: #94a3b8; font-size: 11px;'>Sin agendar</div>", unsafe_allow_html=True)
-
-    # === VISTA 2: MENSUAL ===
-    elif vista_cal == "Mes":
-        st.markdown(f"#### 📅 Vista Mensual - {lbl_periodo}")
-        conteo_por_fecha = df_cal.groupby('fecha').apply(lambda g: g.to_dict('records')).to_dict()
-        cal_matrix = calendar.monthcalendar(hoy.year, idx_mes)
-        dias_semana_lbl = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
-        
-        cols_hdr = st.columns(7)
-        for idx, d_lbl in enumerate(dias_semana_lbl):
-            cols_hdr[idx].markdown(f"<div style='text-align:center; font-weight:bold; background:#003366; color:white; padding:4px; border-radius:4px;'>{d_lbl}</div>", unsafe_allow_html=True)
-            
-        for sem in cal_matrix:
-            cols_sem = st.columns(7)
-            for idx_d, d_num in enumerate(sem):
-                with cols_sem[idx_d]:
-                    if d_num != 0:
-                        f_date_str = f"{hoy.year:04d}-{idx_mes:02d}-{d_num:02d}"
-                        items_dia = conteo_por_fecha.get(f_date_str, [])
-                        cant = len(items_dia)
-                        
-                        st.markdown(f"<div style='font-weight:bold; font-size:12px; margin-top:4px;'>{d_num}</div>", unsafe_allow_html=True)
-                        if cant > 0:
-                            for it in items_dia[:2]:
-                                if st.button(f"{it['icono']} {it['id_puro'][:8]}", key=f"card_mes_{it['id_puro']}_{f_date_str}", use_container_width=True):
-                                    equipo_a_auditar = it['id_puro']
-                            if cant > 2:
-                                st.markdown(f"<div style='font-size:10px; color:#dc2626; font-weight:bold;'>+ {cant - 2} más</div>", unsafe_allow_html=True)
-                        else:
-                            st.markdown("<div style='height:40px;'></div>", unsafe_allow_html=True)
+                with cols_dias[i]:
+                    es_hoy = (fecha_dia.date() == hoy.date())
+                    bg_head = "#003366" if not es_hoy else "#16a34a"
+                    st.markdown(f"""
+                    <div style="background-color: {bg_head}; color: white; padding: 6px; border-radius: 6px 6px 0 0; text-align: center; font-size: 12px; font-weight: bold; margin-bottom: 6px;">
+                        {dias_semana_nombres[i]}<br><span style="font-size: 14px;">{fecha_dia.strftime('%d-%b')}</span>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    if not df_dia.empty:
+                        for idx_r, row in df_dia.iterrows():
+                            label_tarjeta = f"{row['icono']} {row['id_puro']}\n📍 {row['linea']}\n{row['clasificacion']}"
+                            # Clave única incorporando la vista y el índice para evitar colisiones
+                            key_btn = f"card_sem_{vista_cal}_{row['id_puro']}_{str_dia}_{idx_r}"
+                            if st.button(label_tarjeta, key=key_btn, use_container_width=True):
+                                equipo_a_auditar = row['id_puro']
                     else:
-                        st.markdown("<div style='min-height:60px;'></div>", unsafe_allow_html=True)
+                        st.markdown("<div style='background-color: #f8fafc; border: 1px dashed #cbd5e1; padding: 12px; text-align: center; border-radius: 4px; color: #94a3b8; font-size: 11px;'>Sin agendar</div>", unsafe_allow_html=True)
 
-    else:
-        st.info("Vista Anual: Revisa la tabla de desglose inferior.")
+        # === VISTA 2: MENSUAL ===
+        elif vista_cal == "Mes":
+            st.markdown(f"#### 📅 Vista Mensual - {lbl_periodo}")
+            conteo_por_fecha = df_cal.groupby('fecha').apply(lambda g: g.to_dict('records')).to_dict()
+            cal_matrix = calendar.monthcalendar(hoy.year, idx_mes)
+            dias_semana_lbl = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
+            
+            cols_hdr = st.columns(7)
+            for idx, d_lbl in enumerate(dias_semana_lbl):
+                cols_hdr[idx].markdown(f"<div style='text-align:center; font-weight:bold; background:#003366; color:white; padding:4px; border-radius:4px;'>{d_lbl}</div>", unsafe_allow_html=True)
+                
+            for idx_sem, sem in enumerate(cal_matrix):
+                cols_sem = st.columns(7)
+                for idx_d, d_num in enumerate(sem):
+                    with cols_sem[idx_d]:
+                        if d_num != 0:
+                            f_date_str = f"{hoy.year:04d}-{idx_mes:02d}-{d_num:02d}"
+                            items_dia = conteo_por_fecha.get(f_date_str, [])
+                            cant = len(items_dia)
+                            
+                            st.markdown(f"<div style='font-weight:bold; font-size:12px; margin-top:4px;'>{d_num}</div>", unsafe_allow_html=True)
+                            if cant > 0:
+                                for idx_it, it in enumerate(items_dia[:2]):
+                                    key_btn = f"card_mes_{vista_cal}_{it['id_puro']}_{f_date_str}_{idx_sem}_{idx_d}_{idx_it}"
+                                    if st.button(f"{it['icono']} {it['id_puro'][:8]}", key=key_btn, use_container_width=True):
+                                        equipo_a_auditar = it['id_puro']
+                                if cant > 2:
+                                    st.markdown(f"<div style='font-size:10px; color:#dc2626; font-weight:bold;'>+ {cant - 2} más</div>", unsafe_allow_html=True)
+                            else:
+                                st.markdown("<div style='height:40px;'></div>", unsafe_allow_html=True)
+                        else:
+                            st.markdown("<div style='min-height:60px;'></div>", unsafe_allow_html=True)
+
+        else: 
+            st.info("Vista Anual: Revisa la tabla de desglose inferior.")
 
     return equipo_a_auditar
     
