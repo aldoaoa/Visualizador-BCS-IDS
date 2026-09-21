@@ -11166,52 +11166,56 @@ elif st.session_state.vista_actual == "Historial Global de Reportes" and not st.
                 reportes_consolidados.append({
                     "Categoría": "Calificación de Producto",
                     "Folio / ID": f"CAL-{row.get('id', 'N/A')}",
-                    "Fecha": row.get('fecha_registro', 'N/D'),
+                    "Fecha": row.get('fecha_registro', 'N/D')[:10] if row.get('fecha_registro') else 'N/D',
                     "Auditor": row.get('auditor', 'N/D'),
                     "Detalle": row.get('elemento_s20_20', 'N/D'),
-                    "Enlace / Estatus": "Ver Documento" if row.get('archivo_url') else "Sin Enlace"
+                    "Estatus / Nivel": "Archivo PDF"
                 })
         except: pass
 
-        # 2. Extraer Reportes Consolidados (Event Meter / Línea)
+        # 2. Extraer Reportes Consolidados de Event Meter
         try:
             resp_em = supabase.table("log_reportes_em").select("*").execute()
             for row in resp_em.data:
+                # Se asume formato 'YYYY-MM-DD...' en created_at para sacar el año
+                fecha_raw = str(row.get('created_at', 'N/D'))
+                año_str = fecha_raw[2:4] if len(fecha_raw) > 4 else "00"
+                
                 reportes_consolidados.append({
-                    "Categoría": "Reporte por Línea",
-                    "Folio / ID": f"BCS-LV-{row.get('id', 0):03d}",
-                    "Fecha": row.get('created_at', 'N/D')[:10], # Asumiendo columna default de Supabase
+                    "Categoría": "Reporte Consolidado (Event Meter)",
+                    "Folio / ID": f"BCS-QRO-ESDEV-{row.get('id', 0):03d}-{año_str}",
+                    "Fecha": fecha_raw[:10],
                     "Auditor": row.get('auditor', 'N/D'),
-                    "Detalle": row.get('linea_ubicacion', 'N/D'),
-                    "Enlace / Estatus": "Generado Localmente"
+                    "Detalle": f"Consolidado de Línea: {row.get('linea_ubicacion', 'N/D')}",
+                    "Estatus / Nivel": "Reporte Oficial"
                 })
         except: pass
 
-        # 3. Extraer Reportes Walking Test
+        # 3. Extraer Reportes de Walking Test
         try:
             resp_wt = supabase.table("log_reportes_wt").select("*").execute()
             for row in resp_wt.data:
                 reportes_consolidados.append({
                     "Categoría": "Walking Test",
                     "Folio / ID": f"WT-{row.get('id', 'N/A')}",
-                    "Fecha": row.get('fecha_prueba', 'N/D'),
+                    "Fecha": str(row.get('fecha_prueba', 'N/D'))[:10],
                     "Auditor": row.get('auditor', 'N/D'),
-                    "Detalle": "Registro Histórico WT",
-                    "Enlace / Estatus": "Generado Localmente"
+                    "Detalle": "Bitácora de Reporte WT",
+                    "Estatus / Nivel": "Reporte Oficial"
                 })
-        except: pass
+        except: passs
 
-        # 4. Extraer Validaciones ESD (Reportes Nativos)
+        # 4. Extraer Validaciones ESD 
         try:
-            resp_val = supabase.table("validacion_esd").select("id, fecha_auditoria, id_elemento, elemento_s20_20, auditor").execute()
+            resp_val = supabase.table("validacion_esd").select("*").execute()
             for row in resp_val.data:
                 reportes_consolidados.append({
                     "Categoría": "Validación ESD",
                     "Folio / ID": f"BCS-PV-{row.get('id', 0):03d}",
                     "Fecha": row.get('fecha_auditoria', 'N/D'),
-                    "Auditor": row.get('auditor', 'N/D'), # Ajustar si el auditor se guarda bajo otro nombre en esta tabla
-                    "Detalle": f"{row.get('elemento_s20_20', '')} ({row.get('id_elemento', '')})",
-                    "Enlace / Estatus": "Historial Validaciones"
+                    "Auditor": row.get('auditor', 'N/D'), 
+                    "Detalle": f"{row.get('elemento_s20_20', '')} - Línea {row.get('ubicacion', 'N/D')}",
+                    "Estatus / Nivel": "Historial de Base de Datos"
                 })
         except: pass
 
