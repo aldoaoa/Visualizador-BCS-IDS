@@ -2423,7 +2423,8 @@ with st.sidebar:
             secciones_esd = {
                 "📊 Cumplimiento": [
                     ("🗺️ Mapa y Reportes", "Mapa"),
-                    ("📅 Programación", "Schedule")
+                    ("📅 Programación", "Schedule"),
+                    ("Historial de reportes", "Historial Global de Reportes")
                 ],
                 "🏭 Auditorías": [
                     ("📱 Escáner QR", "Escáner"),
@@ -11149,3 +11150,101 @@ elif st.session_state.vista_actual == "Entrenamiento" and not st.session_state.m
 # ==========================================
 elif st.session_state.vista_actual == "Rutas de Producto" and not st.session_state.modo_lectura:
     gestionar_rutas_producto()
+
+# --- VISTA: DASHBOARD GLOBAL DE REPORTES ---
+elif st.session_state.vista_actual == "Historial Global de Reportes" and not st.session_state.modo_lectura:
+    st.markdown("### 🗂️ Historial Global de Reportes Generados")
+    st.info("Consulta centralizada de todos los reportes emitidos en la plataforma (Validaciones, Walking Test, Event Meter y Calificaciones).")
+    
+    with st.spinner("Extrayendo registros de todas las categorías..."):
+        reportes_consolidados = []
+
+        # 1. Extraer Reportes de Calificación
+        try:
+            resp_cal = supabase.table("reportes_calificacion").select("*").execute()
+            for row in resp_cal.data:
+                reportes_consolidados.append({
+                    "Categoría": "Calificación de Producto",
+                    "Folio / ID": f"CAL-{row.get('id', 'N/A')}",
+                    "Fecha": row.get('fecha_registro', 'N/D'),
+                    "Auditor": row.get('auditor', 'N/D'),
+                    "Detalle": row.get('elemento_s20_20', 'N/D'),
+                    "Enlace / Estatus": "Ver Documento" if row.get('archivo_url') else "Sin Enlace"
+                })
+        except: pass
+
+        # 2. Extraer Reportes Consolidados (Event Meter / Línea)
+        try:
+            resp_em = supabase.table("log_reportes_em").select("*").execute()
+            for row in resp_em.data:
+                reportes_consolidados.append({
+                    "Categoría": "Reporte por Línea",
+                    "Folio / ID": f"BCS-LV-{row.get('id', 0):03d}",
+                    "Fecha": row.get('created_at', 'N/D')[:10], # Asumiendo columna default de Supabase
+                    "Auditor": row.get('auditor', 'N/D'),
+                    "Detalle": row.get('linea_ubicacion', 'N/D'),
+                    "Enlace / Estatus": "Generado Localmente"
+                })
+        except: pass
+
+        # 3. Extraer Reportes Walking Test
+        try:
+            resp_wt = supabase.table("log_reportes_wt").select("*").execute()
+            for row in resp_wt.data:
+                reportes_consolidados.append({
+                    "Categoría": "Walking Test",
+                    "Folio / ID": f"WT-{row.get('id', 'N/A')}",
+                    "Fecha": row.get('fecha_prueba', 'N/D'),
+                    "Auditor": row.get('auditor', 'N/D'),
+                    "Detalle": "Registro Histórico WT",
+                    "Enlace / Estatus": "Generado Localmente"
+                })
+        except: pass
+
+        # 4. Extraer Validaciones ESD (Reportes Nativos)
+        try:
+            resp_val = supabase.table("validacion_esd").select("id, fecha_auditoria, id_elemento, elemento_s20_20, auditor").execute()
+            for row in resp_val.data:
+                reportes_consolidados.append({
+                    "Categoría": "Validación ESD",
+                    "Folio / ID": f"BCS-PV-{row.get('id', 0):03d}",
+                    "Fecha": row.get('fecha_auditoria', 'N/D'),
+                    "Auditor": row.get('auditor', 'N/D'), # Ajustar si el auditor se guarda bajo otro nombre en esta tabla
+                    "Detalle": f"{row.get('elemento_s20_20', '')} ({row.get('id_elemento', '')})",
+                    "Enlace / Estatus": "Historial Validaciones"
+                })
+        except: pass
+
+        # --- RENDERIZADO DEL DASHBOARD ---
+        if reportes_consolidados:
+            df_global = pd.DataFrame(reportes_consolidados)
+            
+            # Limpieza y ordenamiento de fechas
+            df_global['Fecha'] = pd.to_datetime(df_global['Fecha'], errors='coerce')
+            df_global = df_global.sort_values(by='Fecha', ascending=False)
+            df_global['Fecha'] = df_global['Fecha'].dt.strftime('%Y-%m-%d')
+            
+            # Filtros interactivos
+            col_f1, col_f2 = st.columns(2)
+            filtro_cat = col_f1.multiselect("Filtrar por Categoría:", options=df_global['Categoría'].unique(), default=df_global['Categoría'].unique())
+            filtro_busqueda = col_f2.text_input("🔍 Buscar por Folio, Detalle o Auditor:")
+            
+            df_filtrado = df_global[df_global['Categoría'].isin(filtro_cat)]
+            if filtro_busqueda:
+                df_filtrado = df_filtrado[df_filtrado.apply(lambda row: row.astype(str).str.contains(filtro_busqueda, case=False).any(), axis=1)]
+            
+            st.dataframe(
+                df_filtrado,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "Folio / ID": st.column_config.TextColumn("Folio / ID", width="small"),
+                    "Categoría": st.column_config.TextColumn("Tipo de Reporte", width="medium"),
+                    "Detalle": st.column_config.TextColumn("Descripción / Ubicación", width="large")
+                }
+            )
+            
+            # KPI Resumen
+            st.caption(f"Total de reportes encontrados: **{len(df_filtrado)}**")
+        else:
+            st.warning("No se encontraron registros de reportes en la base de datos.")
