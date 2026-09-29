@@ -171,9 +171,9 @@ def obtener_ultima_medicion(id_activo):
             fecha_f = rec.get("fecha_medicion") or rec.get("fecha_ultima_validacion") or "Sin fecha"
             estatus_f = str(rec.get("resultado_estatus") or rec.get("status_operativo") or rec.get("estatus_operativo") or "PENDIENTE").upper()
             
-            # Extraer resistencia (ej: 0.28) y campo electrostático (ej: 0)
+            # Extraer resistencia y campo electrostático corrigiendo el nombre de la columna
             res_val = rec.get("resistencia_tierra") if rec.get("resistencia_tierra") is not None else rec.get("valor_actual")
-            vol_val = rec.get("campo_electrostatico") if rec.get("campo_electrostatico") is not None else rec.get("medicion_campo")
+            vol_val = rec.get("campo_estatico_voltaje") if rec.get("campo_estatico_voltaje") is not None else rec.get("campo_electrostatico")
             
             return {
                 "fecha": fecha_f,
@@ -1263,8 +1263,14 @@ def obtener_datos_ruta_producto(ruta_grupos):
                         str_ohms = f"{val_ohms} Ω"
 
                 # Formatear la cadena de Voltios
-                if val_volts is None or val_volts in ["", "N/D", "Sin registros"]:
-                    str_volts = "<span style='color:#dc2626;'>SIN MEDIR</span>" if "ION" in str(activo.get("clasificacion", "")).upper() else "N/A"
+                if val_volts is None or val_volts in ["", "N/D", "Sin registros", "nan"]:
+                    # Si es maquinaria, mostrar 0.0 V por defecto. Si es Ionizador, advertir que falta medir.
+                    if "MAQ" in tipo_cat:
+                        str_volts = "0.0 V"
+                    elif "ION" in str(activo.get("clasificacion", "")).upper():
+                        str_volts = "<span style='color:#dc2626;'>SIN MEDIR</span>"
+                    else:
+                        str_volts = "N/A"
                 else:
                     try: 
                         str_volts = f"{float(val_volts):.1f} V"
