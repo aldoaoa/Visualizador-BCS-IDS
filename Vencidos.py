@@ -204,9 +204,11 @@ def obtener_ultima_medicion(id_activo):
             return {
                 "fecha": fecha_f,
                 "estatus": estatus_f,
-                "resistencia": rec.get("valor_resistencia") or rec.get("resistencia"),
-                "voltaje_campo": rec.get("voltaje_campo"),
-                "tiempo_descarga": rec.get("tiempo_descarga"),
+                # 👇 CORRECCIÓN: Usar valor_actual para mobiliario
+                "resistencia": rec.get("valor_actual"),
+                "voltaje_campo": None,
+                # En caso de ser ionizador, el valor_actual representa el tiempo de descarga
+                "tiempo_descarga": rec.get("valor_actual"), 
                 "voltaje_balance": rec.get("balance_ionizador"),
                 "comentarios": rec.get("comentarios") or "Sin comentarios",
                 "es_maquinaria": False
