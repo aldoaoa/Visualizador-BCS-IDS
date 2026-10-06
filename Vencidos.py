@@ -171,9 +171,9 @@ def obtener_ultima_medicion(id_activo):
             fecha_f = rec.get("fecha_medicion") or rec.get("fecha_ultima_validacion") or "Sin fecha"
             estatus_f = str(rec.get("resultado_estatus") or rec.get("status_operativo") or rec.get("estatus_operativo") or "PENDIENTE").upper()
             
-            # Extraer resistencia y campo electrostático corrigiendo el nombre de la columna
+            # Extraer resistencia (ej: 0.28) y campo electrostático (ej: 0)
             res_val = rec.get("resistencia_tierra") if rec.get("resistencia_tierra") is not None else rec.get("valor_actual")
-            vol_val = rec.get("campo_estatico_voltaje") if rec.get("campo_estatico_voltaje") is not None else rec.get("campo_electrostatico")
+            vol_val = rec.get("campo_electrostatico") if rec.get("campo_electrostatico") is not None else rec.get("medicion_campo")
             
             return {
                 "fecha": fecha_f,
@@ -204,11 +204,9 @@ def obtener_ultima_medicion(id_activo):
             return {
                 "fecha": fecha_f,
                 "estatus": estatus_f,
-                # 👇 CORRECCIÓN: Usar valor_actual para mobiliario
-                "resistencia": rec.get("valor_actual"),
-                "voltaje_campo": None,
-                # En caso de ser ionizador, el valor_actual representa el tiempo de descarga
-                "tiempo_descarga": rec.get("valor_actual"), 
+                "resistencia": rec.get("valor_resistencia") or rec.get("resistencia"),
+                "voltaje_campo": rec.get("voltaje_campo"),
+                "tiempo_descarga": rec.get("tiempo_descarga"),
                 "voltaje_balance": rec.get("balance_ionizador"),
                 "comentarios": rec.get("comentarios") or "Sin comentarios",
                 "es_maquinaria": False
@@ -231,7 +229,6 @@ def generar_formulario_auditoria(equipo, tipo_equipo, key_prefix="qr", index_uni
     import datetime
     from datetime import timedelta
 
-    # Identificar ID, Línea y Categoría
     id_activo = (
         equipo.get("id_activo")
         or equipo.get("id_producto")
@@ -247,7 +244,6 @@ def generar_formulario_auditoria(equipo, tipo_equipo, key_prefix="qr", index_uni
     form_key = f"form_auditoria_{key_prefix}_{id_activo}_{index_unico}"
     state_key = f"extra_meds_{key_prefix}_{id_activo}_{index_unico}"
 
-    # Inicializar la lista de mediciones adicionales en memoria
     if state_key not in st.session_state:
         st.session_state[state_key] = []
 
@@ -255,7 +251,6 @@ def generar_formulario_auditoria(equipo, tipo_equipo, key_prefix="qr", index_uni
     
     fecha_auditoria = st.date_input("Fecha de Auditoría:", datetime.date.today(), key=f"fecha_{form_key}")
     
-    # --- 1. MEDICIONES PRINCIPALES (OBLIGATORIAS) ---
     resistencia = None
     voltaje_campo = None
     tiempo_descarga = None
@@ -274,7 +269,6 @@ def generar_formulario_auditoria(equipo, tipo_equipo, key_prefix="qr", index_uni
         with col_m2:
             voltaje_campo = st.number_input("Campo Electrostático Principal (V):", value=0.0, step=1.0, key=f"vc_{form_key}")
 
-    # --- 2. CONTROLES PARA AÑADIR MEDICIONES ADICIONALES ---
     with st.expander("➕ Mediciones Adicionales / Puntos Secundarios", expanded=len(st.session_state[state_key]) > 0):
         st.caption("Agrega todas las capturas secundarias que necesites especificar para este activo.")
         
@@ -288,7 +282,6 @@ def generar_formulario_auditoria(equipo, tipo_equipo, key_prefix="qr", index_uni
                 st.session_state[state_key].append({"tipo": "voltaje", "valor": 0.0, "comentario": ""})
                 st.rerun()
 
-        # Renderizar cada medición adicional agregada
         indices_a_eliminar = []
         for i, med in enumerate(st.session_state[state_key]):
             st.markdown(f"**Medición Adicional #{i+1} ({med['tipo'].capitalize()})**")
@@ -317,33 +310,29 @@ def generar_formulario_auditoria(equipo, tipo_equipo, key_prefix="qr", index_uni
                 if st.button("🗑️", key=f"del_{state_key}_{i}"):
                     indices_a_eliminar.append(i)
 
-        # Eliminar mediciones marcadas con el basurero
         if indices_a_eliminar:
             for idx in sorted(indices_a_eliminar, reverse=True):
                 st.session_state[state_key].pop(idx)
             st.rerun()
 
-    # --- 3. FORMULARIO FINAL Y GUARDADO ---
     with st.form(key=form_key):
         comentarios_input = st.text_area("Observaciones / Comentarios Generales:", key=f"obs_{form_key}")
         btn_guardar = st.form_submit_button("💾 Guardar Auditoría", type="primary")
 
         if btn_guardar:
-            estatus_resultado = "PASA"
-            nuevo_estatus = "VIGENTE" if estatus_resultado == "PASA" else "REPROBADO"
+            nuevo_estatus = "VIGENTE"
             fecha_proxima = fecha_auditoria + timedelta(days=365)
-
-            # Extraer las mediciones adicionales acumuladas
             lista_mediciones_extra = st.session_state[state_key]
 
             try:
                 if es_maquinaria:
                     datos_maquinaria = {
-                        "id_maquinaria": id_activo,
-                        "linea_ubicacion": linea_actual,
+                        "id_maquinaria": str(id_activo).strip(),
+                        "linea_ubicacion": str(linea_actual).strip(),
                         "fecha_medicion": str(fecha_auditoria),
-                        "resistencia_tierra": str(resistencia) if resistencia is not None else None,
-                        "campo_electrostatico": str(voltaje_campo) if voltaje_campo is not None else None,
+                        "resistencia_tierra": resistencia,
+                        "campo_electrostatico": voltaje_campo,
+                        "campo_estatico_voltaje": voltaje_campo,  # Mantiene compatibilidad con ambas columnas
                         "resultado_estatus": nuevo_estatus,
                         "status_operativo": nuevo_estatus,
                         "frecuencia_verificacion": "Anual",
@@ -370,23 +359,21 @@ def generar_formulario_auditoria(equipo, tipo_equipo, key_prefix="qr", index_uni
                     if es_ionizador:
                         datos_inventario["balance_ionizador"] = voltaje_balance
 
-                    supabase.table("inventario_esd").update(datos_inventario).ilike("id_producto", id_activo).execute()
+                    supabase.table("inventario_esd").update(datos_inventario).ilike("id_producto", str(id_activo).strip()).execute()
 
-                # Sincronizar catálogo maestro
+                # Sincronizar catálogo maestro con columnas seguras
                 try:
                     payload_maestro = {
-                        "estatus": nuevo_estatus,
                         "estatus_operativo": nuevo_estatus,
-                        "fecha_ultima_medicion": str(fecha_auditoria)
+                        "linea_ubicacion": str(linea_actual).strip()
                     }
-                    supabase.table("catalogo_maestro_activos").update(payload_maestro).ilike("id_activo", id_activo).execute()
+                    supabase.table("catalogo_maestro_activos").update(payload_maestro).ilike("id_activo", str(id_activo).strip()).execute()
                 except Exception:
                     pass
 
-                # Limpiar la lista de sesión para este formulario
                 st.session_state[state_key] = []
                 st.cache_data.clear()
-                st.success(f"✅ Auditoría de `{id_activo}` guardada correctamente con {len(lista_mediciones_extra)} medición(es) adicional(es).")
+                st.success(f"✅ Auditoría de `{id_activo}` guardada correctamente.")
                 st.rerun()
 
             except Exception as e:
@@ -965,7 +952,7 @@ def render_pestana_historico_3_validaciones():
                         if busqueda_id and busqueda_id not in id_m.upper():
                             continue
                             
-                        resp_meds = supabase.table("mediciones_maquinaria").select("fecha_medicion, resistencia_tierra, campo_estatico_voltaje, resultado_estatus").eq("id_maquinaria", id_m).order("fecha_medicion", desc=True).limit(3).execute()
+                        resp_meds = supabase.table("mediciones_maquinaria").select("*").eq("id_maquinaria", id_m).order("fecha_medicion", desc=True).limit(3).execute()
                         meds = resp_meds.data if resp_meds.data else []
                         
                         col_meds = []
@@ -1195,16 +1182,17 @@ def crear_mapa_ruta(ruta_grupos, df_coords):
 def obtener_datos_ruta_producto(ruta_grupos):
     """
     Consulta en el catálogo maestro y el historial para construir el reporte de ruta,
-    soportando estaciones paralelas (grupos/bifurcaciones) usando la función unificada de búsqueda.
+    soportando estaciones paralelas (grupos/bifurcaciones).
     """
     datos_ruta = []
     
-    # 1. Asegurar que es una lista de listas
+    # 1. Asegurar que es una lista de listas (incluso si era una ruta simple antigua)
     if ruta_grupos and not isinstance(ruta_grupos[0], list):
         ruta_grupos = [[e] for e in ruta_grupos]
         
     for paso_idx, grupo in enumerate(ruta_grupos):
         try:
+            # Unimos los nombres del grupo para el reporte (Ej: "Router 1 / Router 2")
             nombre_paso = f"Paso {paso_idx + 1}: " + " / ".join(grupo)
             
             # -------------------------------------------------------------
@@ -1219,6 +1207,7 @@ def obtener_datos_ruta_producto(ruta_grupos):
                 
             activos_maestros = resp_master.data if resp_master.data else []
             
+            # Si el grupo no tiene activos maestros registrados
             if not activos_maestros:
                 datos_ruta.append({
                     "Operación": nombre_paso,
@@ -1229,72 +1218,79 @@ def obtener_datos_ruta_producto(ruta_grupos):
                 continue
 
             # -------------------------------------------------------------
-            # 3 y 4. CRUZAR CATÁLOGO VS MEDICIONES REALES (BÚSQUEDA POR ID)
+            # 3. OBTENER LAS MEDICIONES MÁS RECIENTES (Historial)
+            # -------------------------------------------------------------
+            resp_maq = supabase.table("mediciones_maquinaria").select("*").in_("linea_ubicacion", grupo).order("fecha_medicion", desc=True).execute()
+            resp_inv = supabase.table("inventario_esd").select("*").in_("linea_ubicacion", grupo).order("fecha_ultima_verif", desc=True).execute()
+            
+            # Crear un diccionario unificado para búsqueda rápida de mediciones
+            mediciones_recientes = {}
+            if resp_maq.data:
+                for item in resp_maq.data:
+                    id_m = item.get("id_maquinaria")
+                    if id_m and id_m not in mediciones_recientes:
+                        mediciones_recientes[id_m] = item
+                        
+            if resp_inv.data:
+                for item in resp_inv.data:
+                    id_p = item.get("id_producto")
+                    if id_p and id_p not in mediciones_recientes:
+                        mediciones_recientes[id_p] = item
+
+            # -------------------------------------------------------------
+            # 4. CRUZAR CATÁLOGO VS MEDICIONES REALES
             # -------------------------------------------------------------
             filas_activos = []
             elementos_evaluados = []
             
             for activo in activos_maestros:
-                id_activo = str(activo.get("id_activo", "")).strip()
+                id_activo = activo.get("id_activo")
                 tipo_cat = str(activo.get("tipo_categoria", "MAQUINARIA")).upper()
+                clasif = str(activo.get("clasificacion", "")).strip()
                 ubic_activo = str(activo.get("linea_ubicacion", ""))
-                
-                # Definir prefijo para el PDF
                 prefijo = "[MAQ]" if "MAQ" in tipo_cat else "[MOB]"
                 
-                # ✅ USAMOS LA FUNCIÓN MAESTRA DEL ESCÁNER QR PARA OBTENER LOS DATOS REALES
-                medicion = obtener_ultima_medicion(id_activo)
+                # Buscar si el activo maestro tiene una medición real
+                medicion = mediciones_recientes.get(id_activo)
 
-                # Extraer valores de la función maestra
-                fecha_med = medicion.get("fecha", "Sin fecha")
-                estatus_item = medicion.get("estatus", "PENDIENTE").upper()
-                val_ohms = medicion.get("resistencia")
-                val_volts = medicion.get("voltaje_campo") if medicion.get("es_maquinaria") else medicion.get("voltaje_balance")
-
-                # Formatear la cadena de Ohms
-                if val_ohms is None or val_ohms in ["", "N/D", "Sin registros"]:
-                    str_ohms = "<span style='color:#dc2626;'>SIN MEDIR</span>"
-                else:
-                    try:
-                        # Si es maquinaria usa 2 decimales, si es mobiliario usa formato científico
-                        if "MAQ" in tipo_cat:
-                            str_ohms = f"{float(val_ohms):.2f} Ω"
-                        else:
-                            str_ohms = f"{float(val_ohms):.2e}".replace("e+0", "e+").replace("e-0", "e-") + " Ω"
-                    except (ValueError, TypeError):
-                        str_ohms = f"{val_ohms} Ω"
-
-                # Formatear la cadena de Voltios
-                if val_volts is None or val_volts in ["", "N/D", "Sin registros", "nan"]:
-                    # Si es maquinaria, mostrar 0.0 V por defecto. Si es Ionizador, advertir que falta medir.
+                if medicion:
+                    # ✅ EL EQUIPO SÍ FUE MEDIDO
                     if "MAQ" in tipo_cat:
-                        str_volts = "0.0 V"
-                    elif "ION" in str(activo.get("clasificacion", "")).upper():
-                        str_volts = "<span style='color:#dc2626;'>SIN MEDIR</span>"
+                        val_ohms = medicion.get("resistencia_tierra")
+                        try: str_ohms = f"{float(val_ohms):.2f} Ω" if val_ohms not in [None, "", "N/D"] else "N/D Ω"
+                        except (ValueError, TypeError): str_ohms = f"{val_ohms} Ω"
+                        
+                        val_volts = medicion.get("campo_electrostatico") if medicion.get("campo_electrostatico") is not None else medicion.get("campo_estatico_voltaje")
+                        try: str_volts = f"{float(val_volts):.1f} V" if val_volts not in [None, "", "N/D"] else "N/D V"
+                        except (ValueError, TypeError): str_volts = f"{val_volts} V"
+                        
+                        estatus_item = str(medicion.get("resultado_estatus", "PENDIENTE")).strip().upper()
+                        fecha_prox = medicion.get("fecha_proxima")
                     else:
-                        str_volts = "N/A"
-                else:
-                    try: 
-                        str_volts = f"{float(val_volts):.1f} V"
-                    except (ValueError, TypeError): 
-                        str_volts = f"{val_volts} V"
+                        val_ohms = medicion.get("valor_actual")
+                        try: str_ohms = f"{float(val_ohms):.2e}".replace("e+0", "e+").replace("e-0", "e-") + " Ω" if val_ohms not in [None, "", "N/D"] else "N/D Ω"
+                        except (ValueError, TypeError): str_ohms = f"{val_ohms} Ω"
+                        
+                        val_volts = medicion.get("balance_ionizador")
+                        try: str_volts = f"{float(val_volts):.1f} V" if val_volts not in [None, "", "N/D"] else "N/D V"
+                        except (ValueError, TypeError): str_volts = f"{val_volts} V"
+                        
+                        estatus_item = str(medicion.get("estatus_verificacion", "PENDIENTE")).strip().upper()
+                        fecha_prox = medicion.get("fecha_proxima_verif")
 
-                # Evaluar colores y estatus para el badge de la tabla
-                if fecha_med == "Sin mediciones previas":
-                    badge_color, est_badge = "#ea580c", "SIN DATOS" 
-                    str_ohms = "<span style='color:#ea580c;'>SIN MEDIR</span>"
-                    str_volts = "<span style='color:#ea580c;'>SIN MEDIR</span>" if "ION" in str(activo.get("clasificacion", "")).upper() else "N/A"
-                elif "VIGENTE" in estatus_item or "PASA" in estatus_item:
-                    badge_color, est_badge = "#16a34a", "VIGENTE"
+                    if "VIGENTE" in estatus_item or "PASA" in estatus_item:
+                        badge_color, est_badge = "#16a34a", "VIGENTE"
+                    else:
+                        badge_color, est_badge = "#dc2626", "VENCIDO"
+                
                 else:
-                    badge_color, est_badge = "#dc2626", "VENCIDO"
+                    # ❌ EL EQUIPO ESTÁ EN EL CATÁLOGO PERO NUNCA SE HA MEDIDO
+                    str_ohms = "<span style='color:#dc2626;'>SIN MEDIR</span>"
+                    str_volts = "<span style='color:#dc2626;'>SIN MEDIR</span>"
+                    badge_color, est_badge = "#ea580c", "SIN DATOS" 
+                    fecha_prox = None
                 
-                # Extraemos la fecha próxima si existe (asumiendo que obtener_ultima_medicion la devuelva, 
-                # si no la devuelve nativamente, la calculamos o dejamos en None para que el global la ignore).
-                # Para simplificar el cruce estricto, le delegamos al estatus global depender del estatus_item.
-                fecha_prox = None # Si quieres agregar el cálculo real de la fecha próx, lo sumamos aquí.
-                
-                # Insertar fila tabular HTML
+                # Insertar fila tabular (Añadí la ubicación del activo en gris para más claridad)
                 filas_activos.append(f"""
                 <tr style="border-bottom: 1px dashed #e5e7eb;">
                     <td style="padding: 3px 5px; text-align: left;"><b>{prefijo} {id_activo}</b> <span style="font-size:10px; color:#6b7280;">({ubic_activo})</span></td>
@@ -1304,21 +1300,24 @@ def obtener_datos_ruta_producto(ruta_grupos):
                 </tr>
                 """)
                 
-                elementos_evaluados.append({"estatus": est_badge})
+                elementos_evaluados.append({"estatus": est_badge, "proxima_fecha": fecha_prox})
 
             # -------------------------------------------------------------
             # 5. EVALUAR ESTATUS GLOBAL DEL PASO
             # -------------------------------------------------------------
             estatus_global = "VIGENTE"
+            fechas_validas = []
             
             for el in elementos_evaluados:
                 if el["estatus"] == "VENCIDO":
                     estatus_global = "VENCIDO" 
                 elif el["estatus"] == "SIN DATOS" and estatus_global != "VENCIDO":
                     estatus_global = "INCOMPLETO"
+                
+                if el["proxima_fecha"] and str(el["proxima_fecha"]).strip() not in ["None", "N/D", ""]:
+                    fechas_validas.append(str(el["proxima_fecha"])[:10])
             
-            # Para la próxima validación general del paso (simplificado a estatus)
-            proxima_val = "Ver Detalle"
+            proxima_val = min(fechas_validas) if fechas_validas else "N/A"
             
             tabla_detalle_html = f"""
             <table style="width:100%; border-collapse:collapse; font-size:11px; margin: 2px 0;">
@@ -1344,10 +1343,8 @@ def obtener_datos_ruta_producto(ruta_grupos):
             })
                 
         except Exception as e:
-            import streamlit as st
             st.error(f"Error al procesar el paso {paso_idx + 1}: {e}")
             
-    import pandas as pd
     return pd.DataFrame(datos_ruta)
 
 def generar_html_reporte_ruta(nombre_producto, df_ruta, fig_mapa=None, auditor="Sistema ESD", comentarios="Sin observaciones.", db_id=1):
